@@ -1,0 +1,2144 @@
+#!/usr/bin/env python3
+"""摄入流程公共组件：三类文档摄入（论文/会议/通用文档）复用。
+
+核心职责：
+- 进度日志（progress）、子进程封装（run）、文本解析（parse_delimited / parse_check_errors）
+- 语义槽校验+修复（validate_semantics / repair_slots / stop_for_semantic_errors）
+- 交接与安全网（handoff_to_agent / validate_before_commit）
+- 共享步骤（step_fill_semantics / step_update_graph / step_validate_graph /
+  step_finalize / step_finalize_tail），各脚本通过 config 注入差异
+
+差异点由各脚本传入 config（谓词集、修复 prompt builder、page_type、finalize 配置等）。"""
+from __future__ import annotations
+import hashlib
+import json
+import re
+import subprocess
+import sys
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+import agent_task
+import recovery_policy as rp
+
+
+def call_json(*args, **kwargs):
+    """API-only adapter kept patchable for focused tests."""
+    from llm_structured import call_json as api_call_json
+    return api_call_json(*args, **kwargs)
+
+
+# ===== META 块解析与校验（LLM 读全文时的元信息交叉校验）=====
+
+META_DELIMITER = "<<<META>>>"
+META_END = "<<</META>>>"
+
+
+def parse_meta_block(text: str) -> dict:
+    """从 LLM 输出中提取 META 块，返回 meta_dict。
+
+    META 格式（放在 <<<WIKI>>> 之前）：
+    <<<META>>>
+    doc_date: 2024-03
+    title: Will We Run Out of Data?
+    doc_type: paper
+    <<</META>>>
+
+    无闭合标签时截到下一个 <<<WIKI>>> / <<<SLOTS>>> 之前。
+    """
+    if META_DELIMITER not in text:
+        return {}
+    start = text.index(META_DELIMITER) + len(META_DELIMITER)
+    rest = text[start:]
+    end_markers = [META_END, "<<<WIKI>>>", "<<<SLOTS>>>"]
+    end_idx = len(rest)
+    for marker in end_markers:
+        pos = rest.find(marker)
+        if pos != -1 and pos < end_idx:
+            end_idx = pos
+    meta_text = rest[:end_idx].strip()
+    meta = {}
+    for line in meta_text.splitlines():
+        line = line.strip()
+        if ":" in line:
+            key, _, value = line.partition(":")
+            meta[key.strip()] = value.strip()
+    return meta
+
+
+def validate_meta(meta: dict, expected: dict) -> list[str]:
+    """交叉校验 META 与程序推导值。返回不一致列表。
+
+    expected 支持：
+    - doc_type: 程序分类的文档类型（paper/meeting/document）
+    - year: 程序从 ID/arxiv 推导的年份
+    - date: 程序从文件名推导的日期（MMDD 或 YYYYMMDD）
+    """
+    mismatches = []
+    # doc_type 校验
+    expected_type = expected.get("doc_type", "")
+    meta_type = meta.get("doc_type", "").lower().strip()
+    if expected_type and meta_type and meta_type != expected_type:
+        mismatches.append(f"doc_type: 程序={expected_type}, LLM={meta_type}")
+    # 年份校验（从 doc_date 提取 4 位年份）
+    expected_year = expected.get("year", "")
+    meta_date = meta.get("doc_date", "")
+    m = re.match(r"(\d{4})", meta_date)
+    meta_year = m.group(1) if m else ""
+    if expected_year and meta_year and meta_year != expected_year:
+        mismatches.append(f"year: 程序={expected_year}, LLM={meta_year}")
+    return mismatches
+
+
+def extract_year_from_meta(meta: dict) -> str:
+    """从 META 的 doc_date 提取 4 位年份。"""
+    m = re.match(r"(\d{4})", meta.get("doc_date", ""))
+    return m.group(1) if m else ""
+
+
+def has_type_mismatch(mismatches: list[str]) -> bool:
+    """检查不一致列表中是否包含 doc_type 不一致。"""
+    return any(m.startswith("doc_type:") for m in mismatches)
+
+
+def has_year_mismatch(mismatches: list[str]) -> bool:
+    """检查不一致列表中是否包含 year 不一致。"""
+    return any(m.startswith("year:") for m in mismatches)
+
+
+# ===== 文档类型上下文注册表（统一内核 + 类型薄适配）=====
+
+# 每种 source_kind 只声明自己的上下文预算与提取策略；
+# LLM 调用、推理熔断、字段校验和输出清理仍在共享层统一执行。
+CONTEXT_PROFILES = {
+    "paper": {
+        "full_text_max_chars": 40_000,
+        "reduced_context_max_chars": 22_000,
+        "section_char_cap": 6_000,
+        "fallback_head_cap": 9_000,
+        "fallback_tail_cap": 9_000,
+        "sections": ("abstract", "introduction", "method", "results",
+                     "discussion", "conclusions"),
+        "extractor": "read_paper",
+    },
+    "document": {
+        "full_text_max_chars": 60_000,
+        "reduced_context_max_chars": 30_000,
+        "section_char_cap": 8_000,
+        "fallback_head_cap": 12_000,
+        "fallback_tail_cap": 12_000,
+        "sections": (
+            "abstract", "摘要", "introduction", "简介", "background", "背景",
+            "method", "方法", "approach", "方案", "results", "结果",
+            "discussion", "讨论", "conclusion", "conclusions", "结论",
+            "summary", "总结", "appendix", "附录",
+        ),
+        "extractor": "markdown_headings",
+    },
+    "meeting": {
+        "full_text_max_chars": 20_000,
+        "reduced_context_max_chars": 10_000,
+        "section_char_cap": 4_000,
+        "fallback_head_cap": 6_000,
+        "fallback_tail_cap": 6_000,
+        "sections": (),
+        "extractor": "head_tail",
+    },
+}
+
+
+def context_profile(kind: str) -> dict:
+    """按 source_kind 返回上下文预算 profile；未知类型回退到通用文档。"""
+    return CONTEXT_PROFILES.get(kind, CONTEXT_PROFILES["document"])
+
+
+def _head_fragment(text: str, cap: int) -> str:
+    fragment = text[:cap]
+    if cap < len(text) and "\n" in fragment:
+        fragment = fragment.rsplit("\n", 1)[0]
+    return fragment.strip()
+
+
+def _tail_fragment(text: str, cap: int) -> str:
+    if cap <= 0:
+        return ""
+    start = max(0, len(text) - cap)
+    fragment = text[start:]
+    if start > 0:
+        if "\n" not in fragment:
+            return ""
+        fragment = fragment.split("\n", 1)[1]
+    return fragment.strip()
+
+
+def _has_raw_line_handles(text: str) -> bool:
+    return re.search(r"(?m)^<[^>\n]+#L\d+>[ \t]", text) is not None
+
+
+def _clip_context_section(content: str, cap: int) -> str:
+    """超长 section 保留头部为主、尾部兜底，避免单段吞掉预算。"""
+    content = content.strip()
+    if len(content) <= cap:
+        return content
+    if not _has_raw_line_handles(content):
+        head = content[: int(cap * 0.8)]
+        tail = content[-int(cap * 0.2):]
+        return f"{head}\n\n[...中段省略...]\n\n{tail}"
+    head = _head_fragment(content, int(cap * 0.8))
+    tail = _tail_fragment(content, int(cap * 0.2))
+    parts = [head, "[...中段省略...]", tail]
+    return "\n\n".join(part for part in parts if part)
+
+
+def _assemble_reduced_context(profile: dict, sections: list[tuple[str, str]]) -> str:
+    """把已选 section 组装成受预算约束的定向摘要。"""
+    budget = profile["reduced_context_max_chars"]
+    parts: list[str] = []
+    for title, content in sections:
+        cap = min(profile["section_char_cap"], max(1_500, budget))
+        part = f"--- [{title}] ---\n{_clip_context_section(content, cap)}"
+        parts.append(part)
+        budget -= len(part)
+        if budget <= 0:
+            break
+    return "\n\n".join(parts)
+
+
+def _fallback_head_tail_context(profile: dict, text: str) -> str:
+    """无可用结构提取时，程序确定性地截取头部与尾部。"""
+    head_cap = min(profile["fallback_head_cap"], len(text) // 2)
+    tail_cap = min(profile["fallback_tail_cap"], len(text) - head_cap)
+    if _has_raw_line_handles(text):
+        head = _head_fragment(text, head_cap)
+        tail = _tail_fragment(text, tail_cap)
+    else:
+        head = text[:head_cap].strip()
+        tail = text[-tail_cap:].strip() if tail_cap > 0 else ""
+    return f"--- [fallback: 头部截取] ---\n{head}\n\n--- [fallback: 尾部截取] ---\n{tail}"
+
+
+def _split_markdown_sections(text: str) -> list[tuple[str, str]]:
+    """按 Markdown 标题切分文档；标题前内容记为「前置」。"""
+    sections: list[tuple[str, str]] = []
+    current_title = "前置"
+    current_lines: list[str] = []
+
+    def flush() -> None:
+        content = "\n".join(current_lines).strip()
+        if content:
+            sections.append((current_title, content))
+
+    for line in text.splitlines():
+        m = re.match(r"^(?:<[^>\n]+#L\d+>[ \t]+)?(#{1,6})[ \t]+(.+?)\s*$", line)
+        if m:
+            flush()
+            current_title = m.group(2).strip()
+            current_lines = []
+        else:
+            current_lines.append(line)
+    flush()
+    return sections
+
+
+def _heading_matches(title: str, requested: tuple[str, ...]) -> bool:
+    """忽略空白与大小写，按别名匹配标题。"""
+    normalized = re.sub(r"\s+", "", title).lower()
+    for alias in requested:
+        alias_norm = re.sub(r"\s+", "", alias).lower()
+        if alias_norm and alias_norm in normalized:
+            return True
+    return False
+
+
+def _extract_markdown_sections(text: str, requested: tuple[str, ...]) -> list[tuple[str, str]]:
+    """从 Markdown 文档中程序选择关键标题段；选不到则返回空列表。"""
+    sections = _split_markdown_sections(text)
+    if not sections:
+        return []
+    selected = [section for section in sections if _heading_matches(section[0], requested)]
+    if not selected:
+        return []
+    return selected
+
+
+def build_source_context(kind: str, text: str, *, source_path: Path | str | None = None,
+                         force_reduced: bool = False) -> str:
+    """统一构造喂给 LLM 的原文上下文。
+
+    - 普通文本未超过类型阈值时保留全文，避免无谓改写。
+    - 超长或 API/弱模型路径强制降为定向 section/头部尾部摘要。
+    - 论文仍用 read_paper 的专业 section 匹配；普通文档用 Markdown 标题匹配；
+      会议纪要用头部尾部截取。
+    """
+    profile = context_profile(kind)
+    if len(text) <= profile["full_text_max_chars"] and (
+            not force_reduced or kind == "paper"):
+        return text
+
+    if kind == "paper" and source_path is not None:
+        try:
+            import read_paper
+            paper_path = Path(source_path)
+            hits, _misses, _total = read_paper.extract_sections(
+                paper_path, list(profile["sections"]))
+            if hits:
+                sections = [(title, content) for _req, title, content in hits]
+                return _assemble_reduced_context(profile, sections)
+        except Exception:
+            pass
+
+    if kind == "document":
+        sections = _extract_markdown_sections(text, profile["sections"])
+        if sections:
+            return _assemble_reduced_context(profile, sections)
+
+    return _fallback_head_tail_context(profile, text)
+
+
+
+def is_blocking_warning(w: dict, non_blocking_issues: tuple[str, ...] = ()) -> bool:
+    """区分阻断型与非阻断型 warning。
+
+    非阻断型由后置机制兜底（keyword_dedup / sync_keyword_aliases / resolve_bare_name），
+    不进 3.6b LLM 修复；阻断型必须修复才能写图。"""
+    if w.get("issue") in non_blocking_issues:
+        return False
+    return True
+
+
+SEMANTIC_PATCH_PROTOCOL = "semantic-patch-v1"
+
+
+def semantic_patch_decision_schema(value) -> bool:
+    """受限局部修补协议：Worker 只按 issue ID 返回替换行。"""
+    if not isinstance(value, dict) or set(value) != {
+        "protocol_version", "review_status", "patches", "review_notes",
+    }:
+        return False
+    if value.get("protocol_version") != SEMANTIC_PATCH_PROTOCOL:
+        return False
+    if value.get("review_status") not in {"patched", "manual_required"}:
+        return False
+    if not isinstance(value.get("review_notes"), list) or not all(
+        isinstance(item, str) for item in value["review_notes"]
+    ):
+        return False
+    if not isinstance(value.get("patches"), list) or len(value["patches"]) > 32:
+        return False
+    for patch in value["patches"]:
+        if not isinstance(patch, dict) or set(patch) != {
+            "issue_id", "action", "replacement_lines",
+        }:
+            return False
+        if not isinstance(patch.get("issue_id"), str):
+            return False
+        if patch.get("action") not in {"replace", "abstain"}:
+            return False
+        lines = patch.get("replacement_lines")
+        if not isinstance(lines, list) or len(lines) > 4 or not all(
+            isinstance(line, str) and line.strip() for line in lines
+        ):
+            return False
+        if patch["action"] == "replace" and not lines:
+            return False
+        if patch["action"] == "abstain" and lines:
+            return False
+    return True
+
+
+def build_semantic_patch_catalog(warnings: list[dict]) -> dict:
+    issues = []
+    for index, warning in enumerate(warnings, 1):
+        issues.append({
+            "id": f"issue-{index:02d}",
+            "section": str(warning.get("section") or ""),
+            "line": str(warning.get("line") or ""),
+            "issue": str(warning.get("issue") or "unknown"),
+            "field": str(warning.get("field") or "object"),
+            "reason": str(warning.get("reason") or ""),
+            "is_triple": bool(warning.get("is_triple", "|" in str(warning.get("line") or ""))),
+        })
+    return {"protocol_version": SEMANTIC_PATCH_PROTOCOL, "issues": issues}
+
+
+def _semantic_issue_fingerprint(issue: dict) -> str:
+    payload = {key: issue.get(key) for key in (
+        "issue_code", "section", "line", "field", "observed", "expected",
+    )}
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()
+    ).hexdigest()[:20]
+
+
+def _locate_hard_error_line(error: str, semantic_text: str) -> tuple[str, str, str]:
+    """Return (line, field, observed) for safely targetable hard errors."""
+    match = re.search(
+        r"谓词格式不合法:\s*(.*?)\s*\((?:主体=(.*?),\s*)?客体=(.*?)\)$",
+        error,
+    )
+    if match:
+        predicate, subject, obj = (part.strip() if part else "" for part in match.groups())
+        candidates = []
+        for line in semantic_text.splitlines():
+            parts = [part.strip() for part in line.split("|")]
+            if len(parts) != 3:
+                continue
+            if parts[1] == predicate and parts[2] == obj and (not subject or parts[0] in {subject, "本文", "本研究", "本论文"}):
+                candidates.append(line.strip())
+        if len(candidates) == 1:
+            return candidates[0], "predicate", predicate
+    malformed = re.search(r"section 含无法解析的行:\s*(.+)$", error)
+    if malformed:
+        candidate = malformed.group(1).split("；", 1)[0].strip()
+        matches = [line.strip() for line in semantic_text.splitlines() if line.strip() == candidate]
+        if len(matches) == 1:
+            return matches[0], "line", candidate
+    return "", "", ""
+
+
+def build_structured_semantic_issues(hard_errors: list, warnings: list[dict],
+                                     semantic_text: str) -> list[dict]:
+    """Normalize legacy validator strings and warning dicts into actionable issues."""
+    issues = []
+    for error in hard_errors:
+        message = str(error)
+        line, field, observed = _locate_hard_error_line(message, semantic_text)
+        issue_code = (
+            "malformed_predicate" if message.startswith("谓词格式不合法:")
+            else "semantic_parse_error" if "解析失败" in message
+            else "semantic_structure_error"
+        )
+        issue = {
+            "id": f"issue-{len(issues) + 1:02d}",
+            "issue_code": issue_code,
+            "section": "三元组",
+            "line": line,
+            "field": field,
+            "observed": observed or message,
+            "expected": "可由语义槽 parser 和 validator 接受的单行结构",
+            "reason": message,
+            "suggested_actions": ["replace"] if line else ["abstain"],
+            "retryable": bool(line),
+            "is_triple": bool(line and line.count("|") == 2),
+        }
+        issue["fingerprint"] = _semantic_issue_fingerprint(issue)
+        issues.append(issue)
+    for warning in warnings:
+        line = str(warning.get("line") or "")
+        issue = {
+            "id": f"issue-{len(issues) + 1:02d}",
+            "issue_code": str(warning.get("issue") or "semantic_warning"),
+            "section": str(warning.get("section") or ""),
+            "line": line,
+            "field": str(warning.get("field") or "object"),
+            "observed": line,
+            "expected": str(warning.get("reason") or "规范语义槽值"),
+            "reason": str(warning.get("reason") or ""),
+            "suggested_actions": ["replace"] if line else ["abstain"],
+            "retryable": bool(line),
+            "is_triple": bool(warning.get("is_triple", "|" in line)),
+        }
+        issue["fingerprint"] = _semantic_issue_fingerprint(issue)
+        issues.append(issue)
+    return issues
+
+
+def _read_staged_agent_context(state: dict, repo: Path) -> tuple[str, str]:
+    wiki_text = str(state.get("wiki_content") or "")
+    extract_dir = (repo / str(state.get("extract_dir") or "")).resolve()
+    allowed_extract_root = (repo / "temp" / "inbox-extract").resolve()
+    try:
+        extract_dir.relative_to(allowed_extract_root)
+    except ValueError:
+        return wiki_text, ""
+    if not wiki_text:
+        staged_wiki = extract_dir / "wiki.md"
+        if staged_wiki.is_file():
+            wiki_text = staged_wiki.read_text(encoding="utf-8")
+    source_text = ""
+    for relative in ("paper.md", "doc.md", "extern/paper.md"):
+        candidate = extract_dir / relative
+        if candidate.is_file():
+            source_text = candidate.read_text(encoding="utf-8")
+            break
+    return wiki_text, source_text
+
+
+def _split_triple(line: str) -> list[str] | None:
+    parts = [part.strip() for part in line.split("|")]
+    return parts if len(parts) == 3 else None
+
+
+def apply_semantic_recovery_proposal(semantic_text: str, proposal: dict,
+                                     issues: list[dict]) -> str | None:
+    """Compile a typed proposal without allowing broad text replacement."""
+    by_id = {issue["id"]: issue for issue in issues}
+    patches = proposal.get("patches") or []
+    if set(by_id) != {patch.get("issue_id") for patch in patches}:
+        return None
+    lines = semantic_text.splitlines()
+    for patch in patches:
+        if patch.get("action") != "replace" or len(patch.get("replacement_lines") or []) != 1:
+            return None
+        issue = by_id[patch["issue_id"]]
+        old_line = str(issue.get("line") or "").strip()
+        replacement = patch["replacement_lines"][0].strip()
+        if not old_line:
+            return None
+        old_triple = _split_triple(old_line)
+        new_triple = _split_triple(replacement)
+        field = str(issue.get("field") or "object")
+        candidates = []
+        for index, current in enumerate(lines):
+            current_triple = _split_triple(current.strip())
+            if old_triple and current_triple:
+                if current_triple == old_triple:
+                    candidates.append(index)
+                    continue
+                field_index = {"subject": 0, "predicate": 1, "object": 2}.get(field)
+                if field_index is not None and current_triple[field_index] == old_triple[field_index]:
+                    other = [i for i in range(3) if i != field_index and i != 0]
+                    if all(current_triple[i] == old_triple[i] for i in other):
+                        candidates.append(index)
+            elif current.strip() == old_line:
+                candidates.append(index)
+        if len(candidates) != 1:
+            return None
+        target = candidates[0]
+        current_triple = _split_triple(lines[target].strip())
+        if current_triple and new_triple and field in {"subject", "predicate", "object"}:
+            field_index = {"subject": 0, "predicate": 1, "object": 2}[field]
+            current_triple[field_index] = new_triple[field_index]
+            indent = lines[target][:len(lines[target]) - len(lines[target].lstrip())]
+            lines[target] = indent + " | ".join(current_triple)
+        else:
+            indent = lines[target][:len(lines[target]) - len(lines[target].lstrip())]
+            lines[target] = indent + replacement
+    return "\n".join(lines) + ("\n" if semantic_text.endswith("\n") else "")
+
+
+def _prepare_semantic_agent_task(state: dict, repo: Path, issues: list, *,
+                                 resume_cmd: str = "", check_cmd: str = "") -> None:
+    if (state.get("agent_task") or {}).get("schema") == agent_task.SCHEMA_VERSION:
+        agent_task.reopen(state, issues)
+        return
+    transaction_id = re.sub(
+        r"[^A-Za-z0-9_.-]+", "-",
+        str(state.get("transaction_id") or "semantic-repair"),
+    ).strip("-.") or "semantic-repair"
+    semantic_value = str(state.get("semantic_path") or "")
+    source_semantic = None
+    if semantic_value:
+        candidate = Path(semantic_value)
+        source_semantic = candidate.resolve() if candidate.is_absolute() else (repo / candidate).resolve()
+        try:
+            relative = source_semantic.relative_to(repo.resolve())
+        except ValueError as exc:
+            raise ValueError("semantic staged artifact 必须位于仓库内") from exc
+        if relative.parts and relative.parts[0] == "temp":
+            semantic_value = relative.as_posix()
+        else:
+            semantic_value = ""
+    if not semantic_value:
+        semantic_file = repo / "temp" / "semantic-repair" / f"{transaction_id}.txt"
+        semantic_file.parent.mkdir(parents=True, exist_ok=True)
+        semantic_text = (
+            source_semantic.read_text(encoding="utf-8")
+            if source_semantic and source_semantic.is_file()
+            else str(state.get("slots_content") or "")
+        )
+        semantic_file.write_text(semantic_text, encoding="utf-8")
+        semantic_value = str(semantic_file.relative_to(repo))
+        state["semantic_path"] = semantic_value
+    inputs = [{
+        "name": "semantic_slots", "path": semantic_value,
+        "role": "staged_artifact_to_revise",
+    }]
+    for name, key in (("wiki", "wiki_path"), ("source", "source")):
+        value = str(state.get(key) or "")
+        if not value:
+            continue
+        candidate = Path(value)
+        resolved = candidate.resolve() if candidate.is_absolute() else (repo / candidate).resolve()
+        try:
+            relative = resolved.relative_to(repo.resolve())
+        except ValueError:
+            continue
+        if resolved.is_file():
+            inputs.append({
+                "name": name, "path": relative.as_posix(), "role": "read_only_evidence",
+            })
+    transaction_id = str(state.get("transaction_id") or "semantic-repair")
+    script_name = str(state.get("pipeline_script") or "")
+    resume = resume_cmd or (
+        f"python3 .scripts/{script_name} --resume {transaction_id}"
+        if script_name else ""
+    )
+    commands = {}
+    if check_cmd:
+        commands["check"] = check_cmd
+    if resume:
+        commands["resume"] = resume
+    agent_task.prepare(
+        state,
+        kind="repair_ingest_semantics",
+        transaction_id=transaction_id,
+        inputs=inputs,
+        outputs=[{
+            "name": "semantic_slots", "path": semantic_value,
+            "format": "semantic-slots-v1",
+        }],
+        protocol={
+            "name": "semantic-patch-v1",
+            "scope": "listed issues in the staged semantic artifact",
+            "validator": "calling ingest pipeline semantic validator",
+        },
+        issues=issues,
+        commands=commands,
+    )
+
+
+def try_semantic_recovery(state: dict, repo: Path, hard_errors: list,
+                          warnings: list[dict], validate_fn,
+                          non_blocking_issues: tuple[str, ...] = ()) -> tuple[bool, str]:
+    """Run the bounded specialist and accept only a full validator pass."""
+    relative_path = str(state.get("semantic_path") or "")
+    if not relative_path:
+        return False, "semantic recovery 缺少 staged semantic path"
+    semantic_path = repo / relative_path
+    resolved_semantic = semantic_path.resolve()
+    allowed_roots = [
+        (repo / "temp" / "inbox-state").resolve(),
+        (repo / "temp" / "inbox-extract").resolve(),
+    ]
+    if not any(
+            resolved_semantic == root or root in resolved_semantic.parents
+            for root in allowed_roots):
+        return False, "semantic recovery 仅允许 staged temp artifact"
+    semantic_path = resolved_semantic
+    if not semantic_path.is_file():
+        return False, "semantic recovery staged semantic 不存在"
+    original = semantic_path.read_text(encoding="utf-8")
+    blocking = [warning for warning in warnings
+                if is_blocking_warning(warning, non_blocking_issues)]
+    issues = build_structured_semantic_issues(hard_errors, blocking, original)
+    state["semantic_issues"] = issues
+    if not issues or any(not issue.get("retryable") for issue in issues):
+        return False, "semantic issues 缺少唯一可修 locator"
+
+    if agent_task.ingest_backend() == "agent":
+        _prepare_semantic_agent_task(state, repo, issues)
+        return False, "Agent task prepared"
+
+    wiki_text, source_text = _read_staged_agent_context(state, repo)
+    try:
+        repo_root = Path(__file__).resolve().parent.parent
+        if str(repo_root) not in sys.path:
+            sys.path.insert(0, str(repo_root))
+        from dsh.semantic_recovery_agent import SemanticRecoveryAgent, make_task_envelope
+        envelope = make_task_envelope(state, issues, original, wiki_text, source_text)
+        previous = state.get("semantic_recovery_agent") or {}
+        if previous.get("context_hash") == envelope.context_hash:
+            return False, "相同 semantic recovery context 已尝试，禁止重复调用"
+        if not rp.consume(
+                state, "subagent", detail=f"semantic issues={len(issues)}"):
+            return False, "semantic recovery subagent budget exhausted"
+        result = SemanticRecoveryAgent(
+            envelope, original, wiki_text, source_text,
+        ).run()
+    except Exception as exc:
+        state["semantic_recovery_agent"] = {
+            "status": "escalated", "reason": f"runtime_error:{type(exc).__name__}",
+        }
+        return False, "semantic recovery runtime 失败"
+
+    trace = result.trace()
+    trace.update({
+        "protocol_version": SEMANTIC_PATCH_PROTOCOL,
+        "context_hash": envelope.context_hash,
+        "initial_issue_count": len(issues),
+        "issue_fingerprints": [issue["fingerprint"] for issue in issues],
+    })
+    state["semantic_recovery_agent"] = trace
+    if result.status != "resolved" or not result.proposal:
+        return False, f"semantic recovery {result.status}: {result.reason}"
+    candidate = apply_semantic_recovery_proposal(original, result.proposal, issues)
+    if candidate is None:
+        trace["status"] = "rejected"
+        trace["reason"] = "proposal_not_safely_applicable"
+        return False, "semantic recovery proposal 无法安全应用"
+
+    semantic_path.write_text(candidate, encoding="utf-8")
+    state["slots_content"] = candidate
+    try:
+        residual_hard, residual_warnings = validate_fn(state)
+        residual_blocking = [warning for warning in residual_warnings
+                             if is_blocking_warning(warning, non_blocking_issues)]
+    except Exception:
+        semantic_path.write_text(original, encoding="utf-8")
+        state["slots_content"] = original
+        trace["status"] = "rejected"
+        trace["reason"] = "validator_exception"
+        return False, "semantic recovery 复验异常"
+    trace["final_issue_count"] = len(residual_hard) + len(residual_blocking)
+    trace["issue_delta"] = len(issues) - trace["final_issue_count"]
+    if residual_hard or residual_blocking:
+        semantic_path.write_text(original, encoding="utf-8")
+        state["slots_content"] = original
+        trace["status"] = "rejected"
+        trace["reason"] = "validator_rejected"
+        return False, "semantic recovery 复验未通过"
+    trace["status"] = "accepted"
+    trace["reason"] = "validator_passed"
+    return True, "semantic recovery validator passed"
+
+
+def _semantic_patch_input_hash(catalog: dict, semantic_text: str) -> str:
+    payload = {
+        "protocol_version": SEMANTIC_PATCH_PROTOCOL,
+        "catalog": catalog,
+        "semantic_sha256": hashlib.sha256(semantic_text.encode("utf-8")).hexdigest(),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def _semantic_patch_cache_path(REPO: Path, transaction_id: str) -> Path | None:
+    if not transaction_id:
+        return None
+    return REPO / "temp" / "inbox-state" / f"{transaction_id}-semantic-patch-decision.json"
+
+
+def _load_semantic_patch_cache(REPO: Path, transaction_id: str, input_hash: str) -> dict | None:
+    path = _semantic_patch_cache_path(REPO, transaction_id)
+    if not path or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    decision = payload.get("decision") if isinstance(payload, dict) else None
+    if (payload.get("protocol_version") != SEMANTIC_PATCH_PROTOCOL
+            or payload.get("input_hash") != input_hash
+            or not semantic_patch_decision_schema(decision)):
+        return None
+    return decision
+
+
+def _save_semantic_patch_cache(
+    REPO: Path, transaction_id: str, input_hash: str, decision: dict,
+) -> None:
+    path = _semantic_patch_cache_path(REPO, transaction_id)
+    if not path:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "protocol_version": SEMANTIC_PATCH_PROTOCOL,
+        "input_hash": input_hash,
+        "decision": decision,
+    }
+    temp_path = path.with_suffix(path.suffix + ".tmp")
+    temp_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+    )
+    temp_path.replace(path)
+
+
+def _build_semantic_patch_prompt(catalog: dict) -> str:
+    return f"""你是受程序约束的语义槽局部修补 Worker。一次处理全部问题，只能按 issue ID 返回局部替换，不得输出完整 Wiki 或完整语义槽。
+
+问题目录：
+{json.dumps(catalog, ensure_ascii=False)}
+
+只输出 JSON：
+{{
+  "protocol_version": "{SEMANTIC_PATCH_PROTOCOL}",
+  "review_status": "patched|manual_required",
+  "patches": [
+    {{"issue_id": "issue-01", "action": "replace|abstain", "replacement_lines": ["主体 | 谓词 | 客体"]}}
+  ],
+  "review_notes": []
+}}
+
+约束：
+1. 每个 issue ID 必须且只能出现一次，禁止引用目录外 ID。
+2. replace 只修对应行；三元组保持“主体 | 谓词 | 客体”，不得改动无关事实。
+3. replacement_lines 最多 4 行；证据不足就 abstain，并设 review_status=manual_required。
+4. 不得生成 source locator、文件路径、作者或 venue 等确定性元数据。"""
+
+
+def _compile_semantic_patch(decision: dict, catalog: dict) -> str:
+    if not semantic_patch_decision_schema(decision):
+        raise ValueError("semantic-patch-v1 决策不符合 schema")
+    expected = [item["id"] for item in catalog.get("issues", [])]
+    patches = decision.get("patches", [])
+    actual = [patch["issue_id"] for patch in patches]
+    if len(actual) != len(set(actual)) or set(actual) != set(expected):
+        raise ValueError("semantic patch 必须逐一覆盖且只能引用现有 issue ID")
+    by_id = {patch["issue_id"]: patch for patch in patches}
+    if decision.get("review_status") == "manual_required" or any(
+        patch["action"] == "abstain" for patch in patches
+    ):
+        raise ValueError("semantic patch 仍需人工裁决")
+    lines = []
+    for issue_id in expected:
+        lines.extend(line.strip() for line in by_id[issue_id]["replacement_lines"])
+    return "\n".join(lines)
+
+
+def _deduplicate_semantic_triples(semantic_text: str) -> str:
+    """保持非三元组内容与首条顺序，只删除完全相同的重复三元组。"""
+    seen = set()
+    result = []
+    for line in semantic_text.splitlines():
+        stripped = line.strip()
+        parts = tuple(part.strip() for part in stripped.split("|")) if "|" in stripped else ()
+        if len(parts) == 3:
+            if parts in seen:
+                continue
+            seen.add(parts)
+        result.append(line)
+    return "\n".join(result) + "\n"
+
+
+def is_malformed_predicate(pred: str) -> bool:
+    """谓词格式非法：空串、含空白或标点，属于结构性硬错误。"""
+    if not pred or pred != pred.strip():
+        return True
+    return bool(re.search(r'[\s,，。；;、]', pred))
+
+
+def validate_semantics(state: dict, REPO: Path, allowed_predicates: set[str],
+                        non_blocking_issues: tuple[str, ...] = ()) -> tuple[list[str], list[dict]]:
+    """校验语义槽合法性。返回 (hard_errors, slot_warnings)。
+
+    hard_errors: 结构性错误（谓词非法、解析失败、同行 header），需早停交接。
+    slot_warnings: 客体内容问题（描述性短语、裸缩写、重复行），可走局部修复。
+    """
+    import graph_ingest
+    from graph_ingest import is_bare_abbreviation, is_descriptive_phrase
+    semantic_path = REPO / state["semantic_path"]
+    sem_text = semantic_path.read_text(encoding="utf-8")
+    state["slots_content"] = sem_text
+    # 裸缩写三段式第二步: alias 未命中时从 raw 全文查全称,自动补全为 full(ABBR) 格式
+    # 论文管道(step_validate_semantics)已有等价逻辑;此处使文档/会议管道共享同一消解能力
+    _raw_abbr_map = load_raw_abbr_map(state.get("wiki_path", ""))
+    if _raw_abbr_map:
+        _patched = autofix_bare_abbreviations(sem_text, _raw_abbr_map)
+        if _patched != sem_text:
+            semantic_path.write_text(_patched, encoding="utf-8")
+            sem_text = _patched
+            state["slots_content"] = _patched
+    hard_errors: list[str] = []
+    slot_warnings: list[dict] = []
+    predicate_candidates: list[dict] = []
+    # 格式检查（同行 header）→ 硬错误
+    try:
+        warns = graph_ingest.detect_inline_section_headers(sem_text)
+        hard_errors.extend(warns)
+    except Exception:
+        pass
+    try:
+        page_path = state["wiki_path"]
+        sections, diagnostics = graph_ingest.parse_semantic_sections(sem_text)
+        state["semantic_slot_diagnostics"] = diagnostics
+        document_semantics = (
+            state.get("pipeline_script") == "ingest_document.py"
+            or page_path.startswith(("admin/wiki/", "teaching/wiki/", "business/wiki/"))
+        )
+        if document_semantics:
+            legacy_sections = sorted(set(sections) & {"行政主题", "行政关系"})
+            if legacy_sections:
+                hard_errors.append(
+                    "语义槽使用已停用 section: " + ", ".join(legacy_sections)
+                    + "；请统一改为“三元组:”和“主体 | 谓词 | 客体”"
+                )
+            for malformed in diagnostics.get("malformed_triple_lines", []):
+                hard_errors.append(
+                    f"三元组格式不合法: {malformed}；预期“主体 | 谓词 | 客体”"
+                )
+            if diagnostics.get("bare_triples_recovered", 0):
+                hard_errors.append("语义槽缺少“三元组:” section 标题")
+            if (diagnostics.get("meaningful_line_count", 0) > 0
+                    and diagnostics.get("semantic_triple_count", 0) == 0):
+                hard_errors.append("语义槽非空但解析出 0 条三元组，拒绝进入 finalize")
+        triples, keywords, *_ = graph_ingest.parse_semantic_text(sem_text, page_path)
+        # 谓词校验
+        for t in triples:
+            pred = t.get("predicate", "")
+            obj = t.get("object", "").strip()
+            if pred:
+                if is_malformed_predicate(pred):
+                    hard_errors.append(f"谓词格式不合法: {pred} (客体={obj})")
+                elif pred not in allowed_predicates:
+                    # 格式正常但未登记：按候选谓词保留，不阻断摄入；由谓词治理或后续登记收敛
+                    predicate_candidates.append({
+                        "predicate": pred,
+                        "subject": t.get("subject", ""),
+                        "object": obj,
+                    })
+            if obj and is_descriptive_phrase(obj):
+                slot_warnings.append({
+                    "section": "三元组", "line": f"{t.get('subject','')}|{pred}|{obj}",
+                    "issue": "descriptive_phrase",
+                    "reason": "客体含逗号/句号等标点，应为规范概念名",
+                })
+            if is_bare_abbreviation(obj):
+                slot_warnings.append({
+                    "section": "三元组", "line": f"{t.get('subject','')}|{pred}|{obj}",
+                    "issue": "bare_abbreviation",
+                    "reason": "含英文缩写但未放入括号，应为「中文英文(缩写)」格式",
+                })
+        # 重复三元组检测
+        seen = set()
+        for t in triples:
+            key = (t.get("subject", ""), t.get("predicate", ""), t.get("object", "").strip())
+            if key in seen:
+                slot_warnings.append({
+                    "section": "三元组", "line": f"{key[0]} | {key[1]} | {key[2]}",
+                    "issue": "duplicate_line", "reason": "重复三元组，应删除重复行",
+                })
+            else:
+                seen.add(key)
+    except Exception as exc:
+        hard_errors.append(f"语义槽解析失败: {exc}")
+    if predicate_candidates:
+        state["predicate_candidates"] = predicate_candidates
+    return hard_errors, slot_warnings
+
+
+def patch_semantic_lines(sem_text: str, repaired_text: str, warnings: list[dict]) -> str | None:
+    """用 LLM 修复输出替换语义槽中有问题的客体。
+
+    旧实现按 warning 的 line 全串（subject|predicate|object）匹配语义槽行，
+    但语义槽各 section 格式不同（决策=纯客体、待办=客体|主体、三元组用代词），
+    永远匹配不上导致 patch 不生效。改为按客体文本定位并替换客体部分。
+    """
+    # 从 warning 的 line（subject|predicate|object）提取旧客体（最后一个 | 后的部分）
+    old_objects = []
+    for w in warnings:
+        parts = w["line"].rsplit("|", 1)
+        old_objects.append(parts[-1].strip() if len(parts) > 1 else w["line"].strip())
+    # 从 LLM 输出提取新客体（取每行最后一个 | 后的部分，兼容 主体|谓词|客体 和纯客体格式）
+    new_objects = []
+    for line in repaired_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.rsplit("|", 1)
+        new_objects.append(parts[-1].strip() if len(parts) > 1 else line)
+    if not old_objects or len(old_objects) != len(new_objects):
+        return None  # 数量不匹配，无法安全 patch
+    obj_map = dict(zip(old_objects, new_objects))
+    # 按长度降序匹配，避免短客体误匹配长客体子串
+    sorted_old = sorted(obj_map.keys(), key=len, reverse=True)
+    lines = sem_text.splitlines()
+    result = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            result.append(line)
+            continue
+        replaced = False
+        for old_obj in sorted_old:
+            if old_obj and old_obj in stripped:
+                result.append(stripped.replace(old_obj, obj_map[old_obj]))
+                replaced = True
+                break
+        if not replaced:
+            result.append(line)
+    return "\n".join(result) + "\n"
+
+
+
+def repair_slots(
+    state: dict,
+    REPO: Path,
+    warnings: list[dict],
+    validate_fn,
+    non_blocking_issues: tuple[str, ...] = (),
+    patch_fn=None,
+) -> tuple[bool, str]:
+    """先机械修复，再至多调用一次 semantic-patch-v1 Worker。"""
+    blocking = [
+        warning for warning in warnings
+        if is_blocking_warning(warning, non_blocking_issues)
+    ]
+    worker = {
+        "protocol_version": SEMANTIC_PATCH_PROTOCOL,
+        "input_hash": "",
+        "api_called": False,
+        "cache_hit": False,
+        "skipped": False,
+        "skip_reason": "",
+    }
+    state["semantic_repair_worker"] = worker
+    if not blocking:
+        worker["skipped"] = True
+        worker["skip_reason"] = "non_blocking_only"
+        return True, ""
+
+    semantic_path = REPO / state["semantic_path"]
+    semantic_text = semantic_path.read_text(encoding="utf-8")
+    if any(warning.get("issue") == "duplicate_line" for warning in blocking):
+        cleaned = _deduplicate_semantic_triples(semantic_text)
+        if cleaned != semantic_text:
+            semantic_path.write_text(cleaned, encoding="utf-8")
+            state["slots_content"] = cleaned
+        _hard, residual = validate_fn(state)
+        blocking = [
+            warning for warning in residual
+            if is_blocking_warning(warning, non_blocking_issues)
+        ]
+        if not blocking:
+            worker["skipped"] = True
+            worker["skip_reason"] = "deterministic_duplicate_cleanup"
+            return True, ""
+        semantic_text = semantic_path.read_text(encoding="utf-8")
+
+    catalog = build_semantic_patch_catalog(blocking)
+    input_hash = _semantic_patch_input_hash(catalog, semantic_text)
+    worker["input_hash"] = input_hash
+    transaction_id = state.get("transaction_id", "")
+    decision = _load_semantic_patch_cache(REPO, transaction_id, input_hash)
+    if decision:
+        worker["cache_hit"] = True
+        worker["skip_reason"] = "transaction_cache"
+    prompt = _build_semantic_patch_prompt(catalog)
+    if not decision:
+        if agent_task.ingest_backend() == "agent":
+            _prepare_semantic_agent_task(state, REPO, catalog.get("issues", blocking))
+            return False, "Agent task prepared"
+        result = call_json(
+            prompt,
+            semantic_patch_decision_schema,
+            max_tokens=800,
+            retries=0,
+            operation="ingest_semantic_fill",
+            transaction_id=transaction_id,
+            system="你是语义槽局部修补 Worker，只按 issue ID 输出 JSON。",
+        )
+        worker["api_called"] = bool(result.get("history"))
+        if result.get("status") == "agent_required":
+            state["agent_required"] = True
+            state["agent_prompt"] = (
+                result.get("prompt", prompt)
+                + f"\n\n请直接修正 `{state['semantic_path']}` 中对应行，然后按原事务 resume。"
+            )
+            return False, "需要 agent 接管局部语义修补"
+        if not result.get("ok"):
+            state["agent_required"] = True
+            state["agent_prompt"] = (
+                prompt
+                + f"\n\nWorker 失败：{result.get('error', 'unknown')}。"
+                + f"请直接修正 `{state['semantic_path']}` 中对应行，然后按原事务 resume。"
+            )
+            return False, "semantic patch Worker 失败，需 agent 兜底"
+        decision = result.get("parsed")
+        _save_semantic_patch_cache(REPO, transaction_id, input_hash, decision)
+    try:
+        repaired_text = _compile_semantic_patch(decision, catalog)
+    except ValueError as exc:
+        recovered, recovery_msg = try_semantic_recovery(
+            state, REPO, [], blocking, validate_fn, non_blocking_issues,
+        )
+        if recovered:
+            return True, recovery_msg
+        state["agent_required"] = True
+        state["agent_prompt"] = (
+            prompt + f"\n\n决策无法编译：{exc}。{recovery_msg}。"
+            + f"请直接修正 `{state['semantic_path']}` 后 resume。"
+        )
+        return False, str(exc)
+    apply_patch_fn = patch_fn or patch_semantic_lines
+    new_semantic = apply_patch_fn(semantic_text, repaired_text, blocking)
+    if new_semantic is None:
+        recovered, recovery_msg = try_semantic_recovery(
+            state, REPO, [], blocking, validate_fn, non_blocking_issues,
+        )
+        if recovered:
+            return True, recovery_msg
+        state["agent_required"] = True
+        state["agent_prompt"] = (
+            prompt + f"\n\n局部 patch 无法安全应用。{recovery_msg}。"
+            + f"请直接修正 `{state['semantic_path']}` 后 resume。"
+        )
+        return False, "semantic patch 无法安全应用"
+    semantic_path.write_text(new_semantic, encoding="utf-8")
+    state["slots_content"] = new_semantic
+    hard_errors, residual = validate_fn(state)
+    blocking = [
+        warning for warning in residual
+        if is_blocking_warning(warning, non_blocking_issues)
+    ]
+    if hard_errors or blocking:
+        recovered, recovery_msg = try_semantic_recovery(
+            state, REPO, hard_errors, blocking, validate_fn, non_blocking_issues,
+        )
+        if recovered:
+            return True, recovery_msg
+        state["agent_required"] = True
+        state["agent_prompt"] = (
+            f"semantic-patch-v1 复验仍有 {len(hard_errors)} 个硬错误、"
+            f"{len(blocking)} 个阻断 warning；{recovery_msg}。"
+            + f"请修正 `{state['semantic_path']}` 后 resume。"
+        )
+        return False, "semantic patch 复验未通过"
+    return True, ""
+
+
+def stop_for_semantic_errors(state: dict, errors: list[str], resume_cmd: str,
+                             warnings: list[dict] | None = None) -> None:
+    """结构错误不盲重试；保留可用 wiki/语义文件，交接受控修正后 --resume。
+
+    warnings 为同时发现的阻断型 warning，一并写入 agent_prompt，避免修完硬错误后
+    才在 resume 复验中暴露 warning，造成二次人工介入。"""
+    if agent_task.ingest_backend() == "agent":
+        issues = list(errors)
+        issues.extend(warnings or [])
+        _prepare_semantic_agent_task(
+            state, Path(__file__).resolve().parent.parent, issues,
+            resume_cmd=resume_cmd,
+        )
+        state["errors"] = errors
+        return
+    state["status"] = "agent_required"
+    state["errors"] = errors
+    state["agent_required"] = True
+    lines = (
+        "语义槽存在无法自动修复的结构错误，已停止重复生成以保留已通过的 wiki。\n"
+        + "\n".join(f"- {error}" for error in errors)
+    )
+    if warnings:
+        lines += "\n\n同时存在以下阻断型 warning（请一并修正）：\n"
+        lines += "\n".join(f"- [{w.get('issue', 'warning')}] {w.get('line', '')}（{w.get('reason', '')}）" for w in warnings)
+    lines += f"\n\n请修正 `{state.get('semantic_path', '')}` 后运行 `{resume_cmd}`。"
+    state["agent_prompt"] = lines
+
+
+def handoff_to_agent(state: dict, context_msg: str, validate_fn,
+                     resume_cmd: str, validate_cmd: str = "") -> None:
+    """交接受控修正：跑全量语义校验，把当前所有 warning 写入 agent_prompt。"""
+    # 记录 handoff 前阶段，供 resume 恢复（落位后 handoff 不应重跑落位）
+    if state.get("status") != "agent_required":
+        state["pre_handoff_status"] = state.get("status")
+    state["errors"] = []
+    lines: list[str] = []
+    try:
+        sem_hard, slot_warnings = validate_fn(state)
+    except Exception as exc:
+        sem_hard, slot_warnings = [f"语义槽校验失败: {exc}"], []
+    if sem_hard:
+        lines.extend(f"- [hard] {e}" for e in sem_hard)
+    for w in slot_warnings:
+        lines.append(f"- [{w['issue']}] {w['line']}（{w['reason']}）")
+    tail = f"\n\n请手动修正 `{state.get('semantic_path', '')}` 后运行 `{resume_cmd}`。"
+    if validate_cmd:
+        tail += f" 修正后可先用 `{validate_cmd}` 自检。"
+    if agent_task.ingest_backend() == "agent":
+        _prepare_semantic_agent_task(
+            state, Path(__file__).resolve().parent.parent,
+            [context_msg, *sem_hard, *slot_warnings],
+            resume_cmd=resume_cmd, check_cmd=validate_cmd,
+        )
+        return
+    state["status"] = "agent_required"
+    state["agent_required"] = True
+    state["agent_prompt"] = f"{context_msg}（当前共 {len(lines)} 项待修）。\n" + "\n".join(lines) + tail
+
+
+def validate_before_commit(
+    state: dict,
+    validate_fn,
+    non_blocking_issues: tuple[str, ...] = (),
+    warning_recorder=None,
+) -> list[str]:
+    """落位前全量复验：resume 安全网，防止跳过校验直接写图。"""
+    try:
+        sem_hard, slot_warnings = validate_fn(state)
+    except Exception as exc:
+        return [f"恢复前语义槽校验失败: {exc}"]
+    if warning_recorder is not None:
+        warning_recorder(state, slot_warnings)
+    errors = list(sem_hard)
+    blocking = [w for w in slot_warnings if is_blocking_warning(w, non_blocking_issues)]
+    if blocking:
+        errors.append(f"仍有 {len(blocking)} 个阻断型 warning")
+    return errors
+
+
+# ===== 进度日志（三类摄入共用）=====
+
+_progress_state = threading.local()
+
+
+def set_progress_file(f) -> None:
+    _progress_state.file = f
+
+
+def set_progress_log_path(p) -> None:
+    _progress_state.log_path = p
+
+
+def close_progress_file() -> None:
+    progress_file = getattr(_progress_state, "file", None)
+    if progress_file:
+        progress_file.close()
+        _progress_state.file = None
+
+
+def get_progress_log_path() -> str | None:
+    return getattr(_progress_state, "log_path", None)
+
+
+def progress(*args, **kwargs) -> None:
+    """进度输出：quiet 模式写日志文件，--verbose 时打印到 stdout（实时 flush）。"""
+    progress_file = getattr(_progress_state, "file", None)
+    if progress_file:
+        end = kwargs.pop("end", "\n")
+        kwargs.pop("flush", None)
+        msg = " ".join(str(a) for a in args) + end
+        progress_file.write(msg)
+        progress_file.flush()
+    else:
+        kwargs["flush"] = True
+        print(*args, **kwargs)
+
+
+# ===== 子进程封装 =====
+
+def run(command: list[str], REPO: Path) -> str:
+    """运行子进程，失败抛 RuntimeError。stdout/stderr 实时打印，返回 stdout。"""
+    return run_tracked(command, REPO)
+
+
+def run_tracked(command: list[str], REPO: Path, state: dict | None = None,
+                label: str | None = None) -> str:
+    """运行子进程，失败抛 RuntimeError。stdout/stderr 实时打印，返回 stdout。
+
+    P0 遥测：传入 state+label 时记录 returncode/duration，便于事后定位
+    「子进程退出码被静默吞掉」的问题。"""
+    start = time.monotonic()
+    result = subprocess.run(command, cwd=REPO, text=True, capture_output=True)
+    duration_ms = int((time.monotonic() - start) * 1000)
+    if result.stdout:
+        print(result.stdout, end="")
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
+    if state is not None and label:
+        record_subprocess(state, label, command, result.returncode, duration_ms)
+    if result.returncode:
+        raise RuntimeError(f"命令失败({result.returncode}): {' '.join(command)}")
+    return result.stdout
+
+
+def _ensure_telemetry(state: dict) -> dict:
+    telemetry = state.setdefault("telemetry", {})
+    telemetry.setdefault("subprocesses", {})
+    return telemetry
+
+
+def record_subprocess(state: dict, label: str, command: list[str],
+                      returncode: int, duration_ms: int) -> None:
+    """记录子进程调用结果（returncode/duration），不替代 run 的异常传播。"""
+    telemetry = _ensure_telemetry(state)
+    telemetry["subprocesses"][label] = {
+        "returncode": returncode,
+        "duration_ms": duration_ms,
+        "command": " ".join(str(part) for part in command),
+    }
+
+
+def validate_completion(state: dict, REPO: Path) -> list[str]:
+    """P0 完成判定：语义槽、graph_report、图产出、历史错误均须干净。
+
+    返回阻断错误列表；空列表表示可标记 completed。
+    - 历史错误未清空：防止 agent 修复成功但 errors 残留的假完成。
+    - 语义槽缺失/空：防止缺少 SLOTS 段仍 completed。
+    - graph_report 未解析/空跑：防止写图子进程输出异常却被静默吞掉。
+    """
+    errors: list[str] = []
+    if state.get("errors"):
+        errors.append("完成时仍有未清空错误: " + "; ".join(str(e) for e in state["errors"]))
+    semantic_path = state.get("semantic_path")
+    if not semantic_path:
+        errors.append("语义槽路径缺失，不得标记 completed")
+    else:
+        sem_file = REPO / semantic_path
+        if not sem_file.is_file() or not sem_file.read_text(encoding="utf-8").strip():
+            errors.append("语义槽缺失或为空，不得标记 completed")
+    report = state.get("graph_report")
+    if not isinstance(report, dict) or "edges_added" not in report:
+        errors.append("graph_report 缺失或未解析，不得标记 completed")
+    else:
+        if report.get("edges_added", 0) == 0 and report.get("dup_skipped", 0) == 0 \
+                and report.get("nodes_created", 0) == 0:
+            errors.append("图摄入未产生边或节点（graph_report 空跑），不得标记 completed")
+    parse = (state.get("telemetry") or {}).get("graph_report_parse")
+    if parse and parse.get("status") != "parsed":
+        errors.append("graph_report 解析未成功，不得标记 completed")
+    return errors
+
+
+# ===== 文本解析 =====
+
+WIKI_DELIMITER = "<<<WIKI>>>"
+SLOTS_DELIMITER = "<<<SLOTS>>>"
+CLOSING_DELIMITERS = {
+    WIKI_DELIMITER: "<<</WIKI>>>",
+    SLOTS_DELIMITER: "<<</SLOTS>>>",
+}
+
+
+def parse_delimited(text: str, delimiter: str) -> str:
+    """从文本中提取分隔符包裹的内容。
+
+    优先截到规范闭标记 `<<</WIKI>>>` / `<<</SLOTS>>>`；兼容旧的同标记闭合
+    （agent 模式同一分隔符既作开标记也作闭标记）以及下一个其他开标记。
+    """
+    if delimiter not in text:
+        return ""
+    after = text.split(delimiter, 1)[1]
+    closing = CLOSING_DELIMITERS.get(delimiter)
+    if closing and closing in after:
+        after = after.split(closing, 1)[0]
+    elif delimiter in after:
+        after = after.split(delimiter, 1)[0]
+    else:
+        for d in (WIKI_DELIMITER, SLOTS_DELIMITER):
+            if d != delimiter and d in after:
+                after = after.split(d, 1)[0]
+    return after.strip()
+
+def parse_check_errors(output: str) -> list[str]:
+    """从 ingest_check.py 输出中提取 ERROR 行（跳过汇总行 ERROR=0）。"""
+    errors = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("ERROR") and not stripped.startswith("ERROR="):
+            errors.append(stripped)
+    return errors
+
+
+# ===== 共享步骤 =====
+
+NO_INFO_SLOT_VALUES = {
+    "无明确期刊", "无明确信息", "无明确作者", "无明确日期",
+    "无明确机构", "无明确研究对象", "无明确局限性",
+}
+
+
+def remove_no_info_slot_values(text: str) -> str:
+    """删除语义槽中「（无明确...）」等占位值，只保留空 section 给后续校验兜底。"""
+    kept = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped in NO_INFO_SLOT_VALUES:
+            continue
+        if (stripped.startswith("（") and stripped.endswith("）")
+                and "无明确" in stripped):
+            continue
+        kept.append(line)
+    return "\n".join(kept) + ("\n" if text.endswith("\n") and kept else "")
+
+
+def step_fill_semantics(state: dict, REPO: Path, normalize_fn) -> tuple[bool, str]:
+    """归一化语义槽格式，写 semantic 文件。normalize_fn 为各脚本的 normalize_slots。"""
+    slots_content = state.get("slots_content", "")
+    if not slots_content:
+        return False, "无语义槽内容"
+    normalized = normalize_fn(slots_content)
+    normalized = remove_no_info_slot_values(normalized)
+    semantic_path = REPO / "temp" / "inbox-state" / f"{state['transaction_id']}-semantic.txt"
+    semantic_path.parent.mkdir(parents=True, exist_ok=True)
+    semantic_path.write_text(normalized, encoding="utf-8")
+    state["semantic_path"] = str(semantic_path.relative_to(REPO))
+    return True, ""
+
+
+def step_update_graph(state: dict, REPO: Path, clean: bool = False) -> tuple[bool, str]:
+    """Compile every document type through Knowledge IR, then invoke the sole graph writer."""
+    transaction_id = str(state.get("transaction_id") or "").strip()
+    if not transaction_id:
+        transaction_id = "graph-" + hashlib.sha256(
+            str(state["wiki_path"]).encode("utf-8")
+        ).hexdigest()[:12]
+    state["knowledge_ir_path"] = str(
+        state.get("knowledge_ir_path")
+        or f"temp/inbox-state/{transaction_id}-knowledge-ir.json"
+    )
+    state["graph_plan_path"] = str(
+        state.get("graph_plan_path")
+        or f"temp/inbox-state/{transaction_id}-graph-plan.json"
+    )
+    cmd = [sys.executable, str(REPO / ".scripts/graph_ingest.py"), "ingest",
+           "--page", state["wiki_path"], "--semantic", state["semantic_path"],
+           "--transaction-id", transaction_id,
+           "--knowledge-ir-out", state["knowledge_ir_path"],
+           "--graph-plan-out", state["graph_plan_path"]]
+    raw_relationship = state.get("raw_relationship")
+    if not raw_relationship and state.get("related_to"):
+        raw_relationship = {
+            "type": state.get("relation_type", "supplementary"),
+            "target_page": state["related_to"],
+        }
+    if raw_relationship:
+        cmd.extend([
+            "--raw-relationship-json",
+            json.dumps(raw_relationship, ensure_ascii=False, separators=(",", ":")),
+        ])
+    if clean:
+        cmd.append("--clean")
+    telemetry = _ensure_telemetry(state)
+    try:
+        output = run_tracked(cmd, REPO, state=state, label="graph_ingest")
+    except RuntimeError as exc:
+        telemetry["graph_report_parse"] = {"status": "failed", "error": str(exc)}
+        state["graph_report"] = None
+        return False, f"graph_ingest 子进程失败: {exc}"
+    try:
+        state["graph_report"] = json.loads(output)
+    except json.JSONDecodeError:
+        m = re.search(r'\{[\s\S]*\}\s*$', output)
+        if m:
+            state["graph_report"] = json.loads(m.group(0))
+    if not isinstance(state.get("graph_report"), dict) or "edges_added" not in state["graph_report"]:
+        telemetry["graph_report_parse"] = {
+            "status": "failed",
+            "error": "graph_ingest 输出不含 JSON 报告或缺少 edges_added",
+            "output_prefix": output[:500],
+        }
+        state["graph_report"] = None
+        return False, "graph_ingest 输出不是 JSON 报告或缺少 edges_added"
+    telemetry["graph_report_parse"] = {"status": "parsed"}
+    # 持久化裸缩写 warning 到 abbreviation-todo.jsonl，供后置补全
+    _record_abbreviation_warnings(state, REPO)
+    return True, ""
+
+
+def _abbreviation_occurrence_target(entry: dict) -> str:
+    field = str(entry.get("field") or "object")
+    if field in {"subject", "object"}:
+        return str(entry.get(field) or "")
+    return str(entry.get("value") or entry.get("object") or entry.get("subject") or "")
+
+
+def _is_page_identity_abbreviation(entry: dict) -> bool:
+    page = str(entry.get("page") or "")
+    return (
+        str(entry.get("field") or "object") == "subject"
+        and bool(page)
+        and str(entry.get("subject") or "") == page
+    )
+
+
+def _abbreviation_todo_key(entry: dict) -> tuple:
+    return (
+        str(entry.get("page", "")),
+        str(entry.get("field", "object")),
+        _abbreviation_occurrence_target(entry),
+        str(entry.get("token") or entry.get("value") or ""),
+        str(entry.get("locator") or entry.get("source") or ""),
+    )
+
+
+def _read_abbreviation_todo(path: Path) -> tuple[list[dict], list[str]]:
+    entries = []
+    errors = []
+    if not path.exists():
+        return entries, errors
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            errors.append(f"line {line_number}: {exc}")
+            continue
+        if isinstance(entry, dict):
+            entries.append(entry)
+        else:
+            errors.append(f"line {line_number}: expected object")
+    return entries, errors
+
+
+def _write_abbreviation_todo(path: Path, entries: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    unique = {}
+    for entry in entries:
+        if _is_page_identity_abbreviation(entry):
+            continue
+        unique[_abbreviation_todo_key(entry)] = entry
+    temp_path = path.with_name(path.name + ".tmp")
+    temp_path.write_text(
+        "".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in unique.values()),
+        encoding="utf-8",
+    )
+    temp_path.replace(path)
+
+
+def _record_abbreviation_warnings(state: dict, REPO: Path) -> None:
+    """将 graph_report 中的 bare_abbreviation warning 追加到
+    cross-domain/abbreviation-todo.jsonl，供后置 alias 补全参考。
+
+    事务内幂等（state flag 防重复）。re-ingest（clean）时跳过——旧记录
+    仍有效，新摄入的 warning 覆盖不了旧行，去重交消费者处理。
+    """
+    if state.get("abbreviation_warnings_recorded"):
+        return
+    report = state.get("graph_report")
+    if not isinstance(report, dict):
+        return
+    warns = report.get("descriptive_warnings", [])
+    bare = [w for w in warns if w.get("issue") == "bare_abbreviation"]
+    if not bare:
+        state["abbreviation_warnings_recorded"] = True
+        return
+    todo_path = REPO / "cross-domain" / "abbreviation-todo.jsonl"
+    existing, _errors = _read_abbreviation_todo(todo_path)
+    txn = state.get("transaction_id", "")
+    page = state.get("wiki_path", "")
+    doc_id = state.get("paper_id") or state.get("meeting_id") or ""
+    additions = []
+    for w in bare:
+        warning_entry = {
+            "page": page,
+            "subject": w.get("subject", ""),
+            "object": w.get("object", ""),
+            "field": w.get("field", "object"),
+        }
+        if _is_page_identity_abbreviation(warning_entry):
+            continue
+        context = str(w.get("value") or w.get("object") or w.get("subject") or "")
+        tokens = re.findall(r"[A-Z]{2,}[A-Za-z0-9]*", context)
+        for token in tokens:
+            additions.append({
+                "schema_version": "abbreviation-todo-v2",
+                "transaction_id": txn,
+                "doc_id": doc_id,
+                "page": page,
+                "subject": w.get("subject", ""),
+                "predicate": w.get("predicate", ""),
+                "object": w.get("object", ""),
+                "field": w.get("field", "object"),
+                "token": token,
+                "context": context,
+                "locator": w.get("locator") or w.get("source") or "",
+                "resolution_state": "unresolved",
+            })
+    _write_abbreviation_todo(todo_path, [*existing, *additions])
+    state["abbreviation_warnings_recorded"] = True
+
+
+def append_source_to_page(REPO: Path, page_path: str, new_source: str) -> bool:
+    """在 wiki 页 frontmatter 的 sources 列表末尾追加一条来源（幂等）。
+
+    用正则定位 sources: YAML 块，不依赖其他字段的固定位置。
+    返回 True 表示已追加，False 表示已存在或页面缺失。
+    """
+    target_file = REPO / (page_path.removesuffix(".md") + ".md")
+    if not target_file.exists():
+        return False
+    t_text = target_file.read_text(encoding="utf-8")
+    source_line = f'  - "{new_source}"'
+    if f'"{new_source}"' in t_text:
+        return False
+    fm_match = re.match(r'^(---\n)(.*?)(\n---\n)', t_text, re.S)
+    if not fm_match:
+        return False
+    fm_body = fm_match.group(2)
+    sources_match = re.search(r'(sources:\n)((?:  - .*\n)*)', fm_body)
+    if sources_match:
+        insert_at = sources_match.end()
+        new_fm = fm_body[:insert_at] + source_line + '\n' + fm_body[insert_at:]
+    else:
+        new_fm = fm_body.rstrip('\n') + '\nsources:\n' + source_line + '\n'
+    target_file.write_text(
+        t_text[:fm_match.start(2)] + new_fm + t_text[fm_match.end(2):],
+        encoding="utf-8")
+    return True
+
+
+def load_raw_abbr_map(page_path: str) -> dict:
+    """从 raw paper.md 提取缩写->全称映射（alias -> raw 查找的第二步）。
+
+    两路合并:
+    1. extract_abbreviations.extract_for_page（严格首字母验证,高精度）
+    2. 宽松正则扫描（允许小写开头/含逗号连字符的全称,补严格模式遗漏）
+    频率过滤: ABBR 在原文出现 >=2 次才纳入。返回 {ABBR: full_name}。
+    """
+    abbr_map = {}
+    try:
+        from extract_abbreviations import extract_for_page
+        pairs, _ = extract_for_page(page_path)
+        for abbr, full_info in pairs:
+            full_val = full_info[0] if isinstance(full_info, (tuple, list)) else full_info
+            if full_val:
+                abbr_map[abbr] = full_val
+    except Exception:
+        pass
+    try:
+        from extract_abbreviations import find_raw
+        raw_path = find_raw(page_path)
+        if not raw_path:
+            return abbr_map
+        raw_text = Path(raw_path).read_text(encoding="utf-8", errors="ignore")
+        # 宽松模式1: full name (ABBR)
+        for m in re.finditer(r'([\w][\w\s,\-]{2,40}?)\s*[\uff08(]\s*([A-Z]{2,8}[A-Za-z0-9]*)\s*[\uff09)]', raw_text):
+            full, abbr = m.group(1).strip(), m.group(2).upper()
+            if len(abbr) >= 2 and abbr not in abbr_map and not re.search(r'\d', full) and len(full.split()) <= 6:
+                abbr_map.setdefault(abbr, full)
+        # 宽松模式2: ABBR (full name)
+        for m in re.finditer(r'\b([A-Z]{2,8}[A-Za-z0-9]*)\s*[\uff08(]\s*([\w][\w\s,\-]{2,40}?)\s*[\uff09)]', raw_text):
+            abbr, full = m.group(1).upper(), m.group(2).strip()
+            if len(abbr) >= 2 and abbr not in abbr_map and not re.search(r'\d', full) and len(full.split()) <= 6:
+                abbr_map.setdefault(abbr, full)
+        # 停用词过滤: 全称含常见句子词(we/the/adopt 等)说明是句子碎片非缩写定义
+        _STOP = {"we", "the", "a", "an", "is", "are", "was", "were", "in", "of", "for",
+                 "with", "to", "by", "on", "at", "from", "that", "this", "our", "their",
+                 "it", "as", "be", "been", "adopt", "use", "used", "using", "propose",
+                 "proposed", "have", "has", "had", "do", "does", "did", "can", "could",
+                 "should", "would", "will", "may", "might", "must", "which", "who", "phase"}
+        abbr_map = {a: f for a, f in abbr_map.items()
+                    if not any(w in _STOP for w in f.lower().split())}
+        # 频率过滤
+        filtered = {}
+        for abbr in abbr_map:
+            if len(re.findall(r'\b' + re.escape(abbr) + r'\b', raw_text)) >= 2:
+                filtered[abbr] = abbr_map[abbr]
+        abbr_map = filtered
+    except Exception:
+        pass
+    return abbr_map
+
+
+def autofix_bare_abbreviations(sem_text: str, abbr_map: dict) -> str:
+    from graph_ingest import is_bare_abbreviation
+    """用 raw 缩写映射自动补全语义槽裸缩写（三段式第二步）。
+
+    仅当三元组字段精确等于裸缩写 token 时替换为 full(ABBR)。
+    含中文前缀或复合词的字段不自动替换（交由 warning）。
+    幂等: 已含括号的字段不会被 is_bare_abbreviation 判定。
+    """
+    if not abbr_map:
+        return sem_text
+    lines = sem_text.splitlines()
+    changed = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if "|" not in stripped:
+            continue
+        parts = stripped.split("|")
+        if len(parts) != 3:
+            continue
+        for j in range(len(parts)):
+            field = parts[j].strip()
+            if not is_bare_abbreviation(field):
+                continue
+            if field in abbr_map:
+                parts[j] = f" {abbr_map[field]}({field}) "
+                changed = True
+            else:
+                no_paren = re.sub(r"[\uff08(][^\uff09)]*[\uff09)]", "", field)
+                tokens = re.findall(r"[A-Z]{2,}[A-Za-z0-9]*", no_paren)
+                for tok in tokens:
+                    if tok in abbr_map and field == tok:
+                        parts[j] = f" {abbr_map[tok]}({tok}) "
+                        changed = True
+                        break
+        if changed:
+            lines[i] = "|".join(parts)
+    if changed:
+        return "\n".join(lines) + ("\n" if sem_text.endswith("\n") else "")
+    return sem_text
+
+
+def lightweight_abbr_resolve(REPO: Path) -> dict:
+    """Query 后轻量裸缩写消解（只查图 alias，不扫 raw，零 LLM）。
+
+    与 ingest 后的全量消解（_auto_resolve_abbreviations）不同：
+    - 只做图层 alias 匹配（快，~10ms/条）
+    - 不做 raw 正则扫描（query 场景无需）
+    - 不跑命题层 --apply（写图操作留给 ingest 事务）
+
+    返回 {"resolved": N, "remaining": M, "details": [...]}。
+    """
+    import graph_lib as gl
+    todo_path = REPO / "cross-domain" / "abbreviation-todo.jsonl"
+    if not todo_path.exists():
+        return {"resolved": 0, "remaining": 0, "details": []}
+
+    try:
+        entries, parse_errors = _read_abbreviation_todo(todo_path)
+    except OSError as exc:
+        return {"status": "error", "resolved": 0, "remaining": 0,
+                "details": [], "errors": [str(exc)]}
+    if parse_errors:
+        return {"status": "error", "resolved": 0, "remaining": len(entries),
+                "details": [], "errors": parse_errors}
+
+    remaining = []
+    resolved_details = []
+    try:
+        conn = gl.connect()
+        ti, ai, si = gl.build_name_index(conn)
+    except Exception:
+        return {"resolved": 0, "remaining": len(entries), "details": []}
+
+    for entry in entries:
+        abbr = str(entry.get("token") or entry.get("value") or entry.get("object") or "").strip()
+        if not abbr:
+            remaining.append(entry)
+            continue
+        try:
+            resolved_path, _ = gl.resolve_bare_name(abbr, ti, ai, si)
+            if resolved_path:
+                resolved_details.append({
+                    "abbr": abbr,
+                    "method": "graph_alias",
+                    "resolved_to": resolved_path,
+                    "page": entry.get("page", ""),
+                })
+                continue
+        except Exception:
+            pass
+        remaining.append(entry)
+
+    if resolved_details:
+        _write_abbreviation_todo(todo_path, remaining)
+
+    return {
+        "status": "completed",
+        "resolved": len(resolved_details),
+        "remaining": len(remaining),
+        "details": resolved_details,
+    }
+
+
+def _resume_result_item(state: dict, *, file_name: str = "") -> dict:
+    return {
+        "file": file_name or state.get("source_filename") or state.get("source")
+        or state.get("transaction_id", "resume"),
+        "ok": state.get("status") == "completed",
+        "status": state.get("status", "failed"),
+        "transaction_id": state.get("transaction_id", ""),
+        "paper_id": state.get("paper_id"),
+        "wiki_path": state.get("wiki_path"),
+        "graph_report": state.get("graph_report"),
+        "quality_status": state.get("quality_status"),
+        "quality_warnings": state.get("quality_warnings", []),
+    }
+
+
+def _reconcile_parent_batch_report(repo: Path, state: dict):
+    """Refresh the newest multi-item inbox report containing this transaction."""
+    report_dir = repo / "cross-domain" / "ingest-reports"
+    transaction_id = str(state.get("transaction_id") or "")
+    if not transaction_id or not report_dir.is_dir():
+        return None
+    for report_path in sorted(report_dir.glob("*.json"), reverse=True):
+        try:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        files = report.get("files") if isinstance(report, dict) else None
+        if not isinstance(files, list) or len(files) < 2:
+            continue
+        if not any(item.get("transaction_id") == transaction_id for item in files):
+            continue
+        refreshed = []
+        for item in files:
+            item_transaction = str(item.get("transaction_id") or "")
+            item_state = state if item_transaction == transaction_id else None
+            state_path = repo / "temp" / "inbox-state" / f"{item_transaction}.json"
+            if item_state is None and item_transaction and state_path.is_file():
+                try:
+                    item_state = json.loads(state_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    item_state = None
+            if item_state and item_state.get("status") in {"completed", "duplicate_found"}:
+                refreshed.append(_resume_result_item(
+                    item_state, file_name=str(item.get("file") or ""),
+                ))
+            else:
+                refreshed.append(item)
+        from ingest_inbox import _report_counts, _write_json_atomic
+        report["files"] = refreshed
+        report.update(_report_counts(refreshed))
+        _write_json_atomic(report_path, report)
+        return report_path, report
+    return None
+
+
+def run_resume_post_maintenance(state: dict) -> dict | None:
+    """Run the unified inbox tail after a successful direct resume."""
+    if state.get("status") != "completed":
+        return None
+    repo = Path(state.get("repo") or state.get("repo_path") or Path(__file__).resolve().parents[1])
+    inbox = repo / "inbox"
+    from inbox_plan import fact_entries
+    skip_files = {".gitkeep", ".DS_Store"}
+    pending = [
+        path for path in inbox.iterdir()
+        if (path.is_file()
+            and path.name not in skip_files
+            and not path.name.startswith(".")
+            and (path.name != "facts-pending.md" or fact_entries(path) > 0))
+    ] if inbox.is_dir() else []
+    parent_batch = _reconcile_parent_batch_report(repo, state)
+    if pending:
+        return {
+            "status": "deferred",
+            "reason": "pending_inbox_files",
+            "pending_count": len(pending),
+            "receipt_path": "",
+            "actions": [],
+            "errors": [],
+            "components": {},
+        }
+    try:
+        from ingest_inbox import (
+            compact_maintenance, publish_maintenance_report, run_post_ingest_maintenance,
+        )
+        if parent_batch:
+            report_path, report = parent_batch
+            terminal = {"completed", "duplicate_found"}
+            if not all(item.get("status") in terminal for item in report["files"]):
+                return {
+                    "status": "deferred",
+                    "reason": "pending_batch_items",
+                    "pending_count": sum(
+                        item.get("status") not in terminal for item in report["files"]
+                    ),
+                    "receipt_path": "",
+                    "actions": [],
+                    "errors": [],
+                    "components": {},
+                    "report_path": str(report_path.relative_to(repo)),
+                }
+            existing = report.get("maintenance") or {}
+            if (existing.get("publication", {}).get("status") in {"pending", "error"}
+                    or existing.get("status") not in {"skipped", "deferred", "error", ""}):
+                publish_maintenance_report(report_path, report)
+                compact = compact_maintenance(report["maintenance"])
+                compact["report_path"] = str(report_path.relative_to(repo))
+                return compact
+            envelope = run_post_ingest_maintenance(
+                report["files"], str(report.get("session_id") or "resume-batch")
+            )
+            report["maintenance"] = envelope
+            report.setdefault("plan_notes", []).append(
+                "batch report reconciled after direct Agent resumes"
+            )
+            publish_maintenance_report(report_path, report)
+            compact = compact_maintenance(report["maintenance"])
+            compact["report_path"] = str(report_path.relative_to(repo))
+            return compact
+        transaction_id = str(state.get("transaction_id", "resume"))
+        result = [_resume_result_item(state)]
+        session_id = f"resume-{transaction_id}"
+        envelope = run_post_ingest_maintenance(result, session_id)
+        report_path = repo / "cross-domain" / "ingest-reports" / f"{session_id}.json"
+        report = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "session_id": session_id,
+            "dsh_log": "",
+            "total": 1,
+            "completed": 1,
+            "degraded": int(result[0].get("quality_status") == "degraded"),
+            "failed": 0,
+            "skipped": 0,
+            "files": result,
+            "classification_decisions": [],
+            "classification_reviews": [],
+            "fingerprint_matches": [],
+            "fingerprint_index_error": "",
+            "plan_notes": ["direct resume completed through unified maintenance tail"],
+            "tool_outputs": [],
+            "maintenance": envelope,
+        }
+        publish_maintenance_report(report_path, report)
+        compact = compact_maintenance(report["maintenance"])
+        compact["report_path"] = str(report_path.relative_to(repo))
+        return compact
+    except Exception as exc:
+        return {
+            "status": "error", "receipt_path": "", "actions": [],
+            "errors": [f"post-ingest maintenance failed: {type(exc).__name__}: {exc}"],
+            "components": {},
+        }
+
+
+
+
+
+def detect_people_page_candidates(REPO: Path) -> dict:
+    """检测达到 people page 建页标准的人物 entity（纯代码，零 LLM）。
+
+    入选标准（满足任一）：
+    - ≥6 篇论文的作者（作者边双向统计）
+    - ≥4 篇论文的通讯作者
+    - ≥3 次会议提及（参会边）
+    - ≥2 种有意义关系类别（论文参与/会议参与/师生指导；所属/任职不计入）
+
+    排除：
+    - 已有 people page 的（path 含 wiki/authors/）
+    - 占位符名（括号开头）
+    - 机构名（含 Research/Institute/University 等关键词）
+
+    结果追加到 cross-domain/people-pending.jsonl，幂等去重（按 path）。
+    """
+    import graph_lib as gl
+    from datetime import datetime
+
+    person_predicates = {"作者", "通讯作者", "参会", "指导", "师从", "受指导于", "所属", "任职于"}
+    # 关系类别映射（排除所属/任职这类 trivial 关系）
+    rel_categories = {
+        "作者": "paper", "通讯作者": "paper",
+        "参会": "meeting",
+        "指导": "advisory", "师从": "advisory", "受指导于": "advisory",
+    }
+    org_keywords = ("research", "institute", "university", "laboratory",
+                    "college", "school", "center", "academy", "corp",
+                    "inc", "ltd", "qualcomm", "google", "microsoft", "ibm")
+
+    conn = gl.connect()
+    person_nodes = {
+        row["path"]: {"title": row["title"] or "", "predicates": set(),
+                      "categories": set(), "paper_count": 0,
+                      "corresponding_count": 0, "meeting_count": 0}
+        for row in conn.execute(
+            "SELECT path, title FROM nodes WHERE entity_subtype='person'"
+        )
+    }
+
+    # 过滤：已有 people page、占位符、机构
+    def _is_valid_person(path: str, title: str) -> bool:
+        if "/wiki/authors/" in path:
+            return False  # 已有 people page
+        if not title or title.startswith(("（", "(")):
+            return False  # 占位符
+        title_lower = title.lower()
+        if any(kw in title_lower for kw in org_keywords):
+            return False  # 机构名
+        return True
+
+    valid_persons = {p: info for p, info in person_nodes.items()
+                     if _is_valid_person(p, info["title"])}
+    if not valid_persons:
+        _write_people_pending(REPO, [])
+        return {"candidates": [], "pending_total": 0}
+
+    # 统计关系
+    for row in conn.execute("SELECT subject, predicate, object FROM edges"):
+        pred = row["predicate"]
+        if pred not in person_predicates:
+            continue
+        subj, obj = row["subject"], row["object"]
+        for person_path, other_path in ((subj, obj), (obj, subj)):
+            if person_path not in valid_persons:
+                continue
+            info = valid_persons[person_path]
+            info["predicates"].add(pred)
+            if pred in rel_categories:
+                info["categories"].add(rel_categories[pred])
+            if pred == "作者" and "/wiki/papers/" in other_path:
+                info["paper_count"] += 1
+            elif pred == "通讯作者" and "/wiki/papers/" in other_path:
+                info["corresponding_count"] += 1
+            elif pred == "参会" and ("/wiki/conferences/" in other_path or "/wiki/meetings/" in other_path):
+                info["meeting_count"] += 1
+
+    # 筛选达标者
+    candidates = []
+    for path, info in valid_persons.items():
+        criteria = []
+        if info["paper_count"] >= 6:
+            criteria.append("multi_paper_author")
+        if info["corresponding_count"] >= 4:
+            criteria.append("multi_corresponding")
+        if info["meeting_count"] >= 3:
+            criteria.append("multi_meeting")
+        if len(info["categories"]) >= 2:
+            criteria.append("multi_relationship_type")
+        if not criteria:
+            continue
+        candidates.append({
+            "path": path,
+            "name": info["title"],
+            "criteria": criteria,
+            "paper_count": info["paper_count"],
+            "corresponding_count": info["corresponding_count"],
+            "meeting_count": info["meeting_count"],
+            "relationship_categories": sorted(info["categories"]),
+            "detected_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
+
+    candidates.sort(key=lambda c: (-c["paper_count"], -c["meeting_count"], c["name"]))
+    pending_total = _write_people_pending(REPO, candidates)
+    return {"candidates": candidates, "pending_total": pending_total}
+
+
+def _write_people_pending(REPO: Path, candidates: list) -> int:
+    """写入 people-pending.jsonl（全量覆盖，幂等）。"""
+    pending_path = REPO / "cross-domain" / "people-pending.jsonl"
+    pending_path.parent.mkdir(parents=True, exist_ok=True)
+    with pending_path.open("w", encoding="utf-8") as handle:
+        for entry in candidates:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return len(candidates)
+
+
+def step_validate_graph(state: dict, REPO: Path) -> list[str]:
+    """运行 ingest_check.py --graph，返回 ERROR 列表。"""
+    wiki_path = REPO / (state["wiki_path"] + ".md")
+    cmd = [sys.executable, str(REPO / ".scripts/ingest_check.py"),
+           "--graph", str(wiki_path.relative_to(REPO))]
+    start = time.monotonic()
+    result = subprocess.run(cmd, cwd=REPO, text=True, capture_output=True)
+    record_subprocess(state, "ingest_check", cmd, result.returncode,
+                       int((time.monotonic() - start) * 1000))
+    if result.returncode == 0:
+        return []
+    return parse_check_errors(result.stdout + result.stderr)
+
+
+def step_finalize(state: dict, REPO: Path, config: dict) -> tuple[bool, str]:
+    """调 inbox_finalize.py 原子落位 raw/wiki 到最终目录。
+
+    config:
+        doc_id_key: state 中的 ID 字段名（如 "paper_id"）
+        manifest_files: list[str] | None — None 不建 manifest；
+            非空则按存在性过滤后写入 manifest.json
+        copy_source: bool — 是否复制源文件到 extract_dir
+    """
+    extract_dir = REPO / state["extract_dir"]
+    raw_dir = REPO / state["raw_dir"]
+    wiki_path = REPO / (state["wiki_path"] + ".md")
+    if config.get("copy_source"):
+        import shutil
+        source_path = REPO / state["source"]
+        raw_dest = extract_dir / source_path.name
+        if not raw_dest.exists():
+            shutil.copy2(source_path, raw_dest)
+    manifest_files = config.get("manifest_files")
+    if callable(manifest_files):
+        manifest_files = manifest_files(state)
+    if manifest_files is not None:
+        raw_files = [name for name in manifest_files if (extract_dir / name).is_file()]
+        if not raw_files:
+            return False, "extract_dir 无可归档的 raw 文件"
+        manifest = {"raw_files": raw_files, "wiki_file": "wiki.md"}
+        (extract_dir / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False) + "\n", encoding="utf-8")
+    cmd = [sys.executable, str(REPO / ".scripts/inbox_finalize.py"),
+           "--paper-id", state[config["doc_id_key"]],
+           "--raw-dir", str(raw_dir.relative_to(REPO)),
+           "--wiki-path", str(wiki_path.relative_to(REPO)),
+           "--extract-dir", str(extract_dir.relative_to(REPO))]
+    if config.get("allow_existing_raw_dir"):
+        cmd.append("--allow-existing-raw-dir")
+    output = run(cmd, REPO)
+    receipt_match = re.search(r"receipt:\s*(.+)", output)
+    if receipt_match:
+        state["receipt"] = receipt_match.group(1).strip()
+    return True, ""
+
+
+def step_finalize_tail(state: dict, REPO: Path, config: dict) -> tuple[bool, str]:
+    """收尾三件：log.md 追加 + index.md 追加 + ingest_build 派生同步。
+
+    config:
+        doc_id_key: state 中的 ID 字段名
+        get_log_path: (state, REPO) -> Path
+        get_index_path: (state, REPO) -> Path
+        index_section: index.md 中的 section header（如 "## 论文"），None 则追加到末尾
+        entry_prefix: index 条目前缀（如 "papers/"），空串则无前缀
+        build_log_entry: (ctx) -> str — ctx 含 today/doc_id/page_name/title/edges/report/state/fm
+        build_entry: (ctx) -> str | None — 自定义 index 条目；None 则用默认格式
+        skip_index: bool — True 时跳过 index.md 追加（re-ingest 等已有索引场景）
+        frontier_capture: bool — 论文成功后限量捕获作者明示开放问题；失败仅 warning
+        frontier_answer: bool — 捕获后在当前 WikiGraph 内非阻断尝试回答；默认 True
+    """
+    import graph_lib as gl
+    today = datetime.now().strftime("%Y-%m-%d")
+    doc_id = state.get(config["doc_id_key"], "")
+    wiki_page = state.get("wiki_path", "")
+    page_name = wiki_page.rsplit("/", 1)[-1] if wiki_page else doc_id
+    report = state.get("graph_report") or {}
+    edges = report.get("edges_added", 0)
+    fm: dict = {}
+    try:
+        fm = gl.read_frontmatter(wiki_page)
+    except Exception:
+        pass
+    title = fm.get("title", "") or ""
+    ctx = {
+        "today": today, "doc_id": doc_id, "page_name": page_name,
+        "title": title, "edges": edges, "report": report,
+        "state": state, "fm": fm,
+    }
+    # 1. log.md
+    try:
+        log_path = config["get_log_path"](state, REPO)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_entry = config["build_log_entry"](ctx)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(log_entry)
+    except Exception as exc:
+        return False, "log.md 追加失败: " + str(exc)
+    # 2. index.md（skip_index=True 时跳过，如 re-ingest 已有索引）
+    if not config.get("skip_index"):
+        try:
+            index_path = config["get_index_path"](state, REPO)
+            index_path.parent.mkdir(parents=True, exist_ok=True)
+            build_entry = config.get("build_entry")
+            if build_entry:
+                entry = build_entry(ctx)
+            else:
+                desc = title[:60] + ("…" if len(title) > 60 else "")
+                entry = f"- [[{config.get('entry_prefix', '')}{page_name}]] — {desc}\n"
+            if index_path.is_file():
+                index_text = index_path.read_text(encoding="utf-8")
+                section = config.get("index_section")
+                if section and section in index_text:
+                    m = re.search(rf'({re.escape(section)}\n)(.*?)(?=^## |\Z)', index_text, re.S | re.M)
+                    if m:
+                        insert_at = m.start() + len(m.group(1)) + len(m.group(2))
+                        index_text = index_text[:insert_at] + entry + index_text[insert_at:]
+                    else:
+                        index_text += "\n" + section + "\n" + entry
+                else:
+                    index_text += entry
+                index_path.write_text(index_text, encoding="utf-8")
+            else:
+                index_path.write_text(f"# 索引\n\n{entry}", encoding="utf-8")
+        except Exception as exc:
+            return False, "index.md 追加失败: " + str(exc)
+    # 3. ingest_build
+    try:
+        run([sys.executable, str(REPO / ".scripts/ingest_build.py"), "--catalog"], REPO)
+    except Exception as exc:
+        return False, "ingest_build.py 失败: " + str(exc)
+    # 4. Frontier 候选捕获：独立于 ingest 事务，只抓作者明示问题/局限/future work。
+    # 失败不得让事实摄入回滚或失败。
+    if config.get("frontier_capture") and wiki_page:
+        cmd = [sys.executable, str(REPO / ".scripts/frontier.py"),
+               "capture-paper", wiki_page, "--limit", str(config.get("frontier_capture_limit", 3))]
+        if not config.get("frontier_answer", True):
+            cmd.append("--no-answer")
+        started = time.monotonic()
+        result = subprocess.run(cmd, cwd=REPO, text=True, capture_output=True)
+        record_subprocess(state, "frontier_capture", cmd, result.returncode,
+                          int((time.monotonic() - started) * 1000))
+        if result.returncode == 0:
+            try:
+                state["frontier_capture"] = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                state["frontier_capture"] = {"status": "degraded", "error": "非 JSON 输出"}
+        else:
+            warning = "Frontier 候选捕获失败（不影响 ingest）: " + (result.stderr or result.stdout).strip()[:300]
+            state.setdefault("warnings", []).append(warning)
+    return True, ""

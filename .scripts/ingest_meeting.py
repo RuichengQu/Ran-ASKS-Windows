@@ -1,0 +1,972 @@
+#!/usr/bin/env python3
+"""ingest_meeting.py — 代码驱动的会议纪要摄入编排器。
+
+3.3 由一个 Meeting Compiler specialist 单次完成转写纠错决策、wiki 编译与语义槽抽取；
+3.2 仅准备确定性人物候选，其余步骤全纯代码。
+流程: 3.1 dedup_check → 3.2 candidate_preprocess → 3.3 compile_meeting → 3.4 validate_wiki →
+3.5 fill_semantics → 3.6 validate_semantics → 落位 →
+3.7 update_graph → 3.8 validate_graph → 3.9 finalize_tail
+修复循环: wiki/语义槽硬错误回同一个 compiler 定向重写；warning 走 3.6b 局部修复。
+状态: temp/inbox-state/<txn-id>.json，可从任意步骤恢复。
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
+import yaml
+
+REPO = Path(__file__).resolve().parent.parent
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / ".scripts"))
+import agent_task
+import inbox_state
+import trash_util
+import ingest_common as ic
+import ingest_pipeline
+import recovery_policy as rp
+from meeting_compiler_contract import (
+    PREPROCESS_DELIMITER,
+    PROTOCOL_VERSION as MEETING_COMPILER_PROTOCOL,
+    apply_transcript_replacements,
+    parse_proposal_detailed,
+    task_context_hash,
+)
+from ingest_common import (validate_meta, extract_year_from_meta,
+                           has_type_mismatch, has_year_mismatch,
+                           progress, set_progress_file, set_progress_log_path)
+
+
+ingest_mode = agent_task.ingest_backend
+
+TEMP_EXTRACT = REPO / "temp" / "inbox-extract"
+NON_BLOCKING_ISSUES = ("bare_abbreviation", "descriptive_phrase")
+RECOVERY_LIMITS = rp.normalize_limits({
+    "wiki_revision": 1,
+    "semantic_revision": 1,
+    "deterministic_repair": 1,
+    "subagent": 1,
+})
+PIPELINE_PLAN_AGENT = [
+    {"step": "判断重复 + 候选准备", "needs_agent": False,
+     "desc": "dedup(查图+查raw) → speech_entity_resolver 只生成确定性人物候选，不修改原文"},
+    {"step": "会议编译", "needs_agent": True,
+     "desc": "当前宿主 Agent 执行 Meeting Compiler 任务，读取原文+人物候选，一次输出 <<<PREPROCESS>>> + <<<WIKI>>> + <<<SLOTS>>>"},
+    {"step": "更新 Graph + 校验 + 收尾", "needs_agent": False,
+     "desc": "validate→落位→graph_ingest 建边→validate_graph→finalize_tail(log/index/派生同步)+清理，--resume 一次调用完成"},
+]
+
+PIPELINE_PLAN_API = [
+    {"step": "摄入会议纪要（代码+API 全自动）", "needs_agent": False,
+     "desc": "dedup→候选准备→Meeting Compiler(API 单次语义编译)→validate→落位→统一 IR/建图→图校验→收尾+清理"},
+]
+
+def pipeline_plan_for(mode: str) -> list[dict]:
+    """按摄入后端模式返回对应流水线 plan。"""
+    return {"agent": PIPELINE_PLAN_AGENT, "api": PIPELINE_PLAN_API}.get(mode, PIPELINE_PLAN_AGENT)
+KNOWN_SECTIONS = {"参会者", "三元组"}
+
+
+# ===== 工具函数 =====
+
+def run(command: list[str]) -> str:
+    return ic.run(command, REPO)
+
+
+def slugify(text: str) -> str:
+    text = re.sub(r"[^\w\u4e00-\u9fff]+", "-", text).strip("-")
+    return text[:60] if text else "untitled"
+
+
+def extract_meeting_date(filename: str) -> str:
+    """从文件名提取 YYYYMMDD 或 MMDD，显式年份不得丢失。"""
+    stem = Path(filename).stem
+    m = re.match(r"^(\d{8})(?:[-_]|$)", stem)
+    if m:
+        return m.group(1)
+    m = re.match(r"^(\d{4})(?:[-_]|$)", stem)
+    if m:
+        return m.group(1)
+    return ""
+
+
+def meeting_date_context(date_str: str, *, today: str | None = None) -> dict:
+    """Return the committed date plus an explicit provenance marker."""
+    today_value = today or datetime.now().strftime("%Y-%m-%d")
+    current_year = today_value[:4]
+    if re.fullmatch(r"\d{8}", date_str):
+        return {
+            "date": f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}",
+            "storage_year": date_str[:4],
+            "date_inferred": False,
+            "date_basis": "filename_yyyymmdd",
+        }
+    if re.fullmatch(r"\d{4}", date_str):
+        return {
+            "date": f"{current_year}-{date_str[:2]}-{date_str[2:]}",
+            "storage_year": current_year,
+            "date_inferred": True,
+            "date_basis": "filename_mmdd_plus_ingest_year",
+        }
+    return {
+        "date": today_value,
+        "storage_year": current_year,
+        "date_inferred": True,
+        "date_basis": "ingest_date",
+    }
+
+
+def generate_meeting_id(filename: str, title: str) -> str:
+    """生成 meeting-id：MMDD-title-slug。"""
+    date_part = extract_meeting_date(filename)[-4:]
+    if not date_part:
+        date_part = datetime.now().strftime("%m%d")
+    slug = slugify(title)[:40] if title else slugify(Path(filename).stem)[:40]
+    return f"{date_part}-{slug}"
+
+
+def _fallback_meeting_title(corrected_text: str, filename: str) -> str:
+    """裸日期文件名没有 `#` 标题时，从修正文本首句提取短主题，避免 MMDD-MMDD。"""
+    for raw_line in corrected_text.splitlines():
+        line = re.sub(r"^\ufeff", "", raw_line).strip()
+        if not line or line.startswith("元宝会议助手"):
+            continue
+        line = re.sub(r"^(本次会议主要讨论了|本次会议主要讨论|会议主要讨论了|会议主要讨论)",
+                      "", line).strip("，。；;：: ")
+        if line:
+            line = re.split(r"[，。；;]", line, 1)[0].strip()
+            return line[:60]
+    return Path(filename).stem
+
+
+# 会议纪要存储路径按来源域区分：
+#   academic → academic/raw/conferences/<year>/ + academic/wiki/conferences/
+#   admin    → admin/raw/meetings/<year>/        + admin/wiki/meetings/
+#   business → business/raw/conferences/<year>/  + business/wiki/conferences/
+MEETING_DOMAINS = {
+    "academic": {"raw_sub": "conferences", "wiki_sub": "conferences", "log": "academic/wiki/log.md", "index": "academic/wiki/index.md"},
+    "admin":    {"raw_sub": "meetings",    "wiki_sub": "meetings",    "log": "admin/wiki/log.md",    "index": "admin/wiki/index.md"},
+    "business": {"raw_sub": "conferences", "wiki_sub": "conferences", "log": "business/wiki/log.md", "index": "business/wiki/index.md"},
+}
+
+def meeting_paths(subproject: str, meeting_id: str, year: str) -> dict:
+    """按来源域返回会议的 raw_dir / wiki_path / log / index 路径。"""
+    cfg = MEETING_DOMAINS.get(subproject, MEETING_DOMAINS["academic"])
+    return {
+        "raw_dir": f"{subproject}/raw/{cfg['raw_sub']}/{year}/{meeting_id}",
+        "wiki_path": f"{subproject}/wiki/{cfg['wiki_sub']}/{meeting_id}",
+        "log": cfg["log"],
+        "index": cfg["index"],
+    }
+
+
+def ensure_unique_meeting_id(meeting_id: str, subproject: str = "academic") -> str:
+    """冲突自动消歧：加 -2, -3..."""
+    base = meeting_id
+    cfg = MEETING_DOMAINS.get(subproject, MEETING_DOMAINS["academic"])
+    wiki_dir = REPO / subproject / "wiki" / cfg["wiki_sub"]
+    n = 1
+    while (wiki_dir / f"{meeting_id}.md").exists():
+        n += 1
+        meeting_id = f"{base}-{n}"
+    return meeting_id
+
+
+# ===== 3.1 dedup_check =====
+
+def step_dedup_check(state: dict) -> tuple[bool, str]:
+    """查 graph.db + raw 目录是否已摄入同一会议。"""
+    import graph_lib as gl
+    date_token = extract_meeting_date(state["source_filename"])
+    if not date_token:
+        return False, ""
+    date_part = date_token[-4:]
+    date_context = meeting_date_context(date_token)
+    subproject = state.get("subproject", "academic")
+    cfg = MEETING_DOMAINS.get(subproject, MEETING_DOMAINS["academic"])
+    conn = gl.connect()
+    # 图层按完整日期和来源域查重，避免跨年份、跨域的同月日误判。
+    path_prefix = f"{subproject}/wiki/{cfg['wiki_sub']}/%"
+    rows = conn.execute(
+        "SELECT path, title FROM nodes "
+        "WHERE type='conference-summary' AND date=? AND path LIKE ?",
+        (date_context["date"], path_prefix),
+    ).fetchall()
+    conn.close()
+    if rows:
+        state["dedup_result"] = [{"path": r[0], "title": r[1]} for r in rows]
+        state["dedup_title"] = rows[0][1]
+        return True, f"已摄入: {rows[0][0]}"
+    # 查 raw 目录（按来源域）
+    year = date_context["storage_year"]
+    raw_base = REPO / subproject / "raw" / cfg["raw_sub"] / year
+    if raw_base.exists():
+        for d in raw_base.iterdir():
+            if date_part in d.name:
+                state["dedup_result"] = [{"path": str(d.relative_to(REPO))}]
+                return True, f"已摄入(raw): {d.name}"
+    return False, ""
+
+
+# ===== 3.2 preprocess =====
+
+def step_preprocess(state: dict) -> tuple[bool, str]:
+    """Build deterministic entity candidates; semantic correction belongs to one compiler."""
+    extract_dir = REPO / state["extract_dir"]
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    source_path = REPO / state["source"]
+    candidate_path = extract_dir / "entity-candidates.json"
+    run([sys.executable, str(REPO / ".scripts/speech_entity_resolver.py"),
+                  str(source_path),
+                  "--output", str(candidate_path.relative_to(REPO))])
+    if not candidate_path.is_file():
+        return False, "speech_entity_resolver 未生成 entity-candidates.json"
+    state["entity_candidates"] = str(candidate_path.relative_to(REPO))
+    return True, ""
+
+
+def build_agent_meeting_wiki_slots_prompt(source_text: str, entity_candidates: str,
+                                        meeting_id: str, date_str: str,
+                                        sources_path: str, full_date: str, today: str,
+                                        errors: list[str] | None = None) -> str:
+    """Build the single Meeting Compiler task used by both API and agent backends."""
+    error_section = ""
+    if errors:
+        error_section = "\n\n[上次输出的问题（请修正）]\n" + "\n".join(f"- {e}" for e in errors)
+    return f"""你是受限的 Meeting Compiler 语义执行单元。请在同一上下文中一次性完成：
+1. 判断必要的转写/人物纠错；
+2. 编译会议 wiki；
+3. 抽取语义槽。
+
+[会议纪要原文，只读事实源]
+{source_text}
+
+[程序提供的人物候选目录；exact 项优先复用，review 项必须结合原文判断]
+{entity_candidates}{error_section}
+
+[会议 ID] {meeting_id}
+[日期] {full_date}
+[sources 路径] {sources_path}（frontmatter sources 字段必须精确使用此值，不得编造或用 memory:// 等占位）
+[今日日期] {today}（created、updated 字段使用此值）
+
+[要求]
+1. PREPROCESS 只列必要、证据明确的 exact replacements；original 必须是原文中的连续原串，replacement 不得含换行。没有可靠纠错就返回空数组。不要输出整份改写后的原文。
+2. entity_resolutions 逐项记录本轮采用的人物判断，status 只能是 resolved/unchanged/unresolved；证据不足必须 unresolved，不得猜测。
+3. Wiki 和 slots 必须基于同一组纠错与实体判断，禁止在两个产物中使用相互矛盾的人名或术语。
+4. 撰写 conference-summary 类型 wiki 页面，含 frontmatter 和正文。
+5. frontmatter 必须包含: title, type: conference-summary, sources（值为上方给定的 sources 路径）, source_type: speech-recognition, date（值为上方给定的日期）, confidence: low, status: current, created（今日日期）, updated（今日日期）。
+6. 正文结构: # 标题 → > 日期+参与者行（用 [[authors/路径|姓名]] 格式，复用人物候选）→ ## Navigation（2-4 句导航概述）→ ## Content（按议题分子段，- 列表项）。
+7. Wiki 简写、纠错、去口语化，但忠实于原文，不编造。
+8. 三元组客体须为规范概念名/实体名：不含逗号、卷号页码、年份或描述性短语；核心词格式统一为「中文英文(缩写)」；无公认缩写则不写括号；无对应中文则只写英文，无对应英文则只写中文。
+9. 会议纪要主要用于学术灵感与构思，三元组提取数量和密度宜低：只提取会议明确讨论的核心议题与学术判断，不提取顺带提及的背景知识。
+10. 严格按 META → PREPROCESS → WIKI → SLOTS 的顺序输出，不要增加第四种产物或解释文字。
+
+语义槽格式：
+参会者:
+<参会者 entity 路径，每行一个，复用上方人物映射>
+汇报者:
+<人名 entity | 汇报议题，每行一条。议题用规范学术概念名（中文英文缩写），如 cnu-ren-shengquan | 树状采样tree search sampling>
+决策:
+<决策或学术判断，每行一条。含行政决定与学术判断（实验结论、方法选择、理论判断），如 树状采样表现略优>
+待办:
+<任务 | 负责人 entity，每行一条。任务名用规范概念名，如 补充Agent对比实验 | cnu-ren-shengquan>
+三元组:
+<主体|谓词|客体，每行一条>
+主体用"本会议"代表这次会议；人物关系直接写人名/entity 路径作主体。
+会议→议题 建议谓词: 讨论（核心议题，兜底）/涉及（顺带提及）/规划（行动项/计划）
+议题→议题 建议谓词: 涉及（弱相关）/紧密相关于（强相关）
+人物→会议 谓词: 参会
+人物→人物 谓词: 指导/师从
+只使用以上谓词；未列出的谓词不要使用。汇报者、决策、待办是独立 section，不要重复写进三元组。
+
+[输出格式]
+PREPROCESS 中仅放一个合法 JSON 对象，之后直接接 <<<WIKI>>>；不添加 <<</PREPROCESS>>> 结束标签。
+<<<META>>>
+doc_date: <会议日期，从纪要内容提取；有什么提什么，如 2024-03 或 2024-03-15>
+title: <会议标题>
+doc_type: meeting
+<<</META>>>
+{PREPROCESS_DELIMITER}
+{{"protocol_version":"{MEETING_COMPILER_PROTOCOL}","transcript_replacements":[{{"original":"原文精确片段","replacement":"纠正后片段","reason":"原文或人物候选依据"}}],"entity_resolutions":[{{"mention":"原文称呼","canonical":"entity 路径或规范姓名；unresolved 时为空串","status":"resolved|unchanged|unresolved","reason":"判断依据"}}]}}
+<<<WIKI>>>
+（完整 wiki markdown，含 frontmatter）
+<<<SLOTS>>>
+（语义槽）"""
+
+# ===== 3.3 write_wiki + semantic slots =====
+
+
+def _load_entity_candidates(state: dict) -> tuple[dict, str]:
+    candidate_relative = state.get("entity_candidates") or state.get("entity_resolution", "")
+    if not candidate_relative:
+        return {}, ""
+    candidate_path = REPO / candidate_relative
+    if not candidate_path.is_file():
+        return {}, ""
+    try:
+        return json.loads(candidate_path.read_text(encoding="utf-8")), ""
+    except (OSError, json.JSONDecodeError):
+        return {}, "entity candidate catalog 解析失败"
+
+
+def _compiler_request(state: dict, source_text: str, entity_candidates: dict, *,
+                      host_agent: bool, extra_errors: list[str] | None = None
+                      ) -> tuple[str, str]:
+    date_str = state.get("date_str", "")
+    today = datetime.now().strftime("%Y-%m-%d")
+    date_context = meeting_date_context(date_str, today=today)
+    state.update(date_context)
+    full_date = date_context["date"]
+    sources_path = f"{state['raw_dir']}/{state['source_filename']}"
+    errors = []
+    for key in ("wiki_errors", "slots_errors", "compiler_errors"):
+        for error in state.get(key, []) or []:
+            if str(error) not in errors:
+                errors.append(str(error))
+    for error in extra_errors or []:
+        if str(error) not in errors:
+            errors.append(str(error))
+    source_context = source_text
+    if host_agent:
+        source_context = (
+            f"请使用读取工具完整读取仓库内 `{state['source']}` 一次。"
+            "不要用 shell 头尾切片，不要修改该文件。"
+        )
+    prompt = build_agent_meeting_wiki_slots_prompt(
+        source_context,
+        json.dumps(entity_candidates, ensure_ascii=False, sort_keys=True),
+        state["meeting_id"], date_str, sources_path, full_date, today,
+        errors or None,
+    )
+    context_hash = task_context_hash(
+        source_text,
+        entity_candidates,
+        meeting_id=state["meeting_id"],
+        target_source_path=sources_path,
+        errors=errors,
+    )
+    return prompt, context_hash
+
+
+def prepare_meeting_agent_task(state: dict, source_text: str, entity_candidates: dict,
+                               output_path: Path, errors: list[str]) -> dict:
+    """Expose the shared Meeting Compiler contract without an Agent prompt."""
+    sources_path = f"{state['raw_dir']}/{state['source_filename']}"
+    context_hash = task_context_hash(
+        source_text, entity_candidates, meeting_id=state["meeting_id"],
+        target_source_path=sources_path, errors=errors,
+    )
+    inputs = [{
+        "name": "meeting_transcript", "path": state["source"],
+        "role": "authoritative_source", "read": "full",
+    }]
+    candidate_path = state.get("entity_candidates") or state.get("entity_resolution")
+    if candidate_path:
+        inputs.append({
+            "name": "entity_candidates", "path": candidate_path,
+            "role": "deterministic_candidate_catalog",
+        })
+    task = agent_task.prepare(
+        state,
+        kind="ingest_meeting",
+        transaction_id=state["transaction_id"],
+        inputs=inputs,
+        outputs=[{
+            "name": "meeting_compiler_output",
+            "path": str(output_path.relative_to(REPO)),
+            "format": MEETING_COMPILER_PROTOCOL,
+        }],
+        protocol={
+            "name": MEETING_COMPILER_PROTOCOL,
+            "order": ["META", "PREPROCESS", "WIKI", "SLOTS"],
+            "delimiters": {
+                "meta": ["<<<META>>>", "<<</META>>>"],
+                "preprocess": PREPROCESS_DELIMITER,
+                "wiki": "<<<WIKI>>>",
+                "semantics": "<<<SLOTS>>>",
+            },
+            "preprocess_schema": {
+                "protocol_version": MEETING_COMPILER_PROTOCOL,
+                "transcript_replacements": ["original", "replacement", "reason"],
+                "entity_resolutions": ["mention", "canonical", "status", "reason"],
+            },
+            "wiki": {"required_sections": ["Navigation", "Content"]},
+            "semantics": {
+                "sections": ["参会者", "汇报者", "决策", "待办", "三元组"],
+                "subject": "本会议",
+            },
+            "validator": "meeting compiler parser plus Wiki/semantic/graph validators",
+        },
+        issues=errors,
+        commands={
+            "resume": f"python3 .scripts/ingest_meeting.py --resume {state['transaction_id']}",
+        },
+        context={
+            "meeting_id": state["meeting_id"],
+            "subproject": state.get("subproject", "academic"),
+            "date": state.get("date") or None,
+            "date_inferred": bool(state.get("date_inferred")),
+            "target_source_path": sources_path,
+            "context_hash": context_hash,
+            "spec_locator": "operations/INGEST.md",
+        },
+    )
+    state["meeting_compiler"] = {
+        "protocol_version": MEETING_COMPILER_PROTOCOL,
+        "status": "prepared",
+        "reason": "current_agent_task",
+        "context_hash": context_hash,
+        "model_calls": 0,
+    }
+    return task
+
+
+def run_api_meeting_compiler(task_fields: dict):
+    """Run the API-only Meeting Compiler adapter behind a patchable seam."""
+    from dsh.meeting_compiler_agent import MeetingCompilerAgent, MeetingCompilerTask
+
+    return MeetingCompilerAgent(MeetingCompilerTask(**task_fields)).run()
+
+
+def _compiler_retry_context(state: dict, input_hash: str) -> dict:
+    attempts = state.get("meeting_compiler_attempts") or []
+    if not attempts or not attempts[-1].get("output_artifact"):
+        return {}
+    latest = attempts[-1]
+    if latest.get("input_hash") != input_hash:
+        return {}
+    expected = REPO / state["extract_dir"] / f"compiler-attempt-{len(attempts)}.json"
+    artifact = REPO / latest["output_artifact"]
+    if artifact.resolve() != expected.resolve():
+        raise ValueError("compiler retry artifact does not match latest transaction attempt")
+    encoded = artifact.read_bytes()
+    if hashlib.sha256(encoded).hexdigest() != latest.get("artifact_sha256"):
+        raise ValueError("compiler retry artifact hash mismatch")
+    payload = json.loads(encoded)
+    if (payload.get("transaction_id") != state.get("transaction_id", "")
+            or payload.get("attempt") != len(attempts)
+            or payload.get("input_hash") != input_hash):
+        raise ValueError("compiler retry artifact identity mismatch")
+    return {"previous_output": payload["response_text"],
+            "previous_diagnostic": payload["diagnostic"]}
+
+
+def _record_compiler_output(state: dict, result, trace: dict, input_hash: str) -> None:
+    attempts = state.setdefault("meeting_compiler_attempts", [])
+    attempts.append(trace)
+    if not hasattr(result, "response_text"):
+        return
+    artifact = REPO / state["extract_dir"] / f"compiler-attempt-{len(attempts)}.json"
+    payload = {
+        "transaction_id": state.get("transaction_id", ""), "attempt": len(attempts),
+        "input_hash": input_hash, "context_hash": trace["context_hash"],
+        "status": result.status, "reason": result.reason,
+        "response_text": result.response_text, "diagnostic": result.diagnostic,
+    }
+    encoded = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    artifact.write_bytes(encoded)
+    artifact.chmod(0o600)
+    trace.update({"output_artifact": str(artifact.relative_to(REPO)),
+                  "artifact_sha256": hashlib.sha256(encoded).hexdigest(),
+                  "input_hash": input_hash})
+
+
+def step_prepare_unified_handoff(state: dict, errors: list[str],
+                                 handoff_reason: str = "wiki_revision_budget_exhausted"
+                                 ) -> tuple[bool, str]:
+    """Keep exhausted compiler recovery on the full Meeting Compiler protocol."""
+    source_path = REPO / state["source"]
+    try:
+        source_text = source_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return False, f"会议原文读取失败: {exc}"
+    entity_candidates, candidate_error = _load_entity_candidates(state)
+    if candidate_error:
+        return False, candidate_error
+    prompt, context_hash = _compiler_request(
+        state, source_text, entity_candidates, host_agent=True, extra_errors=errors,
+    )
+    agent_output = REPO / state["extract_dir"] / "agent-meeting-compiler.txt"
+    state["_awaiting_agent_wiki_slots"] = True
+    state["agent_prompt"] = prompt
+    state["agent_write_to"] = str(agent_output.relative_to(REPO))
+    state["compiler_errors"] = list(dict.fromkeys(str(error) for error in errors))
+    state["meeting_compiler"] = {
+        "protocol_version": MEETING_COMPILER_PROTOCOL,
+        "status": "agent_required",
+        "reason": handoff_reason,
+        "context_hash": context_hash,
+    }
+    state["agent_required"] = True
+    return True, ""
+
+
+def _meeting_frontmatter(markdown: str) -> tuple[dict, str]:
+    """Parse only the YAML header; never interpret or rewrite meeting body text."""
+    match = re.match(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?=\r?\n|\Z)", markdown, re.S)
+    if not match:
+        raise ValueError("frontmatter 格式错误")
+    try:
+        frontmatter = yaml.safe_load(match.group(1))
+    except yaml.YAMLError as exc:
+        raise ValueError(f"frontmatter YAML 无效: {exc}") from exc
+    if not isinstance(frontmatter, dict):
+        raise ValueError("frontmatter 必须是 YAML mapping")
+    return frontmatter, markdown[match.end():]
+
+
+def bind_meeting_source(markdown: str, source_path: str) -> str:
+    """Bind the program-owned canonical Raw path regardless of proposal YAML style."""
+    frontmatter, body = _meeting_frontmatter(markdown)
+    frontmatter["sources"] = [source_path]
+    header = yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False).rstrip("\n")
+    return f"---\n{header}\n---{body}"
+
+
+def step_write_wiki(state: dict) -> tuple[bool, str]:
+    """Run or consume the one-shot Meeting Compiler proposal."""
+    extract_dir = REPO / state["extract_dir"]
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    source_path = REPO / state["source"]
+    source_text = source_path.read_text(encoding="utf-8")
+    agent_output = extract_dir / "agent-meeting-compiler.txt"
+    resumed_compiler = state.pop("_awaiting_agent_wiki_slots", False)
+    entity_candidates, candidate_error = _load_entity_candidates(state)
+    if candidate_error:
+        return False, candidate_error
+    # 生成 meeting-id（仅首次）
+    subproject = state.get("subproject", "academic")
+    if "meeting_id" not in state:
+        title = ""
+        m = re.search(r"^#\s+(.+)", source_text, re.M)
+        if m:
+            title = m.group(1).strip()
+        if not title:
+            title = _fallback_meeting_title(source_text, state["source_filename"])
+        base_id = generate_meeting_id(state["source_filename"], title)
+        meeting_id = ensure_unique_meeting_id(base_id, subproject)
+        state["meeting_id"] = meeting_id
+        state["meeting_id_source"] = "source_heading" if m else "source_fallback"
+        date_context = meeting_date_context(state.get("date_str", ""))
+        state.update(date_context)
+        mp = meeting_paths(subproject, meeting_id, date_context["storage_year"])
+        state["raw_dir"] = mp["raw_dir"]
+        state["wiki_path"] = mp["wiki_path"]
+        state["log_path"] = mp["log"]
+        state["index_path"] = mp["index"]
+    sources_path = f"{state['raw_dir']}/{state['source_filename']}"
+    errors = list(state.get("wiki_errors", []) or [])
+    errors.extend(state.get("slots_errors", []) or [])
+    errors.extend(state.get("compiler_errors", []) or [])
+    if not resumed_compiler and ingest_mode() == "agent":
+        state["_awaiting_agent_wiki_slots"] = True
+        prepare_meeting_agent_task(state, source_text, entity_candidates, agent_output, errors)
+        return False, "Agent task prepared"
+    prompt, context_hash = _compiler_request(
+        state, source_text, entity_candidates, host_agent=False,
+    )
+    if resumed_compiler:
+        if not agent_output.is_file():
+            state["_awaiting_agent_wiki_slots"] = True
+            agent_task.reopen(
+                state, [f"缺少暂存产物: {agent_output.relative_to(REPO)}"],
+            )
+            return False, f"agent 输出尚未写入: {agent_output.relative_to(REPO)}"
+        proposal, parse_error, diagnostic = parse_proposal_detailed(
+            agent_output.read_text(encoding="utf-8")
+        )
+        if proposal is None:
+            state["_awaiting_agent_wiki_slots"] = True
+            agent_task.reopen(state, [parse_error, json.dumps(diagnostic, ensure_ascii=False)])
+            return False, parse_error
+        state["meeting_compiler"] = {
+            "protocol_version": MEETING_COMPILER_PROTOCOL,
+            "status": "compiled",
+            "reason": "host_agent_output_validated",
+            "context_hash": context_hash,
+            "model_calls": 0,
+        }
+    else:
+        input_hash = task_context_hash(
+            source_text, entity_candidates, meeting_id="", target_source_path="",
+        )
+        try:
+            retry_context = _compiler_retry_context(state, input_hash) if errors else {}
+        except (OSError, ValueError) as exc:
+            return False, f"Meeting Compiler 重试上下文读取失败: {exc}"
+        result = run_api_meeting_compiler({
+            "transaction_id": state.get("transaction_id", ""),
+            "source_path": state["source"],
+            "meeting_id": state["meeting_id"],
+            "target_source_path": sources_path,
+            "context_hash": context_hash,
+            "prompt": prompt,
+            "errors": tuple(errors),
+            **retry_context,
+        })
+        compiler_trace = result.trace() | {"context_hash": context_hash}
+        state["meeting_compiler"] = compiler_trace
+        try:
+            _record_compiler_output(state, result, compiler_trace, input_hash)
+        except OSError as exc:
+            return False, f"Meeting Compiler 产出暂存失败: {exc}"
+        if result.status == "agent_required":
+            state["_awaiting_agent_wiki_slots"] = True
+            state["agent_required"] = True
+            state["agent_prompt"] = result.prompt
+            state["agent_write_to"] = str(agent_output.relative_to(REPO))
+            return False, "需要宿主 Agent 接管 Meeting Compiler 任务"
+        if result.status != "compiled" or result.proposal is None:
+            if result.status == "rejected":
+                state["compiler_errors"] = [str(result.reason)]
+            return False, f"Meeting Compiler 失败: {result.reason}"
+        proposal = result.proposal
+    # META 交叉校验
+    meta = proposal.get("meta") or {}
+    if meta:
+        expected_year = "" if state.get("date_inferred") else state.get("storage_year", "")
+        mismatches = validate_meta(meta, {"doc_type": "meeting", "year": expected_year})
+        if has_type_mismatch(mismatches):
+            state["type_mismatch"] = True
+            state["meta_mismatches"] = mismatches
+            state["meta_info"] = meta
+            return False, f"doc_type 不一致（程序=meeting, LLM={meta.get('doc_type', '')}），跳过待 agent 判断"
+        if has_year_mismatch(mismatches):
+            state["meta_year_ignored"] = {
+                "authoritative_year": expected_year,
+                "compiler_year": extract_year_from_meta(meta),
+                "reason": "explicit_filename_year_is_authoritative",
+            }
+        compiler_title = str(meta.get("title") or "").strip()
+        if compiler_title and state.get("meeting_id_source") != "compiler_meta":
+            previous_id = state["meeting_id"]
+            final_id = ensure_unique_meeting_id(
+                generate_meeting_id(state["source_filename"], compiler_title), subproject,
+            )
+            state["meeting_id"] = final_id
+            state["meeting_id_source"] = "compiler_meta"
+            state["meeting_id_rebased_from"] = previous_id
+            mp = meeting_paths(subproject, final_id, state["storage_year"])
+            state["raw_dir"] = mp["raw_dir"]
+            state["wiki_path"] = mp["wiki_path"]
+            state["log_path"] = mp["log"]
+            state["index_path"] = mp["index"]
+    preprocess = proposal["preprocess"]
+    try:
+        corrected_text = apply_transcript_replacements(
+            source_text, preprocess["transcript_replacements"]
+        )
+    except ValueError as exc:
+        return False, f"Meeting Compiler PREPROCESS 无法安全应用: {exc}"
+    wiki_content = proposal["wiki_markdown"]
+    wiki_content = re.sub(
+        r"(?m)^date:\s*.*$", f"date: {state['date']}", wiki_content, count=1,
+    )
+    wiki_content = re.sub(r"(?m)^date_inferred:\s*.*\n?", "", wiki_content)
+    if state.get("date_inferred"):
+        wiki_content = re.sub(
+            r"(?m)^(date:\s*.*)$", r"\1\ndate_inferred: true", wiki_content, count=1,
+        )
+    # Canonical ID may have changed after META; bind YAML, not one list spelling.
+    correct_source = f"{state['raw_dir']}/{state['source_filename']}"
+    try:
+        wiki_content = bind_meeting_source(wiki_content, correct_source)
+    except ValueError as exc:
+        return False, str(exc)
+    corrected_path = extract_dir / "corrected.txt"
+    corrected_path.write_text(corrected_text, encoding="utf-8")
+    resolution = dict(entity_candidates)
+    resolution.update({
+        "protocol_version": MEETING_COMPILER_PROTOCOL,
+        "compiler_context_hash": context_hash,
+        "compiler_entity_resolutions": preprocess["entity_resolutions"],
+        "compiler_transcript_replacements": preprocess["transcript_replacements"],
+    })
+    resolution_path = extract_dir / "entity-resolution.json"
+    resolution_path.write_text(
+        json.dumps(resolution, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (extract_dir / "wiki.md").write_text(wiki_content, encoding="utf-8")
+    state["corrected_path"] = str(corrected_path.relative_to(REPO))
+    state["entity_resolution"] = str(resolution_path.relative_to(REPO))
+    state["wiki_content"] = wiki_content
+    state["slots_content"] = proposal["semantic_slots"]
+    state["semantic_worker"] = "meeting-compiler-agent" if resumed_compiler else "meeting-compiler-api"
+    if resumed_compiler:
+        agent_task.mark_consumed(state)
+    return True, ""
+
+
+# ===== 3.4 validate_wiki =====
+
+def step_validate_wiki(state: dict) -> list[str]:
+    """校验 wiki 结构：frontmatter 必填字段 + 段落。"""
+    wiki = state.get("wiki_content", "")
+    errors = []
+    if not wiki.startswith("---"):
+        errors.append("缺少 frontmatter 起始 ---")
+        return errors
+    try:
+        fm, _body = _meeting_frontmatter(wiki)
+    except ValueError as exc:
+        return [str(exc)]
+    required = ["title", "type", "sources", "source_type", "date"]
+    for field in required:
+        if field not in fm:
+            errors.append(f"frontmatter 缺字段: {field}")
+    if fm.get("type") != "conference-summary":
+        errors.append("type 应为 conference-summary")
+    if not state.get("raw_dir") or not state.get("source_filename"):
+        errors.append("sources 缺少事务最终 Raw 路径，不能校验来源绑定")
+    else:
+        expected = f"{state['raw_dir']}/{state['source_filename']}"
+        actual = fm.get("sources")
+        if isinstance(actual, str):
+            actual = [actual]
+        if actual != [expected]:
+            errors.append(f"sources 必须精确绑定最终 Raw 路径: {expected}")
+    if "## Navigation" not in wiki:
+        errors.append("缺少 ## Navigation 段")
+    if "## Content" not in wiki:
+        errors.append("缺少 ## Content 段")
+    return errors
+
+
+# ===== 3.3b write_slots =====
+
+def step_write_slots(state: dict) -> tuple[bool, str]:
+    """Consume slots emitted by the same Meeting Compiler invocation."""
+    if state.get("slots_content"):
+        return True, ""
+    return False, "Meeting Compiler 未产出 <<<SLOTS>>> 段"
+
+
+# ===== 3.5 fill_semantics =====
+
+def normalize_slots(text: str) -> str:
+    """归一化语义槽格式。"""
+    lines = text.splitlines()
+    result = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        result.append(stripped)
+    return "\n".join(result) + "\n"
+
+
+# step_fill_semantics → ic.step_fill_semantics(state, REPO, normalize_slots)
+
+
+# ===== 3.6 validate_semantics =====
+
+def is_clearly_descriptive(obj: str) -> bool:
+    if len(obj) <= 8:
+        return False
+    return bool(re.search(r'[\u3002,\uff0c\uff1b;]', obj))
+
+
+def _meeting_allowed_predicates() -> set[str]:
+    """会议域合法谓词集（含 predicate_tiers.yaml 登记的）。"""
+    allowed = {"参会", "讨论", "涉及", "汇报", "规划", "决策",
+               "指导", "师从", "受指导于", "待办"}
+    try:
+        import yaml
+        tiers = yaml.safe_load((REPO / ".scripts/predicate_tiers.yaml").read_text(encoding="utf-8"))
+        for pred_name in (tiers.get("predicates") or {}):
+            allowed.add(pred_name)
+    except Exception:
+        pass
+    return allowed
+
+
+def step_validate_semantics(state: dict) -> tuple[list[str], list[dict]]:
+    """校验语义槽合法性（委托 ingest_common）。"""
+    return ic.validate_semantics(state, REPO, _meeting_allowed_predicates())
+
+
+def step_repair_slots(state: dict, warnings: list[dict]) -> tuple[bool, str]:
+    """3.6b：机械修复优先，剩余问题最多一次结构化 Worker。"""
+    return ic.repair_slots(
+        state, REPO, warnings, step_validate_semantics,
+        non_blocking_issues=NON_BLOCKING_ISSUES,
+    )
+
+
+# ===== 落位（委托 ingest_common）=====
+
+FINALIZE_CONFIG = {
+    "doc_id_key": "meeting_id",
+    "manifest_files": lambda state: [state["source_filename"], "corrected.txt", "entity-resolution.json"],
+    "copy_source": True,
+}
+
+FINALIZE_TAIL_CONFIG = {
+    "doc_id_key": "meeting_id",
+    "get_log_path": lambda state, REPO: REPO / state.get("log_path", "academic/wiki/log.md"),
+    "get_index_path": lambda state, REPO: REPO / state.get("index_path", "academic/wiki/index.md"),
+    "index_section": "## 会议",
+    "entry_prefix": "conferences/",
+    "build_log_entry": lambda ctx: (
+        "\n## [" + ctx["today"] + "] ingest | ingest_meeting.py 摄入 " + ctx["doc_id"] + "\n"
+        "- **来源与归档**：inbox 会议纪要经 speech_entity_resolver 纠错后落位至 `"
+        + ctx["state"].get("raw_dir", "") + "/`。\n"
+        "- **来源页**：新建 `conferences/" + ctx["page_name"] + ".md`（conference-summary），" + ctx["title"] + "。\n"
+        "- **图谱巩固**：增量写入 " + str(ctx["edges"]) + " 条边"
+        + ("，catch-all 关键词 " + str(ctx["report"].get("catch_all_keywords_added", 0)) + " 个"
+           if ctx["report"].get("catch_all_keywords_added") else "") + "。\n"
+        "- **验证**：`ingest_check --graph` PASS（ERROR=0）。\n"
+    ),
+}
+
+
+def step_finalize(state: dict) -> tuple[bool, str]:
+    return ic.step_finalize(state, REPO, FINALIZE_CONFIG)
+
+
+def step_update_graph(state: dict) -> tuple[bool, str]:
+    return ic.step_update_graph(state, REPO)
+
+
+def step_validate_graph(state: dict) -> list[str]:
+    return ic.step_validate_graph(state, REPO)
+
+
+def step_finalize_tail(state: dict) -> tuple[bool, str]:
+    return ic.step_finalize_tail(state, REPO, FINALIZE_TAIL_CONFIG)
+
+# ===== 主编排循环 =====
+
+
+
+MEETING_SPEC = {
+    "script_name": "ingest_meeting.py",
+    "preprocess_label": "speech_entity_resolver 人物候选准备",
+    "unified_semantic_worker": True,
+    "completion_label_key": "meeting_id",
+    "cleanup_after": "validate_graph",
+    "rollback_fn": None,
+    "finalize_tail_failure": "warn",
+    "recovery_limits": RECOVERY_LIMITS,
+    "non_blocking_issues": NON_BLOCKING_ISSUES,
+    "normalize_slots": normalize_slots,
+    "steps": {
+        "dedup_check": step_dedup_check,
+        "preprocess": step_preprocess,
+        "write_wiki": step_write_wiki,
+        "validate_wiki": step_validate_wiki,
+        "write_slots": step_write_slots,
+        "validate_semantics": step_validate_semantics,
+        "repair_slots": step_repair_slots,
+        "prepare_unified_handoff": step_prepare_unified_handoff,
+        "finalize": step_finalize,
+        "update_graph": step_update_graph,
+        "validate_graph": step_validate_graph,
+        "finalize_tail": step_finalize_tail,
+    },
+}
+
+
+def run_pipeline(state: dict) -> dict:
+    return ingest_pipeline.run_pipeline(state, MEETING_SPEC, progress)
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--txt", help="inbox/ 下的会议纪要 .txt 文件路径")
+    parser.add_argument("--subproject", default="academic",
+                        choices=["academic", "admin", "business"],
+                        help="会议来源域（决定存储路径）：academic(默认)/admin/business")
+    parser.add_argument("--resume", help="恢复已有事务 ID")
+    parser.add_argument("--verbose", action="store_true", help="进度打印到 stdout")
+    args = parser.parse_args()
+    is_resume = bool(args.resume)
+    if args.resume:
+        state = inbox_state.load(args.resume)
+        if not state:
+            raise SystemExit(f"ERROR: 事务不存在: {args.resume}")
+    elif args.txt:
+        txt_path = (REPO / args.txt).resolve()
+        if not txt_path.is_file():
+            raise SystemExit(f"ERROR: 文件不存在: {args.txt}")
+        txn_id = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + slugify(txt_path.stem)[:20]
+        state = {
+            "transaction_id": txn_id,
+            "status": "dedup_check",
+            "source": str(txt_path.relative_to(REPO)),
+            "source_filename": txt_path.name,
+            "date_str": extract_meeting_date(txt_path.name),
+            "subproject": args.subproject,
+            "extract_dir": f"temp/inbox-extract/{txn_id}",
+            "retry_count": 0,
+            "errors": [],
+        }
+    else:
+        parser.error("需要 --txt 或 --resume")
+    if not args.verbose:
+        import os
+        os.makedirs("temp/inbox-state", exist_ok=True)
+        log_path = f"temp/inbox-state/{state['transaction_id']}.log"
+        set_progress_file(open(log_path, "a", encoding="utf-8"))
+        set_progress_log_path(log_path)
+        progress(f"ingest_meeting.py 日志: {log_path}")
+    try:
+        state = run_pipeline(state)
+    except Exception as exc:
+        state["status"] = "failed"
+        state["errors"] = [f"未预期异常: {type(exc).__name__}: {exc}"]
+        inbox_state.save(state["transaction_id"], state)
+    if is_resume:
+        maintenance = ic.run_resume_post_maintenance(state)
+        if maintenance is not None:
+            state["maintenance"] = maintenance
+            inbox_state.save(state["transaction_id"], state)
+    if state["status"] == "completed":
+        payload = {
+            "status": "completed",
+            "meeting_id": state.get("meeting_id"),
+            "raw_dir": state.get("raw_dir"),
+            "wiki_path": state.get("wiki_path"),
+            "graph_report": state.get("graph_report"),
+            "transaction_id": state["transaction_id"],
+        }
+        if state.get("maintenance") is not None:
+            payload["maintenance"] = state["maintenance"]
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    elif state["status"] == "duplicate_found":
+        print(json.dumps({
+            "status": "duplicate_found",
+            "dedup_result": state.get("dedup_result"),
+            "transaction_id": state["transaction_id"],
+        }, ensure_ascii=False, indent=2))
+    elif agent_task.is_prepared(state):
+        print(json.dumps(agent_task.payload(state), ensure_ascii=False, indent=2))
+    elif state["status"] == "agent_required":
+        print(json.dumps(inbox_state.output_payload(state, {
+            "status": "agent_required",
+            "message": "API 自动流程需要外部 Meeting Compiler 修正",
+            "prompt": state.get("agent_prompt", ""),
+            "write_to": state.get("agent_write_to", ""),
+            "pipeline_plan": pipeline_plan_for(ingest_mode()),
+            "transaction_id": state["transaction_id"],
+        }), ensure_ascii=False, indent=2))
+    else:
+        print(json.dumps(inbox_state.output_payload(state, {
+            "status": state["status"],
+            "errors": state.get("errors", []),
+            "transaction_id": state["transaction_id"],
+        }), ensure_ascii=False, indent=2))
+        log_path = ic.get_progress_log_path()
+        if log_path:
+            print(f"日志: {log_path}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

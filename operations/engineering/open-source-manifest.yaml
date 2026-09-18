@@ -1,0 +1,92 @@
+version: 1
+purpose: "公开发布白名单：只允许此清单声明的工程文件进入开源副本。"
+include:
+  - VERSION
+  - AGENTS.md
+  - .env.example
+  - .gitignore
+  - preprocess.py
+  - .scripts/**
+  - .codex/skills/manuscript-diagnosis/SKILL.md
+  - .codex/skills/manuscript-diagnosis/agents/openai.yaml
+  - .codex/skills/manuscript-diagnosis/scripts/diagnosis_preflight.py
+  - .codex/skills/manuscript-diagnosis/scripts/test_diagnosis_preflight.py
+  - agents/**
+  - dsh/**
+  - operations/**
+  - academic/SCHEMA.md
+  - admin/SCHEMA.md
+  - teaching/SCHEMA.md
+  - business/SCHEMA.md
+  - cross-domain/SCHEMA.md
+  - paper-artifacts/**
+  - operations/engineering/engineering-handbook.md
+  - operations/engineering/code-guidance.md
+exclude:
+  - "**/.DS_Store"
+  - .scripts/e1_experiment.py
+  - .scripts/e1_order_robustness.py
+  - .scripts/test_e1_experiment.py
+  - .scripts/test_e1_order_robustness.py
+  - .scripts/__pycache__/**
+  - .scripts/embed_cache/**
+  - .scripts/citation-templates/unmatched.log
+  - .scripts/query_sessions/*.json
+  - .scripts/speech_entity_index.json
+  - .scripts/speech_entity_index.tmp
+  - operations/archive/**
+  - "**/__pycache__/**"
+  - "**/*.pyc"
+  - "**/*.db"
+public_assets:
+  README.md: operations/engineering/open-source-assets/README.md
+  README.zh-CN.md: operations/engineering/open-source-assets/README.zh-CN.md
+  CHANGELOG.md: operations/engineering/open-source-assets/CHANGELOG.md
+  THIRD_PARTY_NOTICES.md: operations/engineering/open-source-assets/THIRD_PARTY_NOTICES.md
+  docs/assets/scientific-knowledge-compilation.png: operations/engineering/open-source-assets/docs/assets/scientific-knowledge-compilation.png
+  docs/introduction/README.md: operations/engineering/open-source-assets/docs/introduction/README.md
+  docs/introduction/ASKS-Chinese-Introduction-2026-09-03.md: operations/engineering/open-source-assets/docs/introduction/ASKS-Chinese-Introduction-2026-09-03.md
+  docs/introduction/ASKS-Chinese-Introduction-2026-09-03.pdf: operations/engineering/open-source-assets/docs/introduction/ASKS-Chinese-Introduction-2026-09-03.pdf
+  docs/introduction/assets/knowledge-compilation-zh.png: operations/engineering/open-source-assets/docs/introduction/assets/knowledge-compilation-zh.png
+  docs/introduction/assets/author-research-portrait.png: operations/engineering/open-source-assets/docs/introduction/assets/author-research-portrait.png
+  config.yaml: operations/engineering/open-source-assets/config.yaml
+  .gitignore: operations/engineering/open-source-assets/.gitignore
+  DATA_POLICY.md: operations/engineering/open-source-assets/DATA_POLICY.md
+  CONTRIBUTING.md: operations/engineering/open-source-assets/CONTRIBUTING.md
+  SECURITY.md: operations/engineering/open-source-assets/SECURITY.md
+  LICENSE: operations/engineering/open-source-assets/LICENSE
+  operations/engineering/engineering-handbook.md: operations/engineering/open-source-assets/engineering-handbook.md
+  operations/engineering/code-guidance.md: operations/engineering/open-source-assets/code-guidance.md
+template_dirs:
+  - academic/raw
+  - academic/wiki
+  - academic/outputs
+  - academic/frontier
+  - admin/raw
+  - admin/wiki
+  - admin/outputs
+  - teaching/raw
+  - teaching/wiki
+  - teaching/outputs
+  - business/raw
+  - business/wiki
+  - business/outputs
+  - cross-domain/raw
+  - cross-domain/topics
+  - cross-domain/outputs
+  - inbox
+  - memory
+  - temp
+  - slide-library/inbox
+  - slide-library/templates
+  - slide-library/compositions
+
+documentation_omissions:
+  - paths: ["*.md"]
+    except: [.codex/skills/manuscript-diagnosis/SKILL.md]
+    terms:
+      - 稿件诊断
+      - manuscript-diagnosis
+      - manuscript_diagnosis
+      - manuscript diagnosis
+      - manuscript assessment
