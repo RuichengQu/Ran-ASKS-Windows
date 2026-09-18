@@ -1,6 +1,14 @@
 # Ran-ASKS: Agent-Driven Scientific Knowledge System
 > Current release: v0.6.0
 
+> **Note:** This is a Windows-compatibility port of
+> [ranshiju/Ran-ASKS](https://github.com/ranshiju/Ran-ASKS). It changes
+> portability only — never the method, data contracts, or behaviour. Cite the
+> upstream paper and repository, not this port. See
+> [`FORK_NOTICE.md`](FORK_NOTICE.md) for what changed and the license terms,
+> which are retained unchanged (PolyForm Noncommercial 1.0.0 — noncommercial
+> use only).
+
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 **Contact:** [sjran@cnu.edu.cn](mailto:sjran@cnu.edu.cn)
@@ -271,9 +279,15 @@ not trigger it automatically. See `operations/VISUAL_QA.md` and
 ```bash
 git clone https://github.com/ranshiju/Ran-ASKS.git
 cd Ran-ASKS
+python3 -m pip install -r requirements.txt
 cp .env.example .env
 python3 .scripts/engineering_graph.py validate
 ```
+
+Runs on macOS, Linux, and Windows. On Windows, use `python` in place of
+`python3` and see [`docs/WINDOWS.md`](docs/WINDOWS.md) for setup, the two
+optional capabilities that need extra configuration (symbolic links and
+LibreOffice), and the platform behaviour table.
 
 Configure model backends in `.env` only for workflows that need them. Ingestion
 orchestration is selected independently with `INGEST_BACKEND`; API ingestion can
