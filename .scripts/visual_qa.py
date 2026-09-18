@@ -31,7 +31,10 @@ from typing import Any, Callable
 import env_config
 
 try:
-    import fitz  # PyMuPDF
+    try:  # PyMuPDF
+        import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+    except ImportError:  # 旧版 PyMuPDF 只有 fitz
+        import fitz
 except ImportError:  # pragma: no cover - reported at use site
     fitz = None
 

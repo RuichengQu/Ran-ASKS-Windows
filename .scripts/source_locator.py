@@ -90,6 +90,9 @@ def is_locator_compatible(path):
 def pdf_has_text(path):
     """Whether a PDF has a usable native text layer for page locators."""
     try:
+        try:
+            import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+        except ImportError:  # 旧版 PyMuPDF 只有 fitz
         import fitz
         document = fitz.open(str(path))
         try:
@@ -360,6 +363,9 @@ def locator_status(locator, target):
         if not requested:
             return "missing"
         try:
+            try:
+                import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+            except ImportError:  # 旧版 PyMuPDF 只有 fitz
             import fitz
             document = fitz.open(str(target))
             try:
@@ -403,6 +409,9 @@ def read_locator_text(target, locator):
         if locator != "全篇" and not requested:
             return None
         try:
+            try:
+                import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+            except ImportError:  # 旧版 PyMuPDF 只有 fitz
             import fitz
             document = fitz.open(str(target))
             try:
