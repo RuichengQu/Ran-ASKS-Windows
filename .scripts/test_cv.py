@@ -78,7 +78,7 @@ def fixture() -> tuple[Path, Path, Path, dict]:
     workspace.mkdir(parents=True)
     create_template(workspace)
     evidence.parent.mkdir(parents=True)
-    evidence.write_text("- Verified fact one. {: #fact-one}\n\n- Verified fact two. {: #fact-two}\n", encoding="utf-8")
+    evidence.write_text("- Verified fact one. {: #fact-one}\n\n- Verified fact two. {: #fact-two}\n", encoding="utf-8", newline="\n")
     relative_evidence = evidence.relative_to(REPO)
     data = {
         "schema_version": 1,

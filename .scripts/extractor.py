@@ -109,7 +109,7 @@ def save_parse_meta(paper_dir: Path, meta: dict):
             meta.setdefault("source", {})["external_md_path"] = ext_md
     meta_path = paper_dir / "parse_meta.yaml"
     temporary = meta_path.with_name(f".{meta_path.name}.partial-{os.getpid()}")
-    with open(temporary, "w", encoding="utf-8") as f:
+    with open(temporary, "w", encoding="utf-8", newline="\n") as f:
         yaml.dump(meta, f, allow_unicode=True, default_flow_style=False)
     os.replace(temporary, meta_path)
 
@@ -159,7 +159,7 @@ def _commit_mineru_document_bundle(
     bundle = output.mineru_bundle
     image_refs: list[tuple[Path, Path]] = []
     sidecar_refs: list[tuple[Path, Path]] = []
-    temporary_md.write_text(output.content, encoding="utf-8")
+    temporary_md.write_text(output.content, encoding="utf-8", newline="\n")
     try:
         if bundle is not None:
             image_refs = _referenced_mineru_images(output.content, bundle.artifact_root)
@@ -312,7 +312,7 @@ def load_source_yaml(paper_dir: Path) -> dict:
 
 def save_source_yaml(paper_dir: Path, src: dict) -> None:
     """保存 source.yaml。"""
-    with open(paper_dir / "source.yaml", "w", encoding="utf-8") as f:
+    with open(paper_dir / "source.yaml", "w", encoding="utf-8", newline="\n") as f:
         yaml.dump(src, f, allow_unicode=True, default_flow_style=False)
 
 
@@ -348,7 +348,7 @@ def link_external_pdf(paper_dir: Path, external_pdf_uri: str) -> Optional[Path]:
     else:
         ep = resolve_synology_path(external_pdf_uri)
         try:
-            sdata["external_path"] = str(ep.relative_to(PROJECT_ROOT))
+            sdata["external_path"] = ep.relative_to(PROJECT_ROOT).as_posix()
         except ValueError:
             sdata["external_path"] = str(ep)  # 不在知识库根下,存绝对路径
     sdata["acquired_date"] = datetime.now().strftime("%Y-%m-%d")
@@ -364,7 +364,7 @@ def record_external_md_path(paper_dir: Path, external_md_uri: str) -> None:
         with open(meta_path, "r", encoding="utf-8") as f:
             meta = yaml.safe_load(f) or {}
     meta.setdefault("source", {})["external_md_path"] = external_md_uri
-    with open(meta_path, "w", encoding="utf-8") as f:
+    with open(meta_path, "w", encoding="utf-8", newline="\n") as f:
         yaml.dump(meta, f, allow_unicode=True, default_flow_style=False)
     meta = load_meta_yaml(paper_dir)
     ext_pdf = (meta.get("source") or {}).get("external_path")

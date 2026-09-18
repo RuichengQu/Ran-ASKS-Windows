@@ -197,7 +197,7 @@ def test_read_raw_repeat_denied():
 def test_read_raw_recorded_in_read_sources():
     """read_raw 成功执行后 locator 记入 session.read_sources（citation contract 基础）。"""
     import tempfile, os
-    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, dir=str(REPO / 'temp'))
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, dir=str(REPO / 'temp'), newline="\n")
     tmp.write('# Title\n\ntest content for read_raw')
     tmp.close()
     try:
@@ -221,7 +221,7 @@ def test_companion_read_allows_original_file_citation():
         original = folder / "managed.docx"
         companion = folder / "managed.md"
         original.write_bytes(b"synthetic docx fixture")
-        companion.write_text("alpha\nverified evidence\n", encoding="utf-8")
+        companion.write_text("alpha\nverified evidence\n", encoding="utf-8", newline="\n")
         companion_locator = companion.relative_to(REPO).as_posix() + "#L2"
         original_source = original.relative_to(REPO).as_posix()
         session = QuerySession(query="q", query_type="t", stage="evidence", mode="api")

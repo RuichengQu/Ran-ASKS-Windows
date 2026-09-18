@@ -298,7 +298,7 @@ def prepare(component, profile, target, name):
         render_artifacts(pending)
         receipt = {k: copy.deepcopy(parent[k]) for k in ('source', 'source_sha256', 'pages', 'limitations')}
         receipt.update(schema=COMPONENT_SCHEMA, name=name, reuse_kind=profile['kind'],
-                       profile_sha256=structure.stable_hash(profile), parent_component=str(component.relative_to(library.REPO)),
+                       profile_sha256=structure.stable_hash(profile), parent_component=component.relative_to(library.REPO).as_posix(),
                        parent_receipt_sha256=parent_digest, layout_analysis='not_executed',
                        files={p.name: library.vision.digest(p) for p in pending.iterdir() if p.is_file()})
         library.vision.write(pending/'receipt.json', receipt)
@@ -333,7 +333,7 @@ def fill(component, values, target):
             require(image.is_relative_to(library.REPO) and not image.is_relative_to(library.REPO/'private'),
                     'Use a public workspace image; private needs an isolated workflow')
             checked[slot['id']] = str(image)
-            inputs[slot['id']] = {'path': str(image.relative_to(library.REPO)), 'sha256': library.vision.digest(image)}
+            inputs[slot['id']] = {'path': image.relative_to(library.REPO).as_posix(), 'sha256': library.vision.digest(image)}
     target, pending = new_output(target)
     try:
         transform(component/'component.pptx', pending/'component.pptx', profile, checked)
@@ -343,7 +343,7 @@ def fill(component, values, target):
         for item in inputs.values():
             require(library.vision.digest(library.REPO/item['path']) == item['sha256'], 'Image changed during fill')
         library.vision.write(pending/'instance.json', {
-            'schema': 'slide-reuse-instance-v1', 'template': str(component.relative_to(library.REPO)),
+            'schema': 'slide-reuse-instance-v1', 'template': component.relative_to(library.REPO).as_posix(),
             'template_receipt_sha256': template_digest,
             'values': values, 'image_inputs': inputs,
             'files': {p.name: library.vision.digest(p) for p in pending.iterdir() if p.is_file()},

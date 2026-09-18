@@ -42,7 +42,7 @@ def test_dsh_tools_receive_canonical_policy_metadata():
 def test_registry_rejects_duplicate_yaml_keys():
     with tempfile.TemporaryDirectory() as temp_dir:
         path = Path(temp_dir) / "registry.yaml"
-        path.write_text("schema: first\nschema: second\n", encoding="utf-8")
+        path.write_text("schema: first\nschema: second\n", encoding="utf-8", newline="\n")
         try:
             registry.load_registry(path)
         except registry.RegistryError as exc:
@@ -54,7 +54,7 @@ def test_registry_rejects_duplicate_yaml_keys():
 def test_registry_reports_invalid_yaml():
     with tempfile.TemporaryDirectory() as temp_dir:
         path = Path(temp_dir) / "registry.yaml"
-        path.write_text("functions: [\n", encoding="utf-8")
+        path.write_text("functions: [\n", encoding="utf-8", newline="\n")
         try:
             registry.load_registry(path)
         except registry.RegistryError as exc:

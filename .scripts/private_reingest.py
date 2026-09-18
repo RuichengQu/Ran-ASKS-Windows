@@ -348,7 +348,7 @@ def _append_log(log: Path, page: str, transaction_id: str) -> None:
     entry = (f"\n## [{datetime.date.today()}] update | {Path(page).stem} "
              f"(private re-ingest {transaction_id})\n"
              "- Rebuilt Wiki and private graph contributions from the bound Raw source; Raw unchanged.\n")
-    log.write_text(previous + entry, encoding="utf-8")
+    log.write_text(previous + entry, encoding="utf-8", newline="\n")
 
 
 def _graph_signature(conn, page: str) -> list:

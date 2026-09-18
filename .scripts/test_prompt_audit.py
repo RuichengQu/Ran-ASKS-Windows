@@ -31,14 +31,14 @@ def audit(records):
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
         path = f.name
     try:
-        return json.loads(run("python3", ".scripts/check_trace_rules.py", path).stdout)
+        return json.loads(run(sys.executable, ".scripts/check_trace_rules.py", path).stdout)
     finally:
         Path(path).unlink(missing_ok=True)
 
 
 def test_focused_prompt_review_task():
     payload = json.loads(run(
-        "python3", ".scripts/lint_specs.py", "--format", "json"
+        sys.executable, ".scripts/lint_specs.py", "--format", "json"
     ).stdout)
     assert payload["schema"] == "prompt-audit-task-v4"
     assert payload["status"] == "prepared"
@@ -172,7 +172,7 @@ def test_focused_prompt_review_task():
                for item in locations)
 
     focused = run(
-        "python3", ".scripts/lint_specs.py", "--paths",
+        sys.executable, ".scripts/lint_specs.py", "--paths",
         "AGENTS.md", ".scripts/ingest_paper.py",
     ).stdout
     for title in (
@@ -209,7 +209,7 @@ def test_project_prompt_discovery_uses_isolated_fixtures():
         for relative, content in fixtures.items():
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            target.write_text(content, encoding="utf-8", newline="\n")
         with patch.multiple(
             module, REPO=root, CODE_ROOTS=(root / "projects",),
             ENGINEERING_GRAPH=root / "operations/engineering/graph.yaml",
@@ -243,7 +243,7 @@ def test_project_prompt_discovery_uses_isolated_fixtures():
 
 def test_trusted_agent_build_profile_skips_semantic_review():
     command = (
-        "python3", ".scripts/lint_specs.py",
+        sys.executable, ".scripts/lint_specs.py",
         "--task", "build", "--backend", "agent",
         "--paths", "AGENTS.md", ".scripts/route.py",
     )
@@ -272,7 +272,7 @@ def test_trusted_agent_build_profile_skips_semantic_review():
     assert "最小修改建议" not in rendered
 
     api_payload = json.loads(run(
-        "python3", ".scripts/lint_specs.py",
+        sys.executable, ".scripts/lint_specs.py",
         "--task", "build", "--backend", "api",
         "--paths", "AGENTS.md", ".scripts/route.py",
         "--format", "json",
@@ -286,7 +286,7 @@ def test_trusted_agent_build_profile_skips_semantic_review():
     ]
 
     incomplete = subprocess.run(
-        ("python3", ".scripts/lint_specs.py", "--task", "build"),
+        (sys.executable, ".scripts/lint_specs.py", "--task", "build"),
         cwd=REPO, capture_output=True, text=True,
     )
     assert incomplete.returncode == 2
@@ -295,7 +295,7 @@ def test_trusted_agent_build_profile_skips_semantic_review():
 
 def test_runtime_prompt_surface_boundaries():
     payload = json.loads(run(
-        "python3", ".scripts/lint_specs.py", "--no-cache", "--format", "json",
+        sys.executable, ".scripts/lint_specs.py", "--no-cache", "--format", "json",
         "--paths", "dsh/tools.py", ".scripts/query_orchestrate.py",
         ".scripts/ingest_paper.py",
     ).stdout)
@@ -349,7 +349,7 @@ def test_incremental_prompt_map_cache():
     with tempfile.TemporaryDirectory() as directory:
         cache_path = Path(directory) / "map-cache.json"
         command = (
-            "python3", ".scripts/lint_specs.py", "--format", "json",
+            sys.executable, ".scripts/lint_specs.py", "--format", "json",
             "--cache-path", str(cache_path), "--paths",
             "AGENTS.md", ".scripts/ingest_paper.py",
         )
@@ -395,7 +395,7 @@ def test_incremental_prompt_map_cache():
         }
         cache_path.write_text(json.dumps(cache), encoding="utf-8")
         deleted = json.loads(run(
-            "python3", ".scripts/lint_specs.py", "--format", "json",
+            sys.executable, ".scripts/lint_specs.py", "--format", "json",
             "--cache-path", str(cache_path), "--paths",
             "AGENTS.md", "projects/deleted-prompt-fixture.py",
         ).stdout)
@@ -421,9 +421,9 @@ def test_profiles():
         "关系如何": ["relation"],
         "为什么以及依据是什么": ["traceability"],
     }
-    full = len(run("python3", ".scripts/route.py", "--task", "query", "--full").stdout)
+    full = len(run(sys.executable, ".scripts/route.py", "--task", "query", "--full").stdout)
     for query, profiles in expected.items():
-        payload = json.loads(run("python3", ".scripts/route.py", "--task", "query", "--query", query, "--format", "json").stdout)
+        payload = json.loads(run(sys.executable, ".scripts/route.py", "--task", "query", "--query", query, "--format", "json").stdout)
         assert payload["profiles"] == profiles
         assert payload["stage"] == "start"
         assert payload["estimated_chars"] == len(payload["prompt"])
@@ -432,14 +432,14 @@ def test_profiles():
         assert "工程上下文(按元图派发)" in payload["prompt"]
 
     mixed = json.loads(run(
-        "python3", ".scripts/route.py", "--task", "query", "--query", "列出某人与谁的关系和依据", "--format", "json"
+        sys.executable, ".scripts/route.py", "--task", "query", "--query", "列出某人与谁的关系和依据", "--format", "json"
     ).stdout)
     assert mixed["profiles"] == ["enumeration", "relation", "traceability"]
 
 
 def test_query_stage_dispatch():
     start = json.loads(run(
-        "python3", ".scripts/route.py", "--task", "query", "--query", "关系如何", "--format", "json"
+        sys.executable, ".scripts/route.py", "--task", "query", "--query", "关系如何", "--format", "json"
     ).stdout)
     assert "首轮定位步骤" in start["prompt"]
     assert "证据下钻步骤" not in start["prompt"]
@@ -448,7 +448,7 @@ def test_query_stage_dispatch():
     assert len(start["prompt"]) < 13_000
 
     evidence = json.loads(run(
-        "python3", ".scripts/route.py", "--task", "query", "--query", "关系如何",
+        sys.executable, ".scripts/route.py", "--task", "query", "--query", "关系如何",
         "--query-stage", "evidence", "--format", "json"
     ).stdout)
     assert "证据下钻步骤" in evidence["prompt"]
@@ -456,7 +456,7 @@ def test_query_stage_dispatch():
     assert "回环规则" not in evidence["prompt"]
 
     continuation = json.loads(run(
-        "python3", ".scripts/route.py", "--task", "query", "--query", "为什么以及依据是什么",
+        sys.executable, ".scripts/route.py", "--task", "query", "--query", "为什么以及依据是什么",
         "--query-stage", "continue", "--format", "json"
     ).stdout)
     assert "回环规则" in continuation["prompt"]
@@ -464,7 +464,7 @@ def test_query_stage_dispatch():
     assert "交付步骤" not in continuation["prompt"]
 
     answer = json.loads(run(
-        "python3", ".scripts/route.py", "--task", "query", "--query", "为什么以及依据是什么",
+        sys.executable, ".scripts/route.py", "--task", "query", "--query", "为什么以及依据是什么",
         "--query-stage", "answer", "--format", "json"
     ).stdout)
     assert "交付步骤" in answer["prompt"]
@@ -484,7 +484,7 @@ def test_private_query_uses_shared_stages_and_explicit_local_scope():
     for stage, marker in [('start', '个人资料'), ('evidence', '来源与论证分层'),
                           ('continue', '关键前提尚未查证'), ('answer', '适用前提和本次推断')]:
         result = subprocess.run(
-            ['python3', '.scripts/route.py', '--task', 'query', '--subproject', 'private',
+            [sys.executable, '.scripts/route.py', '--task', 'query', '--subproject', 'private',
              '--query-stage', stage, '--format', 'json'], cwd=REPO, env=env,
             capture_output=True, text=True, check=True)
         payload = json.loads(result.stdout)
@@ -500,14 +500,14 @@ def test_private_query_uses_shared_stages_and_explicit_local_scope():
         if stage != 'start':
             assert '工程上下文(按元图派发)' not in payload['prompt']
     invalid = subprocess.run(
-        ['python3', '.scripts/route.py', '--task', 'query', '--subproject', 'typo'],
+        [sys.executable, '.scripts/route.py', '--task', 'query', '--subproject', 'typo'],
         cwd=REPO, capture_output=True, text=True)
     assert invalid.returncode != 0
 
 
 def test_private_metaphysics_topic_dispatch_and_followups():
     def routed(*extra):
-        return json.loads(run('python3', '.scripts/route.py', '--task', 'query',
+        return json.loads(run(sys.executable, '.scripts/route.py', '--task', 'query',
                               '--format', 'json', *extra).stdout)
 
     first = routed('--subproject', 'private', '--query', '通过八字分析摆件选择')
@@ -534,7 +534,7 @@ def test_private_metaphysics_topic_dispatch_and_followups():
     assert private_full['query_topic'] == 'metaphysics'
     for task, scope in [('query', 'public'), ('lint', 'private')]:
         invalid = subprocess.run(
-            ['python3', '.scripts/route.py', '--task', task, '--subproject', scope,
+            [sys.executable, '.scripts/route.py', '--task', task, '--subproject', scope,
              '--query-topic', 'metaphysics'], cwd=REPO, capture_output=True, text=True)
         assert invalid.returncode != 0
         assert 'query-topic' in invalid.stderr
@@ -542,7 +542,7 @@ def test_private_metaphysics_topic_dispatch_and_followups():
 
 def test_lightweight_session_plan_contract():
     query = json.loads(run(
-        "python3", ".scripts/route.py", "--task", "query", "--query", "比较两个方案并说明依据", "--format", "json"
+        sys.executable, ".scripts/route.py", "--task", "query", "--query", "比较两个方案并说明依据", "--format", "json"
     ).stdout)
     assert "会话级总计划（条件触发）" in query["prompt"]
     assert "轻量检索策略（start 前置）" in query["prompt"]
@@ -551,7 +551,7 @@ def test_lightweight_session_plan_contract():
     assert "API LLM 只处理当前派发阶段的最小受控上下文" in query["prompt"]
 
     ingest = run(
-        "python3", ".scripts/route.py", "--task", "ingest", "--subproject", "academic", "--stage", "1"
+        sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic", "--stage", "1"
     )
     assert "会话级总计划（条件触发）" in ingest.stdout
     assert "不得细化为命令、字段或工具清单" in ingest.stdout
@@ -562,7 +562,7 @@ def test_non_agent_backend_notices_every_stage():
     query_env["QUERY_BACKEND"] = "api"
     query_env["LLM_MODEL"] = "DeepSeek-V3.2"
     query = subprocess.run(
-        ["python3", ".scripts/route.py", "--task", "query", "--query", "继续核验", "--query-stage", "continue"],
+        [sys.executable, ".scripts/route.py", "--task", "query", "--query", "继续核验", "--query-stage", "continue"],
         cwd=REPO, capture_output=True, text=True, check=True, env=query_env,
     )
     assert "[query 后端] 阶段 continue：LLM=API（DeepSeek-V3.2）" in query.stderr
@@ -571,7 +571,7 @@ def test_non_agent_backend_notices_every_stage():
     ingest_env["INGEST_BACKEND"] = "api"
     ingest_env["LLM_MODEL"] = "DeepSeek-V3.2"
     ingest = subprocess.run(
-        ["python3", ".scripts/route.py", "--task", "ingest", "--subproject", "academic", "--stage", "2"],
+        [sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic", "--stage", "2"],
         cwd=REPO, capture_output=True, text=True, check=True, env=ingest_env,
     )
     assert "[ingest 后端] 阶段2巩固：LLM=API（DeepSeek-V3.2）" in ingest.stderr
@@ -579,13 +579,13 @@ def test_non_agent_backend_notices_every_stage():
 
 def test_ingest_dispatch_parameter_contract():
     meeting = run(
-        "python3", ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
+        sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
         "--source-kind", "meeting", "--stage", "1",
     )
     assert "content=other" in meeting.stderr
     assert "会议纪要预处理" in meeting.stdout
     bad = subprocess.run(
-        ["python3", ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
+        [sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
          "--source-kind", "meeting", "--content", "paper", "--stage", "1"],
         cwd=REPO, capture_output=True, text=True,
     )
@@ -597,7 +597,7 @@ def test_ingest_context_warmup_is_compact_complete_and_profiled():
     env = os.environ.copy()
     env["INGEST_BACKEND"] = "agent"
     command = [
-        "python3", ".scripts/route.py", "--task", "ingest",
+        sys.executable, ".scripts/route.py", "--task", "ingest",
         "--subproject", "academic", "--mode", "create",
         "--content", "paper", "--source-kind", "ordinary", "--stage", "1",
         "--context-warmup", "--format", "json",
@@ -636,7 +636,7 @@ def test_ingest_context_warmup_is_compact_complete_and_profiled():
 
     meeting = subprocess.run(
         [
-            "python3", ".scripts/route.py", "--task", "ingest",
+            sys.executable, ".scripts/route.py", "--task", "ingest",
             "--subproject", "admin", "--mode", "create", "--content", "other",
             "--source-kind", "meeting", "--stage", "1", "--context-warmup",
             "--format", "json",
@@ -650,7 +650,7 @@ def test_ingest_context_warmup_is_compact_complete_and_profiled():
 
     document_payload = json.loads(subprocess.run(
         [
-            "python3", ".scripts/route.py", "--task", "ingest",
+            sys.executable, ".scripts/route.py", "--task", "ingest",
             "--subproject", "teaching", "--mode", "create", "--content", "other",
             "--source-kind", "ordinary", "--stage", "1", "--context-warmup",
             "--format", "json",
@@ -674,7 +674,7 @@ def test_ingest_context_warmup_is_compact_complete_and_profiled():
 
     private_warmup = subprocess.run(
         [
-            "python3", ".scripts/route.py", "--task", "ingest",
+            sys.executable, ".scripts/route.py", "--task", "ingest",
             "--subproject", "private", "--mode", "create", "--content", "other",
             "--source-kind", "ordinary", "--stage", "1", "--context-warmup",
             "--format", "json",
@@ -685,7 +685,7 @@ def test_ingest_context_warmup_is_compact_complete_and_profiled():
     assert "仅覆盖公共域摄入，不适用于 private" in private_warmup.stderr
 
     invalid = subprocess.run(
-        ["python3", ".scripts/route.py", "--task", "query", "--context-warmup"],
+        [sys.executable, ".scripts/route.py", "--task", "query", "--context-warmup"],
         cwd=REPO, capture_output=True, text=True,
     )
     assert invalid.returncode != 0
@@ -699,20 +699,20 @@ def test_ingest_context_warmup_is_compact_complete_and_profiled():
 
 def test_task_specific_execution_guidance_is_dispatched():
     ingest = run(
-        "python3", ".scripts/route.py", "--task", "ingest", "--subproject", "academic", "--stage", "1",
+        sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic", "--stage", "1",
     )
     for requirement in ("全文只在首次 LLM 阅读时读取一次", "ingest_check.py --graph", "每个 create stage 仍须完成、落盘并重新路由后才能推进"):
         assert requirement in ingest.stdout
 
     query = json.loads(run(
-        "python3", ".scripts/route.py", "--task", "query", "--query", "关系如何", "--format", "json",
+        sys.executable, ".scripts/route.py", "--task", "query", "--query", "关系如何", "--format", "json",
     ).stdout)
     assert "任务执行边界（ingest/query）" in query["prompt"]
     assert "不读取脚本源码中的提示词模板" in query["prompt"]
 
 
 def test_state_capability_tool_dispatch_is_explicit():
-    listing = run("python3", ".scripts/route.py", "--list").stdout
+    listing = run(sys.executable, ".scripts/route.py", "--list").stdout
     assert "持续状态:" in listing
     assert "research: 研究工作 route=research" in listing
     assert "可路由任务:" in listing
@@ -722,12 +722,12 @@ def test_state_capability_tool_dispatch_is_explicit():
     assert "write: artifact.write -> write/general" in listing
     assert "task/state" not in listing
 
-    research = run("python3", ".scripts/route.py", "--task", "research").stdout
+    research = run(sys.executable, ".scripts/route.py", "--task", "research").stdout
     assert "research 是持续状态，write 是按需能力" in research
     assert "--capability write --capability-profile academic" in research
 
     academic_write = run(
-        "python3", ".scripts/route.py", "--capability", "write",
+        sys.executable, ".scripts/route.py", "--capability", "write",
         "--capability-profile", "academic",
     ).stdout
     assert "共享落笔约定（可组合能力）" in academic_write
@@ -736,14 +736,14 @@ def test_state_capability_tool_dispatch_is_explicit():
     assert "# 物理论文写作讨论注意力清单" in academic_write
     assert "发言稿、公文" not in academic_write
 
-    general_write = run("python3", ".scripts/route.py", "--capability", "write").stdout
-    legacy_write = run("python3", ".scripts/route.py", "--task", "write").stdout
+    general_write = run(sys.executable, ".scripts/route.py", "--capability", "write").stdout
+    legacy_write = run(sys.executable, ".scripts/route.py", "--task", "write").stdout
     for requirement in ("共享落笔约定（可组合能力）", "起草工作流", "能力边界"):
         assert requirement in general_write
         assert requirement in legacy_write
 
     mixed = subprocess.run(
-        ["python3", ".scripts/route.py", "--task", "research", "--capability", "write"],
+        [sys.executable, ".scripts/route.py", "--task", "research", "--capability", "write"],
         cwd=REPO, capture_output=True, text=True,
     )
     assert mixed.returncode != 0
@@ -751,30 +751,30 @@ def test_state_capability_tool_dispatch_is_explicit():
 
 
 def test_engineering_graph():
-    result = run("python3", ".scripts/engineering_graph.py", "validate")
+    result = run(sys.executable, ".scripts/engineering_graph.py", "validate")
     assert "工程元图有效" in result.stdout
-    impact = run("python3", ".scripts/engineering_graph.py", "impact", "graph_ingest")
+    impact = run(sys.executable, ".scripts/engineering_graph.py", "impact", "graph_ingest")
     assert "operations/INGEST.md" in impact.stdout
     assert "cross-domain/graph.db" in impact.stdout
-    verified = run("python3", ".scripts/engineering_graph.py", "impact", "graph_ingest", "--verify")
+    verified = run(sys.executable, ".scripts/engineering_graph.py", "impact", "graph_ingest", "--verify")
     assert "test_ingest_pipeline.py" in verified.stdout
-    build_impact = run("python3", ".scripts/engineering_graph.py", "impact", "build", "--verify")
+    build_impact = run(sys.executable, ".scripts/engineering_graph.py", "impact", "build", "--verify")
     assert "capability=build" in build_impact.stdout
     assert "test_prompt_audit.py" in build_impact.stdout
 
-    frontier_route = run("python3", ".scripts/route.py", "--task", "frontier")
+    frontier_route = run(sys.executable, ".scripts/route.py", "--task", "frontier")
     assert "capability=frontier" in frontier_route.stdout
     assert "Frontier — 研究前沿层规范" in frontier_route.stdout
     assert "不得向事实 `graph.db` 写 Frontier 节点" in frontier_route.stdout
-    contract = run("python3", ".scripts/engineering_graph.py", "contract", "graph_ingest")
+    contract = run(sys.executable, ".scripts/engineering_graph.py", "contract", "graph_ingest")
     assert "cross-domain/graph.db" in contract.stdout
-    query_contract = run("python3", ".scripts/engineering_graph.py", "contract", "query_graph").stdout
+    query_contract = run(sys.executable, ".scripts/engineering_graph.py", "contract", "query_graph").stdout
     assert "相邻 Wiki section 的 Raw 脚注回到 Raw" in query_contract
-    query_card = run("python3", ".scripts/engineering_graph.py", "capability", "query", "--compact")
+    query_card = run(sys.executable, ".scripts/engineering_graph.py", "capability", "query", "--compact")
     assert "任务卡（不可跳过）" in query_card.stdout
     assert "下钻 Raw" in query_card.stdout
     for task in ("sync", "write", "scan", "inbox"):
-        routed = run("python3", ".scripts/route.py", "--task", task)
+        routed = run(sys.executable, ".scripts/route.py", "--task", task)
         assert "工程上下文(按元图派发)" in routed.stdout
 
 
@@ -845,19 +845,19 @@ def test_engineering_graph_target_resolution():
         raise AssertionError("unregistered path unexpectedly resolved by basename")
 
     path_impact = run(
-        "python3", ".scripts/engineering_graph.py", "impact",
+        sys.executable, ".scripts/engineering_graph.py", "impact",
         ".scripts/graph_ingest.py", "--verify")
     assert "[建设影响面] graph_ingest:" in path_impact.stdout
     filename_status = run(
-        "python3", ".scripts/engineering_graph.py", "status", "graph_ingest.py")
+        sys.executable, ".scripts/engineering_graph.py", "status", "graph_ingest.py")
     assert filename_status.stdout.startswith("graph_ingest: .scripts/graph_ingest.py")
     absolute_contract = run(
-        "python3", ".scripts/engineering_graph.py", "contract",
+        sys.executable, ".scripts/engineering_graph.py", "contract",
         str(REPO / ".scripts/graph_ingest.py"))
     assert "[脚本契约] graph_ingest:" in absolute_contract.stdout
 
     unknown = subprocess.run(
-        ["python3", ".scripts/engineering_graph.py", "impact", "/tmp/graph_ingest.py"],
+        [sys.executable, ".scripts/engineering_graph.py", "impact", "/tmp/graph_ingest.py"],
         cwd=REPO, capture_output=True, text=True,
     )
     assert unknown.returncode == 2
@@ -901,26 +901,26 @@ def test_long_document_documentation():
 
 def test_ingest_route_guardrails():
     missing_domain = subprocess.run(
-        ("python3", ".scripts/route.py", "--task", "ingest", "--stage", "1"),
+        (sys.executable, ".scripts/route.py", "--task", "ingest", "--stage", "1"),
         cwd=REPO, capture_output=True, text=True,
     )
     assert missing_domain.returncode != 0
     assert "必须指定 --subproject" in missing_domain.stderr
     missing_stage = subprocess.run(
-        ("python3", ".scripts/route.py", "--task", "ingest", "--subproject", "academic"),
+        (sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic"),
         cwd=REPO, capture_output=True, text=True,
     )
     assert missing_stage.returncode != 0
     assert "必须指定 --stage" in missing_stage.stderr
     api_routed = run(
-        "python3", ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
+        sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
         "--content", "paper", "--stage", "1",
     )
     # api 后端路由断言：显式设 INGEST_BACKEND=api 隔离 .env 默认值影响
     api_env = dict(os.environ)
     api_env["INGEST_BACKEND"] = "api"
     api_routed = subprocess.run(
-        ("python3", ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
+        (sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
          "--content", "paper", "--stage", "1"),
         cwd=REPO, capture_output=True, text=True, env=api_env,
     )
@@ -929,12 +929,12 @@ def test_ingest_route_guardrails():
     assert "INGEST_BACKEND=api" in api_routed.stderr
     assert "代码驱动" in api_routed.stderr
     batch_routed = run(
-        "python3", ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
+        sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
         "--mode", "batch", "--content", "paper",
     )
     assert "inbox_ingest.py complete-batch" in batch_routed.stderr
     long_document_routed = run(
-        "python3", ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
+        sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
         "--content", "other", "--stage", "1",
     )
     assert "长文动态颗粒度" in long_document_routed.stdout
@@ -942,7 +942,7 @@ def test_ingest_route_guardrails():
 
 def test_ingest_minimal_domain_dispatch():
     ordinary_stage_one = run(
-        "python3", ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
+        sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
         "--mode", "create", "--content", "paper", "--stage", "1",
     ).stdout
     assert not has_routed_locator(ordinary_stage_one, "operations/INGEST.md", "会议纪要预处理")
@@ -951,14 +951,14 @@ def test_ingest_minimal_domain_dispatch():
     assert len(ordinary_stage_one) < 20_000
 
     meeting_stage_one = run(
-        "python3", ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
+        sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
         "--mode", "create", "--content", "other", "--stage", "1", "--source-kind", "meeting",
     ).stdout
     assert has_routed_locator(meeting_stage_one, "operations/INGEST.md", "会议纪要预处理")
     assert "entity-resolution.json" in meeting_stage_one
 
     admin_update = run(
-        "python3", ".scripts/route.py", "--task", "ingest", "--subproject", "admin",
+        sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "admin",
         "--mode", "update", "--content", "other",
     ).stdout
     assert not has_routed_locator(admin_update, "operations/INGEST.md", "学术图边关系")
@@ -966,7 +966,7 @@ def test_ingest_minimal_domain_dispatch():
     assert len(admin_update) < 22_000
 
     academic_stage_two = run(
-        "python3", ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
+        sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
         "--mode", "create", "--content", "paper", "--stage", "2",
     ).stdout
     assert has_routed_locator(academic_stage_two, "operations/INGEST.md", "通用图边约束")
@@ -998,7 +998,7 @@ def test_use_task_execution_discipline():
     experience_notice = "轻量经验层（事件触发）"
     backend_gate = "模型后端兼容性门"
     query_payload = json.loads(run(
-        "python3", ".scripts/route.py", "--task", "query", "--query", "这个是什么", "--format", "json"
+        sys.executable, ".scripts/route.py", "--task", "query", "--query", "这个是什么", "--format", "json"
     ).stdout)
     assert discipline in query_payload["prompt"]
     assert supplement not in query_payload["prompt"]
@@ -1006,7 +1006,7 @@ def test_use_task_execution_discipline():
     assert backend_gate not in query_payload["prompt"]
 
     ingest = run(
-        "python3", ".scripts/route.py", "--task", "ingest", "--subproject", "admin",
+        sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "admin",
         "--mode", "create", "--content", "other", "--stage", "1",
     ).stdout
     assert discipline in ingest
@@ -1015,13 +1015,13 @@ def test_use_task_execution_discipline():
     assert backend_gate not in ingest
 
     admin_update = run(
-        "python3", ".scripts/route.py", "--task", "ingest", "--subproject", "admin",
+        sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "admin",
         "--mode", "update", "--content", "other",
     ).stdout
     assert has_routed_locator(admin_update, "admin/SCHEMA.md", "graphdb-边写作约束")
 
     for task in ("lint", "sync", "write", "scan", "inbox", "hub"):
-        routed = run("python3", ".scripts/route.py", "--task", task).stdout
+        routed = run(sys.executable, ".scripts/route.py", "--task", task).stdout
         assert discipline in routed
         assert supplement not in routed
         assert backend_gate not in routed
@@ -1030,7 +1030,7 @@ def test_use_task_execution_discipline():
         else:
             assert experience_notice not in routed
 
-    build = run("python3", ".scripts/route.py", "--task", "build").stdout
+    build = run(sys.executable, ".scripts/route.py", "--task", "build").stdout
     assert discipline not in build
     assert supplement not in build
     assert experience_notice not in build
@@ -1074,7 +1074,7 @@ def test_use_task_execution_discipline():
     assert len(build) < 1800, len(build)
 
     impact = run(
-        "python3", ".scripts/engineering_graph.py", "impact", "route", "--verify"
+        sys.executable, ".scripts/engineering_graph.py", "impact", "route", "--verify"
     ).stdout
     assert "推荐精确 locator（先直接 read）" in impact
     assert "graph.yaml#yaml:/nodes/route" in impact
@@ -1095,7 +1095,7 @@ def test_use_task_execution_discipline():
         assert json.loads(run(*shlex.split(command)).stdout)["ok"]
 
     build_impact = run(
-        "python3", ".scripts/engineering_graph.py", "impact", "build"
+        sys.executable, ".scripts/engineering_graph.py", "impact", "build"
     ).stdout
     assert "graph.yaml#yaml:/capabilities/build" in build_impact
 

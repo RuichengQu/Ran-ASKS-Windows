@@ -115,7 +115,7 @@ def _write_json_atomic(path: Path, obj: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(data, encoding="utf-8")
+    tmp.write_text(data, encoding="utf-8", newline="\n")
     os.replace(tmp, path)
 
 

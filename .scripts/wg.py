@@ -105,7 +105,7 @@ def extract_last_json(text: str) -> dict:
 
 
 def query_graph_json(cmd: str, pos_args: list[str], opts: list[str] | None = None) -> dict:
-    args = ["python3", str(SCRIPTS / "query_graph.py"), cmd, *pos_args, "--json",
+    args = [sys.executable, str(SCRIPTS / "query_graph.py"), cmd, *pos_args, "--json",
             "--db", str(qa.query_db_path())]
     if opts:
         args.extend(opts)
@@ -253,7 +253,7 @@ def cmd_read_raw(args):
 
 
 def cmd_recall(args):
-    rc, out, err = run_script(["python3", str(SCRIPTS / "research_memory.py"),
+    rc, out, err = run_script([sys.executable, str(SCRIPTS / "research_memory.py"),
                                "recall", args.project])
     if rc != 0:
         return envelope("recall", None, status="error",
@@ -270,7 +270,7 @@ def cmd_ingest(args):
                         error="必须且只能提供一个 file、--stdin 或 --resume")
     if keep_source and not args.file:
         return envelope("ingest", None, status="error", error="--keep-source 只能用于文件附件")
-    command = ["python3", str(SCRIPTS / "ingest_inbox.py"), "--run"]
+    command = [sys.executable, str(SCRIPTS / "ingest_inbox.py"), "--run"]
     input_options = {}
     if args.resume:
         command.extend(["--resume", args.resume])
@@ -420,7 +420,7 @@ def cmd_remember(args):
         content = sys.stdin.read()
     else:
         content = args.content or ""
-    cmd = ["python3", str(SCRIPTS / "research_memory.py"), "add",
+    cmd = [sys.executable, str(SCRIPTS / "research_memory.py"), "add",
            args.project, "--title", args.title, "--intent", args.intent]
     if content:
         cmd += ["--content", content]
@@ -436,7 +436,7 @@ def cmd_remember(args):
 
 def cmd_workspace(args):
     """Generic workspace-state thin wrapper; the target script owns its schema."""
-    command = ["python3", str(SCRIPTS / "workspace_state.py"), *args.workspace_args]
+    command = [sys.executable, str(SCRIPTS / "workspace_state.py"), *args.workspace_args]
     rc, out, err = run_script(command)
     if rc != 0:
         try:
@@ -479,7 +479,7 @@ def cmd_cv(args):
 
 def cmd_frontier(args):
     """Frontier 薄包；主逻辑和准入契约只定义在 frontier.py。"""
-    cmd = ["python3", str(SCRIPTS / "frontier.py"), args.frontier_cmd]
+    cmd = [sys.executable, str(SCRIPTS / "frontier.py"), args.frontier_cmd]
     if args.frontier_cmd == "ask":
         cmd += ["--question", args.question, "--topk", str(args.topk)]
         if args.no_ai:
@@ -547,12 +547,12 @@ def cmd_functions(args):
         if errors:
             return envelope(
                 "functions", result,
-                sources=[str(fr.REGISTRY_PATH.relative_to(REPO))],
+                sources=[fr.REGISTRY_PATH.relative_to(REPO).as_posix()],
                 status="error", error="; ".join(errors),
             )
     return envelope(
         "functions", result,
-        sources=[str(fr.REGISTRY_PATH.relative_to(REPO))],
+        sources=[fr.REGISTRY_PATH.relative_to(REPO).as_posix()],
     )
 
 

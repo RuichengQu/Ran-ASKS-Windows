@@ -132,7 +132,7 @@ def retire(hub, *, apply=False, expected_hash=''):
             gl.backup_graph(source, backup / 'graph.db')
         finally:
             source.close()
-        receipt = {**plan, 'status': 'prepared', 'backup': str(backup.relative_to(gl.REPO)),
+        receipt = {**plan, 'status': 'prepared', 'backup': backup.relative_to(gl.REPO).as_posix(),
                    'log_existed': old_log is not None}
         receipt_path = backup / 'receipt.json'
         _write_receipt(receipt_path, receipt)
@@ -165,7 +165,7 @@ def retire(hub, *, apply=False, expected_hash=''):
             _write_receipt(receipt_path, receipt)
             raise
         return {'status': 'completed', 'hub': node,
-                'receipt': str(receipt_path.relative_to(gl.REPO)), 'raw_changed': False}
+                'receipt': receipt_path.relative_to(gl.REPO).as_posix(), 'raw_changed': False}
 
 
 def _cache_target():
@@ -237,7 +237,7 @@ def quarantine_public_cache(*, apply=False, expected_hash=''):
                 gl.backup_graph(source, backup / 'embeddings.db')
             finally:
                 source.close()
-            receipt = {**plan, 'status': 'prepared', 'backup': str(backup.relative_to(gl.REPO))}
+            receipt = {**plan, 'status': 'prepared', 'backup': backup.relative_to(gl.REPO).as_posix()}
             receipt_path = backup / 'receipt.json'
             _write_receipt(receipt_path, receipt)
             _clear_cache_tables(conn, plan['counts'])
@@ -254,7 +254,7 @@ def quarantine_public_cache(*, apply=False, expected_hash=''):
             receipt['status'] = 'completed'
             receipt['remaining'] = _cache_plan(conn)['counts']
             _write_receipt(receipt_path, receipt)
-            return {'status': 'completed', 'receipt': str(receipt_path.relative_to(gl.REPO)),
+            return {'status': 'completed', 'receipt': receipt_path.relative_to(gl.REPO).as_posix(),
                     'cleared': plan['counts'], 'remaining': receipt['remaining'], 'raw_changed': False}
         except Exception:
             conn.rollback()

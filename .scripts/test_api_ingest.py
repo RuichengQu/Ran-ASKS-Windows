@@ -464,7 +464,7 @@ def test_agent_fallback_uses_only_minimal_evidence_package():
 def test_agent_fallback_reuses_program_evidence_validation():
     with tempfile.TemporaryDirectory() as directory:
         raw = Path(directory) / "paper.md"
-        raw.write_text("A sufficiently long source sentence for evidence validation.", encoding="utf-8")
+        raw.write_text("A sufficiently long source sentence for evidence validation.", encoding="utf-8", newline="\n")
         old_repo = api_ingest.REPO
         api_ingest.REPO = raw.parent
         try:
@@ -481,7 +481,7 @@ def test_agent_fallback_reuses_program_evidence_validation():
 def test_draft_contains_replay_provenance():
     with tempfile.TemporaryDirectory() as directory:
         raw = Path(directory) / "paper.md"
-        raw.write_text("abstract text", encoding="utf-8")
+        raw.write_text("abstract text", encoding="utf-8", newline="\n")
         result = api_ingest.run_draft.__name__
         assert result == "run_draft"
         metadata = api_ingest.provenance(
@@ -498,7 +498,7 @@ def test_draft_contains_replay_provenance():
 def test_compile_refuses_incomplete_draft():
     with tempfile.TemporaryDirectory() as directory:
         page = Path(directory) / "page.md"
-        page.write_text("placeholder", encoding="utf-8")
+        page.write_text("placeholder", encoding="utf-8", newline="\n")
         try:
             api_ingest.compile_draft(page, {"complete": False}, Path(directory) / "semantic.txt")
         except ValueError as exc:
@@ -550,7 +550,7 @@ title: Test
     with tempfile.TemporaryDirectory() as directory:
         page = Path(directory) / "page.md"
         semantic = Path(directory) / "semantic.txt"
-        page.write_text(skeleton, encoding="utf-8")
+        page.write_text(skeleton, encoding="utf-8", newline="\n")
         api_ingest.compile_draft(page, draft, semantic)
         result = page.read_text(encoding="utf-8")
         assert "采用 FermiNet。" in result
@@ -562,7 +562,7 @@ def test_resolve_pending_appends_auditable_resolution():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         raw = root / "paper.md"
-        raw.write_text("source", encoding="utf-8")
+        raw.write_text("source", encoding="utf-8", newline="\n")
         pending = root / "pending.jsonl"
         pending.write_text(json.dumps({"raw": "paper.md", "state": "agent_fallback_required"}) + "\n", encoding="utf-8")
         old_repo = api_ingest.REPO

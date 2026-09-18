@@ -47,14 +47,14 @@ def test_mineru_bundle_keeps_only_referenced_images_and_sidecars():
         (artifact_root / "images").mkdir(parents=True)
         markdown_path = artifact_root / "full.md"
         markdown = "# Demo\n\n![](images/keep.png)\n"
-        markdown_path.write_text(markdown, encoding="utf-8")
+        markdown_path.write_text(markdown, encoding="utf-8", newline="\n")
         keep = artifact_root / "images/keep.png"
         keep.write_bytes(b"keep")
         (artifact_root / "images/unreferenced.png").write_bytes(b"drop")
         layout = artifact_root / "layout.json"
-        layout.write_text("{}", encoding="utf-8")
+        layout.write_text("{}", encoding="utf-8", newline="\n")
         checkpoint = root / "job.json"
-        checkpoint.write_text("{}", encoding="utf-8")
+        checkpoint.write_text("{}", encoding="utf-8", newline="\n")
         bundle = MinerUExtraction(
             markdown=markdown,
             markdown_path=markdown_path,
@@ -87,7 +87,7 @@ def test_mineru_bundle_rejects_missing_local_image_without_partial_markdown():
         paper_dir.mkdir()
         markdown_path = artifact_root / "full.md"
         markdown = "# Demo\n\n![](images/missing.png)\n"
-        markdown_path.write_text(markdown, encoding="utf-8")
+        markdown_path.write_text(markdown, encoding="utf-8", newline="\n")
         bundle = MinerUExtraction(
             markdown=markdown,
             markdown_path=markdown_path,
@@ -117,10 +117,10 @@ def test_mineru_bundle_rejects_non_directory_managed_targets_without_replacing_m
         artifact_root = root / "result"
         paper_dir.mkdir()
         artifact_root.mkdir()
-        (paper_dir / "paper.md").write_text("# Old\n", encoding="utf-8")
-        (paper_dir / "images").write_text("not a directory", encoding="utf-8")
+        (paper_dir / "paper.md").write_text("# Old\n", encoding="utf-8", newline="\n")
+        (paper_dir / "images").write_text("not a directory", encoding="utf-8", newline="\n")
         markdown_path = artifact_root / "full.md"
-        markdown_path.write_text("# New\n", encoding="utf-8")
+        markdown_path.write_text("# New\n", encoding="utf-8", newline="\n")
         bundle = MinerUExtraction(
             markdown="# New\n",
             markdown_path=markdown_path,

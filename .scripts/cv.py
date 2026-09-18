@@ -396,8 +396,8 @@ def validate_edition(workspace: Path, data: dict[str, Any], edition_id: str) -> 
     return {
         "edition": edition_id,
         "template": template_id,
-        "template_spec": str(spec_path.relative_to(REPO)),
-        "template_docx": str(docx_path.relative_to(REPO)),
+        "template_spec": spec_path.relative_to(REPO).as_posix(),
+        "template_docx": docx_path.relative_to(REPO).as_posix(),
         "language": language,
         "selected": len(records),
         "errors": formal_issues,
@@ -420,8 +420,8 @@ def status_report(workspace: Path, source: Path, data: dict[str, Any]) -> dict[s
             "ready": not report["errors"],
         }
     return _result(
-        "status", workspace=str(workspace.relative_to(REPO)),
-        source=str(source.relative_to(REPO)), records=len(records),
+        "status", workspace=workspace.relative_to(REPO).as_posix(),
+        source=source.relative_to(REPO).as_posix(), records=len(records),
         verification=dict(sorted(counts.items())), editions=editions,
         workspace_issues=validate_structure(data),
         categories=dict(sorted(Counter(str(record.get("category") or "missing") for record in records).items())),
@@ -459,8 +459,8 @@ def doctor_report(workspace: Path, source: Path) -> dict[str, Any]:
     except Exception as exc:
         dependency = {"status": "unavailable", "error": str(exc)}
         status = "unavailable"
-    return _result("doctor", status=status, workspace=str(workspace.relative_to(REPO)),
-                   source=str(source.relative_to(REPO)), dependency=dependency,
+    return _result("doctor", status=status, workspace=workspace.relative_to(REPO).as_posix(),
+                   source=source.relative_to(REPO).as_posix(), dependency=dependency,
                    renderer=TEMPLATE_VERSION, remote_calls=0)
 
 
@@ -778,7 +778,7 @@ def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     handle, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
             json.dump(value, stream, ensure_ascii=False, indent=2, sort_keys=True)
             stream.write("\n")
             stream.flush()
@@ -806,7 +806,7 @@ def _rebuild_index(versions: Path) -> Path:
     target = versions / "index.jsonl"
     handle, temp_name = tempfile.mkstemp(prefix=".index.", suffix=".tmp", dir=versions)
     try:
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
             for entry in entries:
                 stream.write(json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n")
             stream.flush()
@@ -825,7 +825,7 @@ def render(workspace: Path, source: Path, data: dict[str, Any], edition_id: str,
            stamp: str | None = None) -> dict[str, Any]:
     report = validate_edition(workspace, data, edition_id)
     if report["errors"]:
-        return _result("render", status="blocked", workspace=str(workspace.relative_to(REPO)),
+        return _result("render", status="blocked", workspace=workspace.relative_to(REPO).as_posix(),
                        edition=edition_id, validation=report,
                        error="formal CV validation failed")
     records = selected_records(data, edition_id)
@@ -865,16 +865,16 @@ def render(workspace: Path, source: Path, data: dict[str, Any], edition_id: str,
             "language": language,
             "version_date": version_date,
             "revision": revision,
-            "workspace": str(workspace.relative_to(REPO)),
-            "source": str(source.relative_to(REPO)),
+            "workspace": workspace.relative_to(REPO).as_posix(),
+            "source": source.relative_to(REPO).as_posix(),
             "source_sha256": _sha256(source),
             "renderer": TEMPLATE_VERSION,
             "template": template["id"],
-            "template_spec": str(template_spec_path.relative_to(REPO)),
+            "template_spec": template_spec_path.relative_to(REPO).as_posix(),
             "template_spec_sha256": _sha256(template_spec_path),
-            "template_docx": str(template_docx_path.relative_to(REPO)),
+            "template_docx": template_docx_path.relative_to(REPO).as_posix(),
             "template_docx_sha256": _sha256(template_docx_path),
-            "artifact": str(artifact.relative_to(REPO)),
+            "artifact": artifact.relative_to(REPO).as_posix(),
             "artifact_sha256": artifact_sha,
             "record_ids": [record["id"] for record in records],
             "records": record_snapshots,
@@ -893,9 +893,9 @@ def render(workspace: Path, source: Path, data: dict[str, Any], edition_id: str,
             raise
     finally:
         temporary.unlink(missing_ok=True)
-    return _result("render", workspace=str(workspace.relative_to(REPO)), edition=edition_id,
-                   artifact=str(artifact.relative_to(REPO)), manifest=str(manifest_path.relative_to(REPO)),
-                   index=str(index.relative_to(REPO)), artifact_sha256=artifact_sha,
+    return _result("render", workspace=workspace.relative_to(REPO).as_posix(), edition=edition_id,
+                   artifact=artifact.relative_to(REPO).as_posix(), manifest=manifest_path.relative_to(REPO).as_posix(),
+                   index=index.relative_to(REPO).as_posix(), artifact_sha256=artifact_sha,
                    selected=len(records), warnings=report["warnings"])
 
 
@@ -912,7 +912,7 @@ def history(workspace: Path) -> dict[str, Any]:
                 entries.append({key: item.get(key) for key in (
                     "version_id", "created_at", "edition", "language", "artifact", "artifact_sha256",
                 )})
-    return _result("history", workspace=str(workspace.relative_to(REPO)), versions=entries)
+    return _result("history", workspace=workspace.relative_to(REPO).as_posix(), versions=entries)
 
 
 def _manifest_path(workspace: Path, value: str) -> Path:
@@ -950,7 +950,7 @@ def diff_versions(workspace: Path, before: str, after: str) -> dict[str, Any]:
     changed = sorted(record_id for record_id in left_ids & right_ids
                      if left_records[record_id] != right_records[record_id])
     return _result(
-        "diff", workspace=str(workspace.relative_to(REPO)),
+        "diff", workspace=workspace.relative_to(REPO).as_posix(),
         before=left.get("version_id"), after=right.get("version_id"),
         added=sorted(right_ids - left_ids), removed=sorted(left_ids - right_ids),
         changed=changed, unchanged=len((left_ids & right_ids) - set(changed)),
@@ -996,7 +996,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "validate":
             report = validate_edition(workspace, data, args.edition)
             result = _result("validate", status="blocked" if report["errors"] else "ok",
-                             workspace=str(workspace.relative_to(REPO)), **report)
+                             workspace=workspace.relative_to(REPO).as_posix(), **report)
         elif args.command == "render":
             result = render(workspace, source, data, args.edition, args.date or None)
         elif args.command == "history":

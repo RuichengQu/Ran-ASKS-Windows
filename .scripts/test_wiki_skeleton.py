@@ -18,7 +18,7 @@ def test_temporary_raw_writes_final_source_path():
         repo = Path(directory)
         raw = repo / "temp/inbox-extract/demo/paper.md"
         raw.parent.mkdir(parents=True)
-        raw.write_text("# A Temporary Paper\n\nAda Lovelace and Grace Hopper\n\nAbstract text.", encoding="utf-8")
+        raw.write_text("# A Temporary Paper\n\nAda Lovelace and Grace Hopper\n\nAbstract text.", encoding="utf-8", newline="\n")
         old_repo = module.REPO
         module.REPO = repo
         try:

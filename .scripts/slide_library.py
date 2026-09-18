@@ -136,7 +136,7 @@ def export(source,pages,target,name,layout_report=None):
     pending=Path(tempfile.mkdtemp(prefix='.slide-export-',dir=target.parent))
     try:
         native_subset(source,pending/'component.pptx',selected)
-        data=dict(data,source=str(source.relative_to(REPO)) if source.is_relative_to(REPO) else str(source),pages=[data['pages'][i-1] for i in selected])
+        data=dict(data,source=source.relative_to(REPO).as_posix() if source.is_relative_to(REPO) else str(source),pages=[data['pages'][i-1] for i in selected])
         vision.write(pending/'structure.json',data)
         (pending/'component.md').write_text(design_md(name,data,selected,layout),encoding='utf-8')
         if layout_report: shutil.copyfile(layout_report,pending/'layout-analysis.json')

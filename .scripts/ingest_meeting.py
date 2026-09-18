@@ -232,10 +232,10 @@ def step_preprocess(state: dict) -> tuple[bool, str]:
     candidate_path = extract_dir / "entity-candidates.json"
     run([sys.executable, str(REPO / ".scripts/speech_entity_resolver.py"),
                   str(source_path),
-                  "--output", str(candidate_path.relative_to(REPO))])
+                  "--output", candidate_path.relative_to(REPO).as_posix()])
     if not candidate_path.is_file():
         return False, "speech_entity_resolver 未生成 entity-candidates.json"
-    state["entity_candidates"] = str(candidate_path.relative_to(REPO))
+    state["entity_candidates"] = candidate_path.relative_to(REPO).as_posix()
     return True, ""
 
 
@@ -316,7 +316,7 @@ def _write_evidence_catalog(state: dict, source_text: str) -> tuple[list[dict], 
     path = REPO / state["extract_dir"] / "evidence-catalog.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    state["evidence_catalog"] = str(path.relative_to(REPO))
+    state["evidence_catalog"] = path.relative_to(REPO).as_posix()
     return catalog, path
 
 
@@ -483,7 +483,7 @@ def prepare_meeting_agent_task(state: dict, source_text: str, entity_candidates:
         "name": "meeting_transcript", "path": state["source"],
         "role": "authoritative_source", "read": "full",
     }, {
-        "name": "evidence_catalog", "path": str(catalog_path.relative_to(REPO)),
+        "name": "evidence_catalog", "path": catalog_path.relative_to(REPO).as_posix(),
         "role": "deterministic_raw_line_handles", "read": "full",
     }]
     candidate_path = state.get("entity_candidates") or state.get("entity_resolution")
@@ -499,7 +499,7 @@ def prepare_meeting_agent_task(state: dict, source_text: str, entity_candidates:
         inputs=inputs,
         outputs=[{
             "name": "meeting_compiler_output",
-            "path": str(output_path.relative_to(REPO)),
+            "path": output_path.relative_to(REPO).as_posix(),
             "format": MEETING_COMPILER_PROTOCOL,
         }],
         protocol={
@@ -592,7 +592,7 @@ def _record_compiler_output(state: dict, result, trace: dict, input_hash: str) -
     encoded = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     artifact.write_bytes(encoded)
     artifact.chmod(0o600)
-    trace.update({"output_artifact": str(artifact.relative_to(REPO)),
+    trace.update({"output_artifact": artifact.relative_to(REPO).as_posix(),
                   "artifact_sha256": hashlib.sha256(encoded).hexdigest(),
                   "input_hash": input_hash})
 
@@ -615,7 +615,7 @@ def step_prepare_unified_handoff(state: dict, errors: list[str],
     agent_output = REPO / state["extract_dir"] / "agent-meeting-compiler.txt"
     state["_awaiting_agent_wiki_slots"] = True
     state["agent_prompt"] = prompt
-    state["agent_write_to"] = str(agent_output.relative_to(REPO))
+    state["agent_write_to"] = agent_output.relative_to(REPO).as_posix()
     state["compiler_errors"] = list(dict.fromkeys(str(error) for error in errors))
     state["meeting_compiler"] = {
         "protocol_version": MEETING_COMPILER_PROTOCOL,
@@ -740,7 +740,7 @@ def step_write_wiki(state: dict) -> tuple[bool, str]:
             state["_awaiting_agent_wiki_slots"] = True
             state["agent_required"] = True
             state["agent_prompt"] = result.prompt
-            state["agent_write_to"] = str(agent_output.relative_to(REPO))
+            state["agent_write_to"] = agent_output.relative_to(REPO).as_posix()
             return False, "需要宿主 Agent 接管 Meeting Compiler 任务"
         if result.status != "compiled" or result.proposal is None:
             if result.status == "rejected":
@@ -820,13 +820,13 @@ def step_write_wiki(state: dict) -> tuple[bool, str]:
         meeting_ir_path.write_text(
             json.dumps(meeting_ir, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
         )
-        state["meeting_ir"] = str(meeting_ir_path.relative_to(REPO))
+        state["meeting_ir"] = meeting_ir_path.relative_to(REPO).as_posix()
         state["meeting_ir_content"] = meeting_ir
     else:
         # Only old in-flight meeting-compiler-v1 tasks may take this compatibility path.
         slots_content = proposal["semantic_slots"]
     corrected_path = extract_dir / "corrected.txt"
-    corrected_path.write_text(corrected_text, encoding="utf-8")
+    corrected_path.write_text(corrected_text, encoding="utf-8", newline="\n")
     resolution = dict(entity_candidates)
     resolution.update({
         "protocol_version": MEETING_COMPILER_PROTOCOL,
@@ -839,9 +839,9 @@ def step_write_wiki(state: dict) -> tuple[bool, str]:
         json.dumps(resolution, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    (extract_dir / "wiki.md").write_text(wiki_content, encoding="utf-8")
-    state["corrected_path"] = str(corrected_path.relative_to(REPO))
-    state["entity_resolution"] = str(resolution_path.relative_to(REPO))
+    (extract_dir / "wiki.md").write_text(wiki_content, encoding="utf-8", newline="\n")
+    state["corrected_path"] = corrected_path.relative_to(REPO).as_posix()
+    state["entity_resolution"] = resolution_path.relative_to(REPO).as_posix()
     state["wiki_content"] = wiki_content
     state["slots_content"] = slots_content
     state["semantic_worker"] = "meeting-compiler-agent" if resumed_compiler else "meeting-compiler-api"
@@ -1082,7 +1082,7 @@ def main() -> None:
         state = {
             "transaction_id": txn_id,
             "status": "dedup_check",
-            "source": str(txt_path.relative_to(REPO)),
+            "source": txt_path.relative_to(REPO).as_posix(),
             "source_filename": txt_path.name,
             "date_str": extract_meeting_date(txt_path.name),
             "subproject": args.subproject,

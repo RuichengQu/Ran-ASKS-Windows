@@ -116,9 +116,9 @@ def test_academic_agent_wiki_maps_raw_and_wiki_separately():
         "created: 2026-09-01\nupdated: 2026-09-01\n---\n"
         "## Navigation\n\n导航。\n## Content\n\n内容。\n"
     )
-    (extract_dir / "wiki.md").write_text(wiki_content, encoding="utf-8")
+    (extract_dir / "wiki.md").write_text(wiki_content, encoding="utf-8", newline="\n")
     state = {
-        "extract_dir": str(extract_dir.relative_to(module.REPO)),
+        "extract_dir": extract_dir.relative_to(module.REPO).as_posix(),
         "admin_id": "undated-editorial",
         "date_str": "",
         "subproject": "academic",
@@ -143,10 +143,10 @@ def test_academic_missing_type_stops_before_transaction_and_raw_write():
     state_dir = module.REPO / "temp" / "inbox-state"
     before_states = set(state_dir.glob("*.json")) if state_dir.exists() else set()
     assert not raw_target.exists()
-    inbox_file.write_text("# 学术背景资料\n\n没有可确定的文档类型。\n", encoding="utf-8")
+    inbox_file.write_text("# 学术背景资料\n\n没有可确定的文档类型。\n", encoding="utf-8", newline="\n")
     try:
         result = subprocess.run(
-            [sys.executable, str(SCRIPT), "--file", str(inbox_file.relative_to(module.REPO)),
+            [sys.executable, str(SCRIPT), "--file", inbox_file.relative_to(module.REPO).as_posix(),
              "--subproject", "academic"],
             cwd=module.REPO, capture_output=True, text=True, check=True,
         )
@@ -323,7 +323,7 @@ def test_teaching_prerequisites_are_verified_deterministic_edges():
         repo = Path(tmp)
         target = repo / "teaching/wiki/topics/linear-algebra.md"
         target.parent.mkdir(parents=True)
-        target.write_text("---\ntitle: Linear algebra\ntype: topic\n---\n", encoding="utf-8")
+        target.write_text("---\ntitle: Linear algebra\ntype: topic\n---\n", encoding="utf-8", newline="\n")
         old_repo = gi.gl.REPO
         gi.gl.REPO = repo
         try:
@@ -432,10 +432,10 @@ def test_agent_mode_wiki_roundtrip():
         "date: 2026-07-01\n"
         "---\n## Navigation\n\n测试。 <RAW#L13>\n## Content\n\n内容。 <RAW#L136>\n"
     )
-    (extract_dir / "wiki.md").write_text(wiki_content, encoding="utf-8")
+    (extract_dir / "wiki.md").write_text(wiki_content, encoding="utf-8", newline="\n")
     doc_text = "\n".join(f"第 {line} 行依据。" for line in range(1, 137)) + "\n"
-    (extract_dir / "doc.md").write_text(doc_text, encoding="utf-8")
-    (extract_dir / "test.md").write_text(doc_text, encoding="utf-8")
+    (extract_dir / "doc.md").write_text(doc_text, encoding="utf-8", newline="\n")
+    (extract_dir / "test.md").write_text(doc_text, encoding="utf-8", newline="\n")
     state = {
         "extract_dir": "temp/inbox-extract/test-agent-wiki",
         "admin_id": "20260701-test",
@@ -469,7 +469,7 @@ def test_agent_mode_slots_roundtrip():
     extract_dir = module.REPO / "temp" / "inbox-extract" / "test-agent-slots"
     extract_dir.mkdir(parents=True, exist_ok=True)
     slots_content = "三元组:\n本文件 | 涉及 | 人才培养talent cultivation\n"
-    (extract_dir / "semantic.txt").write_text(slots_content, encoding="utf-8")
+    (extract_dir / "semantic.txt").write_text(slots_content, encoding="utf-8", newline="\n")
     state = {
         "extract_dir": "temp/inbox-extract/test-agent-slots",
         "wiki_content": "---\ntitle: test\ntype: policy\n---\n## Navigation\n\n## Content\n",
@@ -490,8 +490,8 @@ def test_short_api_document_combines_wiki_and_slots_in_one_call():
     extract_dir = module.REPO / "temp" / "inbox-extract" / "test-api-combined-document"
     extract_dir.mkdir(parents=True, exist_ok=True)
     doc_text = "\n".join(f"第 {line} 行依据。" for line in range(1, 137)) + "\n"
-    (extract_dir / "doc.md").write_text(doc_text, encoding="utf-8")
-    (extract_dir / "test-policy.md").write_text(doc_text, encoding="utf-8")
+    (extract_dir / "doc.md").write_text(doc_text, encoding="utf-8", newline="\n")
+    (extract_dir / "test-policy.md").write_text(doc_text, encoding="utf-8", newline="\n")
     output = (
         "<<<META>>>\ndoc_date: 2026-09-01\ntitle: 测试政策\ndoc_type: document\n<<</META>>>\n"
         "<<<WIKI>>>\n---\ntitle: 测试政策\ntype: policy\nstatus: confirmed\n---\n"
@@ -506,7 +506,7 @@ def test_short_api_document_combines_wiki_and_slots_in_one_call():
         return {"ok": True, "status": "ok", "text": output}
 
     state = {
-        "extract_dir": str(extract_dir.relative_to(module.REPO)),
+        "extract_dir": extract_dir.relative_to(module.REPO).as_posix(),
         "date_str": "2026-09-01",
         "subproject": "admin",
         "source_filename": "test-policy.docx",
@@ -630,13 +630,13 @@ def test_preprocess_preserves_source_path_date_for_both_backends():
         repo = Path(temporary)
         source = repo / "inbox/2026.09.06/材料/新闻稿.md"
         source.parent.mkdir(parents=True)
-        source.write_text("会议于2026年8月23日举办。", encoding="utf-8")
+        source.write_text("会议于2026年8月23日举办。", encoding="utf-8", newline="\n")
         with patch.object(module, "REPO", repo):
             for backend in ("agent", "api"):
                 with patch.dict("os.environ", {"INGEST_BACKEND": backend}):
                     assert module.ingest_mode() == backend
                     state = {
-                        "source": str(source.relative_to(repo)),
+                        "source": source.relative_to(repo).as_posix(),
                         "source_filename": source.name,
                         "extract_dir": f"temp/extract-{backend}",
                         "document_type": "conference-summary",
@@ -717,7 +717,7 @@ def test_document_dedup_requires_content_identity_including_nested_raw():
         source.write_bytes(b"new-event")
         stored.write_bytes(b"old-event")
         state = {
-            "source": str(source.relative_to(repo)), "source_filename": source.name,
+            "source": source.relative_to(repo).as_posix(), "source_filename": source.name,
             "subproject": "academic", "document_type": "conference-summary",
             "dedup_result": [{"path": "stale-result"}],
         }
@@ -732,7 +732,7 @@ def test_document_dedup_requires_content_identity_including_nested_raw():
             nested.parent.mkdir()
             stored.rename(nested)
             assert module.step_dedup_check(state)[0] is True
-            assert state["dedup_result"][0]["path"] == str(nested.relative_to(repo))
+            assert state["dedup_result"][0]["path"] == nested.relative_to(repo).as_posix()
             assert state["dedup_result"][0]["binary_sha256"] == module.sha256_file(source)
 
 
@@ -752,7 +752,7 @@ def test_document_dedup_revalidates_indexed_raw_and_rejects_outside_paths():
             stored, db_path=repo / "cross-domain/source-fingerprints.db", repo=repo,
         )
         state = {
-            "source": str(source.relative_to(repo)), "source_filename": source.name,
+            "source": source.relative_to(repo).as_posix(), "source_filename": source.name,
             "subproject": "academic", "document_type": "conference-summary",
         }
         with patch.object(module, "REPO", repo):
@@ -893,9 +893,9 @@ def test_validate_semantics_rejects_responsibility_inferred_from_speech():
     import shutil
     extract_dir = module.REPO / "temp" / "inbox-extract" / "test-responsibility-evidence"
     extract_dir.mkdir(parents=True, exist_ok=True)
-    (extract_dir / "doc.md").write_text("方复全校长讲话\n", encoding="utf-8")
+    (extract_dir / "doc.md").write_text("方复全校长讲话\n", encoding="utf-8", newline="\n")
     state = {
-        "extract_dir": str(extract_dir.relative_to(module.REPO)),
+        "extract_dir": extract_dir.relative_to(module.REPO).as_posix(),
         "slots_content": "三元组:\n本文件 | 负责人 | 方复全\n",
     }
     original_validate = module.ic.validate_semantics
@@ -903,7 +903,7 @@ def test_validate_semantics_rejects_responsibility_inferred_from_speech():
     try:
         errors, _warnings = module.step_validate_semantics(state)
         assert any("负责人关系缺少" in item for item in errors)
-        (extract_dir / "doc.md").write_text("项目负责人：方复全\n", encoding="utf-8")
+        (extract_dir / "doc.md").write_text("项目负责人：方复全\n", encoding="utf-8", newline="\n")
         errors, _warnings = module.step_validate_semantics(state)
         assert not errors
     finally:
@@ -918,7 +918,7 @@ def test_semantic_validation_refreshes_cache_before_responsibility_checks():
         repo = Path(directory)
         extract_dir = repo / "extract"
         extract_dir.mkdir()
-        (extract_dir / "doc.md").write_text("方复全校长讲话\n", encoding="utf-8")
+        (extract_dir / "doc.md").write_text("方复全校长讲话\n", encoding="utf-8", newline="\n")
         semantic_path = repo / "semantic.txt"
         clean = "三元组:\n本文件 | 涉及 | 科研项目\n"
         unsupported = "三元组:\n本文件 | 负责人 | 方复全\n"
@@ -927,16 +927,16 @@ def test_semantic_validation_refreshes_cache_before_responsibility_checks():
                  "pipeline_script": "ingest_document.py", "slots_content": unsupported}
         with patch.object(module, "REPO", repo), \
                 patch.object(module.ic, "load_raw_abbr_map", return_value={}):
-            semantic_path.write_text(clean, encoding="utf-8")
+            semantic_path.write_text(clean, encoding="utf-8", newline="\n")
             errors, _warnings = module.step_validate_semantics(state)
             assert not errors, errors
             assert state["slots_content"] == clean
-            semantic_path.write_text(unsupported, encoding="utf-8")
+            semantic_path.write_text(unsupported, encoding="utf-8", newline="\n")
             errors, _warnings = module.step_validate_semantics(state)
             assert any("负责人关系缺少" in item for item in errors), errors
             assert state["slots_content"] == unsupported
             malformed = "三元组:\n本文件 → 涉及 → 科研项目\n"
-            semantic_path.write_text(malformed, encoding="utf-8")
+            semantic_path.write_text(malformed, encoding="utf-8", newline="\n")
             errors, _warnings = module.step_validate_semantics(state)
             assert errors
             assert state["slots_content"] == malformed
@@ -961,7 +961,7 @@ def test_api_semantic_backend_requests_ocr_authorization_in_same_transaction():
         extract_dir.mkdir()
         state = {
             "transaction_id": "20260911-120000-image",
-            "source": str(source.relative_to(module.REPO)),
+            "source": source.relative_to(module.REPO).as_posix(),
             "entrypoint": "inbox",
             "semantic_backend": "api",
         }
@@ -1013,13 +1013,13 @@ def test_document_semantics_rejects_arrow_and_legacy_sections_before_finalize():
         "三元组:\n"
         "- 本文件 → 涉及 → 科研项目绩效支取\n"
     )
-    semantic.write_text(text, encoding="utf-8")
+    semantic.write_text(text, encoding="utf-8", newline="\n")
     state = {
         "pipeline_script": "ingest_document.py",
-        "semantic_path": str(semantic.relative_to(module.REPO)),
+        "semantic_path": semantic.relative_to(module.REPO).as_posix(),
         "slots_content": text,
         "wiki_path": "admin/wiki/references/test-semantic-contract",
-        "extract_dir": str(root.relative_to(module.REPO)),
+        "extract_dir": root.relative_to(module.REPO).as_posix(),
     }
     try:
         errors, _warnings = module.step_validate_semantics(state)
@@ -1070,9 +1070,9 @@ def test_rollback_removes_manifest_companion_restores_graph_and_marks_receipt():
     extract.mkdir(parents=True, exist_ok=True)
     raw_dir.mkdir(parents=True, exist_ok=True)
     wiki.parent.mkdir(parents=True, exist_ok=True)
-    wiki.write_text("wiki", encoding="utf-8")
+    wiki.write_text("wiki", encoding="utf-8", newline="\n")
     for name in ("policy.docx", "policy.md"):
-        (raw_dir / name).write_text(name, encoding="utf-8")
+        (raw_dir / name).write_text(name, encoding="utf-8", newline="\n")
     (extract / "manifest.json").write_text(json.dumps({
         "raw_files": ["policy.docx", "policy.md"], "wiki_file": "wiki.md"
     }), encoding="utf-8")
@@ -1086,13 +1086,13 @@ def test_rollback_removes_manifest_companion_restores_graph_and_marks_receipt():
     receipt.write_text(json.dumps({"status": "committed"}), encoding="utf-8")
     state = {
         "wiki_path": str(wiki.with_suffix("").relative_to(module.REPO)),
-        "raw_dir": str(raw_dir.relative_to(module.REPO)),
+        "raw_dir": raw_dir.relative_to(module.REPO).as_posix(),
         "source_filename": "policy.docx",
         "locator_source_filename": "policy.md",
-        "extract_dir": str(extract.relative_to(module.REPO)),
-        "graph_snapshot": str(snapshot.relative_to(module.REPO)),
+        "extract_dir": extract.relative_to(module.REPO).as_posix(),
+        "graph_snapshot": snapshot.relative_to(module.REPO).as_posix(),
         "graph_db_path": str(graph),
-        "receipt": str(receipt.relative_to(module.REPO)),
+        "receipt": receipt.relative_to(module.REPO).as_posix(),
     }
     original_trash = module.trash_util.trash_path
     module.trash_util.trash_path = lambda path: Path(path).unlink()
@@ -1185,7 +1185,7 @@ def _locator_test_state(name: str, source_suffix: str) -> tuple[dict, Path]:
     source = root / f"{name}{source_suffix}"
     source.write_bytes(b"test")
     state = {
-        "source": str(source.relative_to(module.REPO)),
+        "source": source.relative_to(module.REPO).as_posix(),
         "source_filename": source.name,
         "extract_dir": f"temp/inbox-extract/test-locator-{name}",
     }
@@ -1222,7 +1222,7 @@ def test_preprocess_native_text_uses_original():
     import shutil
     state, root = _locator_test_state("minutes", ".txt")
     source = module.REPO / state["source"]
-    source.write_text("line one\nline two\n", encoding="utf-8")
+    source.write_text("line one\nline two\n", encoding="utf-8", newline="\n")
     try:
         ok, msg = module.step_preprocess(state)
         assert ok, msg
@@ -1240,7 +1240,7 @@ def test_validate_native_text_uses_inbox_source_before_commit():
     import shutil
     state, root = _locator_test_state("conference", ".md")
     source = module.REPO / state["source"]
-    source.write_text("# Conference\n\nRecorded fact.\n", encoding="utf-8")
+    source.write_text("# Conference\n\nRecorded fact.\n", encoding="utf-8", newline="\n")
     try:
         ok, msg = module.step_preprocess(state)
         assert ok, msg
@@ -1254,7 +1254,7 @@ def test_validate_native_text_uses_inbox_source_before_commit():
             f"[^r3]: {raw_locator}#L3\n"
         )
         extract_dir = module.REPO / state["extract_dir"]
-        (extract_dir / "wiki.md").write_text(wiki, encoding="utf-8")
+        (extract_dir / "wiki.md").write_text(wiki, encoding="utf-8", newline="\n")
         state.update({
             "wiki_content": wiki,
             "subproject": "academic",
@@ -1322,7 +1322,7 @@ def test_same_name_documents_finalize_without_overwriting_for_both_backends():
                 (base / name).write_bytes(content)
             state = {
                 "transaction_id": "test-same-name-" + backend,
-                "source": str(source.relative_to(repo)), "source_filename": source.name,
+                "source": source.relative_to(repo).as_posix(), "source_filename": source.name,
                 "subproject": "academic", "document_type": "conference-summary",
                 "extract_dir": "temp/inbox-extract/test-same-name-" + backend,
             }
@@ -1380,19 +1380,19 @@ def test_finalize_lands_original_and_companion_together():
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_bytes(b"original")
     extract_dir.mkdir(parents=True, exist_ok=True)
-    (extract_dir / "policy.md").write_text("# Policy\n\nExact text.\n", encoding="utf-8")
+    (extract_dir / "policy.md").write_text("# Policy\n\nExact text.\n", encoding="utf-8", newline="\n")
     source_context = '{"schema":"document-source-context-v1","source":"inbox/2026.09.06/policy.docx"}\n'
-    (extract_dir / "policy.docx.source.json").write_text(source_context, encoding="utf-8")
-    (extract_dir / "wiki.md").write_text("---\ntitle: Policy\n---\n", encoding="utf-8")
+    (extract_dir / "policy.docx.source.json").write_text(source_context, encoding="utf-8", newline="\n")
+    (extract_dir / "wiki.md").write_text("---\ntitle: Policy\n---\n", encoding="utf-8", newline="\n")
     state = {
         "transaction_id": token,
-        "source": str(source.relative_to(module.REPO)),
+        "source": source.relative_to(module.REPO).as_posix(),
         "source_filename": "policy.docx",
         "locator_source_filename": "policy.md",
-        "extract_dir": str(extract_dir.relative_to(module.REPO)),
+        "extract_dir": extract_dir.relative_to(module.REPO).as_posix(),
         "source_context_filename": "policy.docx.source.json",
-        "raw_dir": str(raw_dir.relative_to(module.REPO)),
-        "wiki_path": str(wiki_path.relative_to(module.REPO)),
+        "raw_dir": raw_dir.relative_to(module.REPO).as_posix(),
+        "wiki_path": wiki_path.relative_to(module.REPO).as_posix(),
         "admin_id": token,
     }
     try:
@@ -1478,7 +1478,7 @@ def test_append_source_to_existing_list():
     with tempfile.TemporaryDirectory() as d:
         repo = Path(d)
         page = repo / "test.md"
-        page.write_text('---\ntitle: 测试\ntype: policy\nsources:\n  - "raw/a.docx"\nsource_type: official-doc\n---\n\n# 测试\n', encoding="utf-8")
+        page.write_text('---\ntitle: 测试\ntype: policy\nsources:\n  - "raw/a.docx"\nsource_type: official-doc\n---\n\n# 测试\n', encoding="utf-8", newline="\n")
         result = module.ic.append_source_to_page(repo, "test", "raw/b.docx")
         assert result is True
         fm = gl.read_frontmatter("test".replace("test", str(page)))
@@ -1493,7 +1493,7 @@ def test_append_source_creates_field():
     with tempfile.TemporaryDirectory() as d:
         repo = Path(d)
         page = repo / "test.md"
-        page.write_text('---\ntitle: 测试\ntype: reference\nsource_type: official-doc\n---\n\n# 测试\n', encoding="utf-8")
+        page.write_text('---\ntitle: 测试\ntype: reference\nsource_type: official-doc\n---\n\n# 测试\n', encoding="utf-8", newline="\n")
         result = module.ic.append_source_to_page(repo, "test", "raw/c.docx")
         assert result is True
         fm = gl.read_frontmatter(str(page))
@@ -1508,7 +1508,7 @@ def test_append_source_idempotent():
     with tempfile.TemporaryDirectory() as d:
         repo = Path(d)
         page = repo / "test.md"
-        page.write_text('---\ntitle: 测试\nsources:\n  - "raw/a.docx"\n---\n\n# 测试\n', encoding="utf-8")
+        page.write_text('---\ntitle: 测试\nsources:\n  - "raw/a.docx"\n---\n\n# 测试\n', encoding="utf-8", newline="\n")
         assert module.ic.append_source_to_page(repo, "test", "raw/a.docx") is False
         fm = gl.read_frontmatter(str(page))
         sources = gl.parse_list_field(fm, "sources")
@@ -1586,7 +1586,7 @@ def test_spreadsheet_extraction_preserves_rows_and_structure():
         assert not module.sl.valid_locator("L1", source)
 
         companion = source.with_suffix(".md")
-        companion.write_text(text, encoding="utf-8")
+        companion.write_text(text, encoding="utf-8", newline="\n")
         locator = "table:记录:A,B:R2-R3"
         assert module.sl.locator_status(locator, companion) == "present"
         projected = module.sl.read_locator_text(companion, locator)

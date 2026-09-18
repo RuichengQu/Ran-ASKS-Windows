@@ -113,9 +113,9 @@ class PrivateReingestTests(unittest.TestCase):
     def test_commit_rejects_page_self_edge_and_rolls_back(self):
         result = pr.prepare(self.page, "self-edge")
         workspace = self.root / result["workspace"]
-        (workspace / "candidate.md").write_text(CANDIDATE, encoding="utf-8")
+        (workspace / "candidate.md").write_text(CANDIDATE, encoding="utf-8", newline="\n")
         (workspace / "semantic.txt").write_text(
-            "三元组:\n  本文件|来源|Synthetic private record\n", encoding="utf-8")
+            "三元组:\n  本文件|来源|Synthetic private record\n", encoding="utf-8", newline="\n")
         pr.validate(result["transaction_id"])
         before_wiki = digest(self.wiki)
         with self.assertRaises(ValueError):
@@ -129,7 +129,7 @@ class PrivateReingestTests(unittest.TestCase):
         page = "private/wiki/metaphysics/貔貅部.md"
         raw = self.root / "private/raw/metaphysics/貔貅部.md"
         raw.parent.mkdir(parents=True)
-        raw.write_text("# Synthetic\n", encoding="utf-8")
+        raw.write_text("# Synthetic\n", encoding="utf-8", newline="\n")
         target = self.root / page
         target.parent.mkdir(parents=True)
         target.write_text(

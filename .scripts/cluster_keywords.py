@@ -183,7 +183,7 @@ updated: {time.strftime("%Y-%m-%d")}
 {kw_list}
 """
     hub_path.write_text(content)
-    return str(hub_path.relative_to(BASE))
+    return hub_path.relative_to(BASE).as_posix()
 
 def get_all_keyword_hubs():
     """获取所有含 ## 关键词 段的 hub 页（含 catch-all）"""
@@ -195,7 +195,7 @@ def get_all_keyword_hubs():
         for f in hubs_dir.glob("*.md"):
             kws = parse_hub_keywords(str(f))
             if kws:
-                rel = str(f.relative_to(BASE))
+                rel = f.relative_to(BASE).as_posix()
                 hubs[rel] = kws
     return hubs
 
