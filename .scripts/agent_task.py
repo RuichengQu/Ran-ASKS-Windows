@@ -287,7 +287,7 @@ def _managed_command(command: str, repo: Path) -> tuple[list[str], dict[str, str
         if name not in ALLOWED_COMMAND_ENV or value not in VALID_BACKENDS:
             raise ValueError(f"Agent task command 不允许环境覆盖: {name}")
         overrides[name] = value
-    if len(parts) < 2 or Path(parts[0]).name not in {"python", sys.executable}:
+    if len(parts) < 2 or Path(parts[0]).name not in {"python", "python3", Path(sys.executable).name}:
         raise ValueError("Agent task command 必须调用 Python 受管脚本")
     script = Path(parts[1])
     resolved = script.resolve() if script.is_absolute() else (repo / script).resolve()
