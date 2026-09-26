@@ -1273,7 +1273,7 @@ def test_preprocess_text_pdf_creates_line_locator_companion():
     try:
         import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
     except ImportError:  # 旧版 PyMuPDF 只有 fitz
-    import fitz
+        import fitz
     import shutil
     state, root = _locator_test_state("report", ".pdf")
     source = module.REPO / state["source"]

@@ -74,7 +74,7 @@ def test_agent_wiki_handoff_resumes_from_declared_output():
             "## Navigation\n\n## Content\n\n正文。\n"
             "<<<SLOTS>>>\n三元组:\n本论文 | 核心方法 | 测试主题\n",
             encoding="utf-8",
-        newline="\n")
+        )
         state = {
             "transaction_id": "agent-wiki",
             "status": "agent_required",
@@ -311,7 +311,7 @@ def test_resume_agent_workspace_materializes_review_and_combined_output_once():
             f"{module.WIKI_DELIMITER}\n---\ntitle: Test Paper\n---\n## Navigation\n"
             f"{module.SLOTS_DELIMITER}\n三元组:\n本论文 | 核心方法 | 测试\n",
             encoding="utf-8",
-        newline="\n")
+        )
         state = {
             "transaction_id": "txn", "status": "agent_required", "agent_required": True,
             "extract_dir": extract_dir.relative_to(root).as_posix(),
@@ -319,7 +319,7 @@ def test_resume_agent_workspace_materializes_review_and_combined_output_once():
             "bibliographic_review": {
                 "status": "agent_required", "candidates": candidates, "catalog": catalog,
                 "input_hash": "input", "worker": {},
-                "draft_path": (extract_dir / "bibliographic-review.json").relative_to(root).as_posix(),
+                "draft_path": str((extract_dir / "bibliographic-review.json").relative_to(root)),
             },
             "agent_workspace": {
                 "protocol_version": module.AGENT_WORKSPACE_PROTOCOL,
@@ -424,7 +424,7 @@ def test_refresh_agent_workspace_handoff_rebuilds_stale_candidate_catalog():
             "Alice Example. 2021. Knowledge Graphs. ACM Comput. Surv. 54.\n\n"
             "## 1 INTRODUCTION\n",
             encoding="utf-8",
-        newline="\n")
+        )
         (extract_dir / "paper.pdf").write_bytes(b"test-pdf")
         state = {
             "transaction_id": "txn",
@@ -447,7 +447,7 @@ def test_refresh_agent_workspace_handoff_rebuilds_stale_candidate_catalog():
                 "---\ntitle: \"__agent_locked_paper_id__\"\ndate: 2021\nvenue: \"\"\n---\n"
                 "# __agent_locked_paper_id__\n",
                 encoding="utf-8",
-            newline="\n")
+            )
             refreshed = module.refresh_agent_workspace_handoff(state)
         finally:
             module.REPO = original_repo
@@ -468,7 +468,7 @@ def test_explicit_workspace_refresh_archives_existing_unsubmitted_output():
             "ACM Reference format:\n\n"
             "Alice Example. 2021. Knowledge Graphs. ACM Comput. Surv. 54.\n",
             encoding="utf-8",
-        newline="\n")
+        )
         (extract_dir / "paper.pdf").write_bytes(b"test-pdf")
         output = extract_dir / "agent-workspace.txt"
         output.write_text("old reviewed output\n", encoding="utf-8", newline="\n")
@@ -494,7 +494,7 @@ def test_explicit_workspace_refresh_archives_existing_unsubmitted_output():
                 "---\ntitle: \"__agent_locked_paper_id__\"\ndate: 2021\nvenue: \"\"\n---\n"
                 "# __agent_locked_paper_id__\n",
                 encoding="utf-8",
-            newline="\n")
+            )
             module.inbox_state.save = lambda *_args, **_kwargs: None
             payload = module.explicit_agent_workspace_refresh(state)
         finally:
@@ -521,7 +521,7 @@ def test_explicit_workspace_refresh_without_output_has_no_archive_receipt():
             "ACM Reference format:\n\n"
             "Alice Example. 2021. Knowledge Graphs. ACM Comput. Surv. 54.\n",
             encoding="utf-8",
-        newline="\n")
+        )
         (extract_dir / "paper.pdf").write_bytes(b"test-pdf")
         state = {
             "transaction_id": "txn",
@@ -545,7 +545,7 @@ def test_explicit_workspace_refresh_without_output_has_no_archive_receipt():
                 "---\ntitle: \"__agent_locked_paper_id__\"\ndate: 2021\nvenue: \"\"\n---\n"
                 "# __agent_locked_paper_id__\n",
                 encoding="utf-8",
-            newline="\n")
+            )
             module.inbox_state.save = lambda *_args, **_kwargs: None
             payload = module.explicit_agent_workspace_refresh(state)
         finally:
@@ -638,7 +638,7 @@ def test_extract_pdf_bibliography_reads_metadata_and_first_page_footer():
     try:
         import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
     except ImportError:  # 旧版 PyMuPDF 只有 fitz
-    import fitz
+        import fitz
     with tempfile.TemporaryDirectory() as directory:
         pdf_path = Path(directory) / "thorne-2018-fever.pdf"
         doc = fitz.open()
@@ -667,7 +667,7 @@ def test_extract_pdf_bibliography_prefers_published_year_and_aps_doi_venue():
     try:
         import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
     except ImportError:  # 旧版 PyMuPDF 只有 fitz
-    import fitz
+        import fitz
     with tempfile.TemporaryDirectory() as directory:
         pdf_path = Path(directory) / "paper.pdf"
         doc = fitz.open()
@@ -687,7 +687,7 @@ def test_extract_pdf_bibliography_reads_aps_venue_from_metadata_subject():
     try:
         import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
     except ImportError:  # 旧版 PyMuPDF 只有 fitz
-    import fitz
+        import fitz
     with tempfile.TemporaryDirectory() as directory:
         pdf_path = Path(directory) / "paper.pdf"
         doc = fitz.open()
@@ -705,7 +705,7 @@ def test_extract_pdf_bibliography_reads_npj_venue_from_metadata_subject():
     try:
         import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
     except ImportError:  # 旧版 PyMuPDF 只有 fitz
-    import fitz
+        import fitz
     with tempfile.TemporaryDirectory() as directory:
         pdf_path = Path(directory) / "paper.pdf"
         doc = fitz.open()
@@ -749,7 +749,7 @@ def test_extract_pdf_bibliography_reads_published_conference_venue():
     try:
         import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
     except ImportError:  # 旧版 PyMuPDF 只有 fitz
-    import fitz
+        import fitz
     with tempfile.TemporaryDirectory() as directory:
         pdf_path = Path(directory) / "paper.pdf"
         doc = fitz.open()
@@ -767,7 +767,7 @@ def test_extract_pdf_bibliography_reads_iop_citation_venue():
     try:
         import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
     except ImportError:  # 旧版 PyMuPDF 只有 fitz
-    import fitz
+        import fitz
     with tempfile.TemporaryDirectory() as directory:
         pdf_path = Path(directory) / "paper.pdf"
         doc = fitz.open()
@@ -971,7 +971,7 @@ def test_extract_pdf_bibliography_reads_iop_wrapper_second_page_header():
     try:
         import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
     except ImportError:  # 旧版 PyMuPDF 只有 fitz
-    import fitz
+        import fitz
     with tempfile.TemporaryDirectory() as directory:
         pdf_path = Path(directory) / "paper.pdf"
         doc = fitz.open()
@@ -1740,7 +1740,7 @@ def test_resume_candidate_id_decision_compiles_and_caches_without_worker():
         decision = _candidate_id_decision(catalog)
         (extract_dir / "bibliographic-review.json").write_text(
             module.json.dumps(decision), encoding="utf-8",
-        newline="\n")
+        )
         state = {
             "transaction_id": "txn-id",
             "status": "agent_required",
@@ -1826,7 +1826,8 @@ def test_agent_workspace_exposes_first_two_pdf_pages_for_bibliography():
     try:
         import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
     except ImportError:  # 旧版 PyMuPDF 只有 fitz
-    import fitz
+        import fitz
+
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         extract_dir = root / "temp/inbox-extract/txn-pages"
@@ -2440,7 +2441,7 @@ def test_api_wiki_handoff_message_does_not_claim_agent_backend():
             "---\ntitle: Test Paper\ntype: paper-summary\nsources:\n"
             "  - academic/raw/references/test/paper.md\nstatus: final\n---\n",
             encoding="utf-8",
-        newline="\n")
+        )
         original_repo, original_call, original_mode = module.REPO, module.call_text, module.ingest_mode
         module.REPO = root
         module.call_text = fake_call
@@ -2653,7 +2654,7 @@ def test_semantic_coverage_count_excludes_deterministic_metadata_edges():
             "本论文 | 核心方法 | 张量网络\n"
             "本论文 | 研究基础 | 量子多体系统\n",
             encoding="utf-8",
-        newline="\n")
+        )
         page = "academic/wiki/papers/demo"
         parsed = [
             {"subject": page, "predicate": "核心方法", "object": "张量网络"},
@@ -2696,7 +2697,7 @@ def test_semantic_validator_rejects_paper_level_predicates_retired_by_graph():
             "本论文 | 核心方法 | 数值优化\n"
             "量子社区检测 | 应用于 | 光捕获复合体\n",
             encoding="utf-8",
-        newline="\n")
+        )
         original_repo = module.REPO
         module.REPO = root
         try:
@@ -2722,7 +2723,7 @@ def test_proposition_abbreviation_is_not_a_keyword_format_warning():
         semantic.write_text(
             "三元组:\n本论文 | 核心创新点 | ALCE提供端到端可复现实验设置\n",
             encoding="utf-8",
-        newline="\n")
+        )
         original_repo = module.REPO
         original_connect = graph_ingest.gl.connect
         module.REPO = root
@@ -3716,9 +3717,9 @@ def test_find_ready_txn_matches_graph_ready_only():
             module.REPO = Path(directory)
             sd = Path(directory) / "temp" / "inbox-state"
             sd.mkdir(parents=True)
-            (sd / "a.json").write_text(_json.dumps({"source": "inbox/a.pdf", "status": "graph_ready"}), encoding="utf-8")
-            (sd / "b.json").write_text(_json.dumps({"source": "inbox/b.pdf", "status": "agent_required"}), encoding="utf-8")
-            (sd / "c.json").write_text(_json.dumps({"source": "inbox/c.pdf", "status": "completed"}), encoding="utf-8")
+            (sd / "a.json").write_text(_json.dumps({"source": "inbox/a.pdf", "status": "graph_ready"}))
+            (sd / "b.json").write_text(_json.dumps({"source": "inbox/b.pdf", "status": "agent_required"}))
+            (sd / "c.json").write_text(_json.dumps({"source": "inbox/c.pdf", "status": "completed"}))
             r = module.find_ready_txn("inbox/a.pdf")
             assert r and r["source"] == "inbox/a.pdf"
             assert module.find_ready_txn("inbox/b.pdf") is None
@@ -4408,7 +4409,7 @@ def test_reingest_repairs_archived_bibliography_without_mutating_raw():
             "# The roadmap\n\nwrapper\n\n# The roadmap\n"
             "Antonio Acín, Immanuel Bloch, Harry Buhrman\n",
             encoding="utf-8",
-        newline="\n")
+        )
         source_yaml = raw_dir / "source.yaml"
         original_source = (
             "bibliographic:\n"
@@ -4475,7 +4476,7 @@ def test_reingest_runs_evidence_bound_bibliographic_review():
             "# Modeling sequences with quantum states\n\n"
             "Tai-Danae Bradley, E M Stoudenmire and John Terilla\n",
             encoding="utf-8",
-        newline="\n")
+        )
         source_yaml = raw_dir / "source.yaml"
         original_source = (
             "bibliographic:\n"
@@ -4966,7 +4967,10 @@ def test_pdf_layout_catalog_keeps_typed_candidate_only_evidence():
 
 
 def test_extract_pdf_bibliography_preserves_front_matter_block_geometry():
-    import fitz
+    try:
+        import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+    except ImportError:  # 旧版 PyMuPDF 只有 fitz
+        import fitz
     with tempfile.TemporaryDirectory() as directory:
         pdf_path = Path(directory) / "layout.pdf"
         doc = fitz.open()

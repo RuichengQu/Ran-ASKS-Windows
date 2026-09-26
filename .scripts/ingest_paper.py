@@ -467,7 +467,7 @@ def detect_raw_relationship(state: dict, dup_graph: list) -> dict:
         try:
             import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
         except ImportError:  # 旧版 PyMuPDF 只有 fitz
-        import fitz
+            import fitz
         doc = fitz.open(str(pdf_path))
         first_page_text = doc[0].get_text("text")
         doc.close()
@@ -926,7 +926,7 @@ def extract_title_from_pdf(pdf_path: Path) -> str:
         try:
             import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
         except ImportError:  # 旧版 PyMuPDF 只有 fitz
-        import fitz
+            import fitz
         doc = fitz.open(str(pdf_path))
         try:
             # 优先使用 PDF metadata title（最可靠，避免误提期刊抬头/页眉）
@@ -1217,7 +1217,7 @@ def extract_pdf_bibliography(pdf_path: Path) -> dict:
         try:
             import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
         except ImportError:  # 旧版 PyMuPDF 只有 fitz
-        import fitz
+            import fitz
         doc = fitz.open(str(pdf_path))
         try:
             metadata = doc.metadata or {}
@@ -3808,7 +3808,7 @@ def materialize_bibliographic_pages(pdf_path: Path, output_path: Path) -> bool:
         try:
             import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
         except ImportError:  # 旧版 PyMuPDF 只有 fitz
-        import fitz
+            import fitz
         document = fitz.open(str(pdf_path))
         try:
             pages = []

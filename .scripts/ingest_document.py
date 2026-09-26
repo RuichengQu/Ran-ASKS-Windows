@@ -360,7 +360,7 @@ def _is_scanned_pdf(pdf_path: Path) -> bool:
         try:
             import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
         except ImportError:  # 旧版 PyMuPDF 只有 fitz
-        import fitz
+            import fitz
         doc = fitz.open(str(pdf_path))
         if len(doc) == 0:
             return True

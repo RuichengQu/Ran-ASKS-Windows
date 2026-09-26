@@ -93,7 +93,7 @@ def pdf_has_text(path):
         try:
             import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
         except ImportError:  # 旧版 PyMuPDF 只有 fitz
-        import fitz
+            import fitz
         document = fitz.open(str(path))
         try:
             return any(page.get_text().strip() for page in document)
@@ -366,7 +366,7 @@ def locator_status(locator, target):
             try:
                 import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
             except ImportError:  # 旧版 PyMuPDF 只有 fitz
-            import fitz
+                import fitz
             document = fitz.open(str(target))
             try:
                 start, end = requested
@@ -412,7 +412,7 @@ def read_locator_text(target, locator):
             try:
                 import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
             except ImportError:  # 旧版 PyMuPDF 只有 fitz
-            import fitz
+                import fitz
             document = fitz.open(str(target))
             try:
                 start, end = requested or (1, len(document))

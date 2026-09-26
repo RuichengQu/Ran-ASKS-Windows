@@ -81,7 +81,6 @@ import ingest_common as ic
 import agent_task
 import inbox_state
 import inbox_plan
-import platform_compat
 import ingest_user_assertions
 import source_fingerprints as sf
 import trash_util
@@ -104,7 +103,7 @@ def read_pdf_text(path: Path, max_pages: int = 2) -> str:
         try:
             import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
         except ImportError:  # 旧版 PyMuPDF 只有 fitz
-        import fitz
+            import fitz
         doc = fitz.open(str(path))
         total = len(doc)
         pages = total if total <= 6 else min(max_pages, total)
@@ -134,7 +133,7 @@ def _is_academic_by_metadata(path: Path) -> bool:
         try:
             import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
         except ImportError:  # 旧版 PyMuPDF 只有 fitz
-        import fitz
+            import fitz
         doc = fitz.open(str(path))
         creator = (doc.metadata.get("creator") or "").lower()
         producer = (doc.metadata.get("producer") or "").lower()
@@ -156,11 +155,15 @@ def read_document_preview(path: Path, max_chars: int = 8000) -> str:
         if suffix in {".txt", ".md"}:
             return path.read_text(encoding="utf-8")[:max_chars]
         if suffix in {".docx", ".doc"}:
-            return platform_compat.word_document_text(path)[:max_chars]
+            result = subprocess.run(
+                ["textutil", "-convert", "txt", "-stdout", str(path)],
+                capture_output=True, text=True, timeout=30,
+            )
+            return result.stdout[:max_chars] if result.returncode == 0 else ""
         if suffix == ".pptx":
             result = subprocess.run(
                 ["pandoc", "-t", "plain", str(path)],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+                capture_output=True, text=True, timeout=30,
             )
             return result.stdout[:max_chars] if result.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError, UnicodeError):
@@ -552,21 +555,16 @@ def download_pdfs(urls: list[str], verbose: bool = True) -> list[Path]:
             continue
         if verbose:
             print(f"  下载 {url} → inbox/{name}...", flush=True)
-        # 跨平台：用标准库下载，不依赖系统是否装了 curl
-        error = ""
-        try:
-            request = urllib.request.Request(url, headers={"User-Agent": "Ran-ASKS"})
-            with urllib.request.urlopen(request, timeout=120) as response, \
-                    dest.open("wb") as handle:
-                shutil.copyfileobj(response, handle)
-        except (urllib.error.URLError, OSError, ValueError) as exc:
-            error = str(exc)
-        if not error and dest.is_file() and dest.stat().st_size > 1000:
+        result = subprocess.run(
+            ["curl", "-sL", "-o", str(dest), url],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0 and dest.stat().st_size > 1000:
             downloaded.append(dest)
             if verbose:
                 print(f"  ✓ {dest.stat().st_size} bytes")
         elif verbose:
-            print(f"  ✗ 下载失败: {error[:200]}", file=sys.stderr)
+            print(f"  ✗ 下载失败: {result.stderr[:200]}", file=sys.stderr)
     return downloaded
 
 
@@ -840,7 +838,7 @@ def _write_json_atomic(path: Path, value: dict | list) -> None:
     temp_path = path.with_name(path.name + ".tmp")
     temp_path.write_text(
         json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    , newline="\n")
+    )
     temp_path.replace(path)
 
 
@@ -1027,7 +1025,7 @@ def resume_transaction(transaction_id: str, backend: str, *,
         log_dir.mkdir(parents=True, exist_ok=True)
         (log_dir / f"{loop.session_log.session_id}.jsonl").write_text(
             loop.session_log.to_jsonl() + "\n", encoding="utf-8"
-        , newline="\n")
+        )
     else:
         command = [sys.executable, str(REPO / ".scripts" / pipeline),
                    "--resume", transaction_id]
@@ -1038,7 +1036,7 @@ def resume_transaction(transaction_id: str, backend: str, *,
         if allow_remote_ocr:
             command.append("--allow-remote-ocr")
         completed = subprocess.run(
-            command, cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True, check=False,
+            command, cwd=REPO, text=True, capture_output=True, check=False,
         )
         parsed = _extract_last_json(completed.stdout)
     if not isinstance(parsed, dict):
@@ -1190,7 +1188,7 @@ def _auto_resolve_abbreviations(session_id: str) -> dict:
     ]
     try:
         result = subprocess.run(
-            command, cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+            command, cwd=REPO, capture_output=True, text=True, timeout=120,
         )
         try:
             parsed = json.loads(result.stdout)
@@ -1330,7 +1328,7 @@ def _auto_create_hubs(session_id: str, results: list[dict] | None = None) -> dic
         try:
             result = subprocess.run(
                 command,
-                cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+                cwd=REPO, capture_output=True, text=True, timeout=120)
             if result.returncode != 0:
                 return {"status": "error", "error": result.stderr[:300]}
             check = json.loads(result.stdout)
@@ -1380,7 +1378,7 @@ def _auto_create_hubs(session_id: str, results: list[dict] | None = None) -> dic
         hub_dir.mkdir(parents=True, exist_ok=True)
         candidates_file = hub_dir / f"{session_id}.json"
         candidates_file.write_text(
-            json.dumps(eligible, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+            json.dumps(eligible, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         summary["candidates_file"] = candidates_file.relative_to(REPO).as_posix()
     if split_candidates:
         split_dir = REPO / "temp" / "hub-auto-split"
@@ -1389,7 +1387,7 @@ def _auto_create_hubs(session_id: str, results: list[dict] | None = None) -> dic
         split_file.write_text(
             json.dumps(split_candidates, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
-        newline="\n")
+        )
         summary["split_candidates_file"] = split_file.relative_to(REPO).as_posix()
     if redistribution_candidates:
         redistribute_dir = REPO / "temp" / "hub-auto-redistribute"
@@ -1398,9 +1396,8 @@ def _auto_create_hubs(session_id: str, results: list[dict] | None = None) -> dic
         redistribute_file.write_text(
             json.dumps(redistribution_candidates, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
-        newline="\n")
-        summary["redistribution_candidates_file"] = (
-            redistribute_file.relative_to(REPO).as_posix())
+        )
+        summary["redistribution_candidates_file"] = redistribute_file.relative_to(REPO).as_posix()
     return summary
 
 
@@ -2188,7 +2185,7 @@ def main():
                     **ocr_options,
                 )
                 completed = subprocess.run(
-                    command, cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True, check=False,
+                    command, cwd=REPO, text=True, capture_output=True, check=False,
                 )
                 content = completed.stdout
                 parsed = _extract_last_json(content)
@@ -2210,14 +2207,14 @@ def main():
         dsh_dir = REPO / "temp" / "inbox-dsh"
         dsh_dir.mkdir(parents=True, exist_ok=True)
         dsh_log = dsh_dir / f"{session_id}.jsonl"
-        dsh_log.write_text(loop.session_log.to_jsonl() + "\n", encoding="utf-8", newline="\n")
+        dsh_log.write_text(loop.session_log.to_jsonl() + "\n", encoding="utf-8")
     else:
         agent_dir = REPO / "temp" / "inbox-agent"
         agent_dir.mkdir(parents=True, exist_ok=True)
         agent_log = agent_dir / f"{session_id}.jsonl"
         agent_log.write_text("\n".join(
             json.dumps(item, ensure_ascii=False) for item in agent_events
-        ) + ("\n" if agent_events else ""), encoding="utf-8", newline="\n")
+        ) + ("\n" if agent_events else ""), encoding="utf-8")
 
     # 只有本次真正摄入成功才扫描全局 backlog。分类闸门/全失败必须快速返回。
     maintenance = run_post_ingest_maintenance(results, session_id)
