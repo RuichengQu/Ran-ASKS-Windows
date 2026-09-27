@@ -902,6 +902,11 @@ nodes:
     path: .scripts/test_ingest_user_assertions.py
     kind: test
     role: user-assertion-transaction-rollback-anchor-and-idempotency-regression
+  platform_compat:
+    path: .scripts/platform_compat.py
+    kind: implementation
+    role: cross-platform-seam-for-file-locking-subprocess-utf8-word-document-text-desktop-open-and-libreoffice-discovery
+
   wiki_locator:
     path: .scripts/wiki_locator.py
     kind: implementation
@@ -4433,15 +4438,16 @@ untracked:
 - baseline_krwiki
 - baseline_nav
 - baseline_vector
+- count_tokens
 - embed_helper
 - embed_init
+- fix_source_type
+- metrics
 - migrate_section
 - migrate_source_locators
-- count_tokens
-- recompute_tokens
-- metrics
-- verify_dims
-- query_ablation
-- fix_source_type
-- normalize_core_triples_source
 - model_adaptation_test
+- normalize_core_triples_source
+- query_ablation
+- read_section
+- recompute_tokens
+- verify_dims
