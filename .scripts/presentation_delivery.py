@@ -291,7 +291,10 @@ class Delivery:
         if suffix == '.pdf':
             match = re.fullmatch(r'page:([1-9][0-9]*)', locator)
             ps.require(match is not None, 'PDF evidence locator must be page:N')
-            import fitz
+            try:
+                import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+            except ImportError:  # 旧版 PyMuPDF 只有 fitz
+                import fitz
             with fitz.open(path) as doc:
                 page = int(match[1])
                 ps.require(page <= len(doc), 'Evidence page outside source')

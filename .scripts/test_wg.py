@@ -685,7 +685,10 @@ def test_read_raw_oversized_locator_requires_refinement():
 
 def test_read_raw_pdf_page_native():
     """历史 PDF 没有 companion 时仍可回退原生页码 locator。"""
-    import fitz
+    try:
+        import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+    except ImportError:  # 旧版 PyMuPDF 只有 fitz
+        import fitz
     TEMP_TEST_DIR.mkdir(parents=True, exist_ok=True)
     p = TEMP_TEST_DIR / "native_pages.pdf"
     document = fitz.open()
@@ -706,7 +709,10 @@ def test_read_raw_pdf_page_native():
 
 def test_read_raw_pdf_prefers_paginated_companion():
     """有 companion 的 PDF 从 Markdown 读取，但引用来源保持为 PDF。"""
-    import fitz
+    try:
+        import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+    except ImportError:  # 旧版 PyMuPDF 只有 fitz
+        import fitz
     TEMP_TEST_DIR.mkdir(parents=True, exist_ok=True)
     original = TEMP_TEST_DIR / "managed_pages.pdf"
     companion = TEMP_TEST_DIR / "managed_pages.md"

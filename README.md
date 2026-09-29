@@ -1,5 +1,5 @@
 # Ran-ASKS: Agent-Driven Scientific Knowledge System
-> Current release: v0.8.0
+> Current release: v0.10.0
 
 > **Note:** This is a Windows-compatibility port of
 > [ranshiju/Ran-ASKS](https://github.com/ranshiju/Ran-ASKS). It changes
@@ -18,6 +18,9 @@
 **Repository:** [github.com/ranshiju/Ran-ASKS](https://github.com/ranshiju/Ran-ASKS)
 
 **Project updates:** [CHANGELOG.md](CHANGELOG.md)
+
+**Collaboration:** [Governance](GOVERNANCE.md) |
+[ASKS ecosystem](ECOSYSTEM.md) | [Contributing](CONTRIBUTING.md)
 
 **General-reader introduction (Chinese):** [Read on GitHub](docs/introduction/ASKS-Chinese-Introduction-2026-09-03.md) |
 [Download or print the PDF](docs/introduction/ASKS-Chinese-Introduction-2026-09-03.pdf) |
@@ -176,6 +179,45 @@ consent. Chat and embedding endpoints can also set `LLM_API_PATH` and
 require code changes. See the [ingestion contract](operations/INGEST.md),
 [presentation contract](operations/PRESENTATION.md), and
 [query contract](operations/QUERY.md).
+
+## Reproducible public releases
+
+The public repository is generated from an explicit committed source snapshot,
+not from arbitrary local working-tree contents. The publication orchestrator
+checks every manifest-selected source file, builds and verifies a temporary
+tree, records the source commit/tree, manifest and payload hashes in
+`RELEASE_PROVENANCE.json`, then transactionally installs the result while
+preserving the public repository's Git metadata. Remote URL, branch and
+ahead/behind checks run before publication; pushing requires an explicit flag
+and is confirmed against the remote commit without force-push, tags, or a
+GitHub Release.
+
+GitHub Actions repeats the release boundary, engineering-graph, regression and
+frozen-artifact checks on pull requests and `main`. The downloadable Chinese
+introduction is also checked page by page for extractable text, missing-glyph
+markers and nonblank rendering. Changelog entries and semantic version
+rationales are published in English and Chinese from this release onward.
+
+## Independent community downstreams
+
+Ran-ASKS is the maintainer-led general-purpose distribution and public
+engineering baseline. Other teams may build independently maintained systems
+for their own domains without transferring their agents, data, evaluations,
+releases, upgrades, or user support to the Ran-ASKS maintainer.
+
+A new downstream begins as a **Community Downstream**, not an official or
+Reference Distribution. `ASKS-Compatible` is an evaluated status tied to an
+exact Ran-ASKS version and commit; Reference Distribution is a later explicit
+designation based on sustained maintenance, documented upgrades, conformance
+results, domain evaluations, and clear data and license boundaries. Ran-ASKS
+currently designates no official domain distribution.
+
+Because this GitHub repository is currently a generated public tree, an
+external pull request is a contribution proposal. Accepted changes are imported
+into the governed source repository with contributor attribution, fully
+validated, and republished through the managed release process. See
+[GOVERNANCE.md](GOVERNANCE.md), [ECOSYSTEM.md](ECOSYSTEM.md), and the
+[community downstream record template](templates/downstream/DOWNSTREAM.md).
 
 ## Image documents and reviewed ingestion
 

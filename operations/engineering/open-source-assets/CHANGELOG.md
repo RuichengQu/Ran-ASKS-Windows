@@ -7,11 +7,113 @@ manifests and checksums.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-26
+
+### Version decision / 版本判断
+
+- MINOR: Add public governance for independent community downstreams, evaluated ecosystem status, generated-tree contribution round trips, and a downstream registration template.
+- MINOR（中文）：新增独立社区下游治理、受评估的生态身份、生成式公开树贡献回灌流程和社区下游登记模板。
+
+### Highlights
+
+- Added public governance for independently maintained Community Downstreams,
+  evaluated ASKS-Compatible status, later explicit Reference Distribution
+  designation, and the contribution round trip required by the generated
+  GitHub release tree.
+- Added a non-normative downstream record template for exact upstream baseline,
+  maintainer ownership, Core modifications, checks, domain evaluations, data
+  boundaries, and upstream candidates without prematurely defining a plugin API.
+
+### 主要更新
+
+- 新增独立 Community Downstream、受评估的 ASKS-Compatible 身份、后续明确授予
+  Reference Distribution 的公开治理规则，并固化生成式 GitHub 公开树所需的贡献
+  回灌流程。
+- 新增非规范性的社区下游登记模板，用于记录精确上游基线、维护责任、Core 修改、
+  校验、领域评测、数据边界与上游候选，不提前定义插件 API。
+
+## [0.9.3] - 2026-09-26
+
+### Version decision / 版本判断
+
+- PATCH: Add the pinned python-pptx dependency required by editable-presentation runtime imports during public function-registry validation.
+- PATCH（中文）：补充公开功能注册表校验导入可编辑演示文稿工具所需的固定 python-pptx 依赖。
+
+### Highlights
+
+- Added the pinned python-pptx dependency required when the public runtime
+  function registry imports editable-presentation tooling on a fresh CI runner.
+
+### 主要更新
+
+- 在 CI 固定依赖中补充 python-pptx，确保公开运行时功能注册表可在全新 runner
+  中导入可编辑演示文稿工具。
+
+## [0.9.2] - 2026-09-26
+
+### Version decision / 版本判断
+
+- PATCH: Complete the pinned GitHub Actions verification environment with NumPy and Pillow for runtime function-registry validation.
+- PATCH（中文）：在 GitHub Actions 固定校验环境中补充 NumPy 与 Pillow，以支持运行时功能注册表校验。
+
+### Highlights
+
+- Completed the pinned GitHub Actions verification environment with NumPy and
+  Pillow, matching the runtime imports exercised by the public function-registry
+  validation.
+
+### 主要更新
+
+- 在 GitHub Actions 固定校验环境中补充 NumPy 与 Pillow，使其覆盖公开功能注册表
+  运行时校验实际导入的依赖。
+
+## [0.9.1] - 2026-09-26
+
+### Version decision / 版本判断
+
+- PATCH: Expose uncaught public-release regression tracebacks as machine-readable GitHub Actions error annotations for reliable CI diagnosis.
+- PATCH（中文）：将公开发布回归中的未捕获异常输出为机器可读的 GitHub Actions 错误注解，便于可靠定位 CI 故障。
+
+### Highlights
+
+- GitHub Actions now emits uncaught public-release regression tracebacks as
+  machine-readable error annotations, so CI failures remain diagnosable through
+  the public Checks API even when raw logs are unavailable.
+
+### 主要更新
+
+- GitHub Actions 现在会把公开发布回归中的未捕获异常输出为机器可读的错误注解；
+  即使原始日志不可用，也能通过公开 Checks API 定位 CI 故障。
+
+## [0.9.0] - 2026-09-26
+
+### Version decision / 版本判断
+
+- MINOR: Add backward-compatible committed-snapshot publication with verifiable provenance, transactional installation, Git/GitHub delivery guards, CI verification, mechanical PDF health checks, and bilingual release notes.
+- MINOR（中文）：新增向后兼容的已提交源快照发布流程，包括可验证来源记录、事务安装、Git与GitHub交付门禁、CI校验、PDF机械健康检查和双语更新日志。
+
+### Highlights
+
+- Added committed-source publication orchestration with release provenance,
+  transactional clean-tree installation, explicit Git remote/branch guards,
+  post-push remote commit confirmation, and a GitHub Actions release gate.
+- Added mechanical PDF page, text, missing-glyph, and nonblank-render checks;
+  release notes and semantic version rationales are now required in both
+  English and Chinese.
+
+### 主要更新
+
+- 新增基于已提交源快照的公开发布编排，记录发布来源，事务性安装 clean 树，
+  显式校验 Git 远端与分支，并在推送后确认远端提交；GitHub Actions 同步执行发布门禁。
+- 新增 PDF 逐页、文本、缺字标记和非空渲染机械检查；更新日志和语义版本判断
+  从本版本起必须同时提供英文与中文。
+
 ## [0.8.0] - 2026-09-26
 
-### Version decision
+### Version decision / 版本判断
 
 - MINOR: Add backward-compatible persistent Agent task handoff, physically isolated private ingestion/query, reusable native-slide tooling, governed presentation artwork, and explicit provider API paths while preserving existing public and frozen-artifact contracts.
+- MINOR（中文）：新增向后兼容的 Agent 持久任务接力、物理隔离的私有摄入与查询、可复用原生幻灯片工具、受管演示图稿和显式服务商 API 路径，同时保持既有公开契约与冻结论文产物边界。
 
 ### Highlights
 
@@ -28,6 +130,13 @@ manifests and checksums.
 - Unified provider API path configuration for chat and embedding endpoints and
   strengthened evidence-bound meeting compilation, duplicate detection,
   source locators, graph planning, and ingestion recovery.
+
+### 主要更新
+
+- 新增 Agent 持久任务接力，使后续宿主可检查并推进已准备的摄入事务，且不重放来源分析或绕过原校验与提交边界。
+- 新增物理隔离的私有摄入与查询；私有 Raw、Wiki、图、回执和索引不进入公共域，公开模板只包含通用实现。
+- 将原生演示文稿处理拆分为确定性结构提取、绑定来源的视觉识读、可复用幻灯片组件和受管可编辑图稿，并保留远程调用授权与复核回执。
+- 统一 Chat 与 Embedding 服务商 API 路径配置，并强化证据绑定的会议编译、重复检测、来源定位、图计划和摄入恢复。
 
 ## [0.7.0] - 2026-09-23
 

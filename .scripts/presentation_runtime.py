@@ -162,7 +162,10 @@ def _native_check(path: Path) -> dict:
 
 
 def _render_sample(source: Path, directory: Path) -> dict:
-    import fitz
+    try:
+        import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+    except ImportError:  # 旧版 PyMuPDF 只有 fitz
+        import fitz
     import visual_qa
     kind, pdf, count = visual_qa._prepare_source(source, directory)
     if count != 1:

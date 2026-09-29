@@ -1,0 +1,98 @@
+{
+  "manifest_sha256": "4afac1f634a2c1c4e960b67df407439824d7507a8cc169d1aeb7481320012c81",
+  "payload_sha256": "6e481eaa36de4ed264395f1aabf982d8f098c3316266781ca2fcd6ea84119b1c",
+  "pdf_render_health": {
+    "docs/introduction/ASKS-Chinese-Introduction-2026-09-03.pdf": {
+      "page_count": 16,
+      "pages": [
+        {
+          "ink_pixels": 13859,
+          "page": 1,
+          "text_chars": 577
+        },
+        {
+          "ink_pixels": 24113,
+          "page": 2,
+          "text_chars": 1244
+        },
+        {
+          "ink_pixels": 24234,
+          "page": 3,
+          "text_chars": 1197
+        },
+        {
+          "ink_pixels": 23807,
+          "page": 4,
+          "text_chars": 1166
+        },
+        {
+          "ink_pixels": 23306,
+          "page": 5,
+          "text_chars": 1118
+        },
+        {
+          "ink_pixels": 26594,
+          "page": 6,
+          "text_chars": 1273
+        },
+        {
+          "ink_pixels": 21104,
+          "page": 7,
+          "text_chars": 1028
+        },
+        {
+          "ink_pixels": 25767,
+          "page": 8,
+          "text_chars": 921
+        },
+        {
+          "ink_pixels": 21818,
+          "page": 9,
+          "text_chars": 1735
+        },
+        {
+          "ink_pixels": 16782,
+          "page": 10,
+          "text_chars": 974
+        },
+        {
+          "ink_pixels": 19439,
+          "page": 11,
+          "text_chars": 1036
+        },
+        {
+          "ink_pixels": 18167,
+          "page": 12,
+          "text_chars": 1179
+        },
+        {
+          "ink_pixels": 15485,
+          "page": 13,
+          "text_chars": 917
+        },
+        {
+          "ink_pixels": 14488,
+          "page": 14,
+          "text_chars": 823
+        },
+        {
+          "ink_pixels": 14534,
+          "page": 15,
+          "text_chars": 916
+        },
+        {
+          "ink_pixels": 12447,
+          "page": 16,
+          "text_chars": 670
+        }
+      ]
+    }
+  },
+  "schema": "wikigraph-public-release-provenance-v1",
+  "source": {
+    "commit": "3e53c72a8e8dbe49b1247e3330405b4e919d59f5",
+    "mode": "committed",
+    "tree": "8b7c9d864a1a840e15f6992289542770625f7990"
+  },
+  "version": "0.10.0"
+}

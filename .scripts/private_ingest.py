@@ -71,7 +71,10 @@ def _private_companion_record(source: Path, companion_name: str, data: bytes, *,
         )
     if pdf:
         try:
-            import fitz
+            try:
+                import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+            except ImportError:  # 旧版 PyMuPDF 只有 fitz
+                import fitz
             version = str(getattr(fitz, "VersionBind", "unknown"))
         except ImportError:
             version = "unknown"
@@ -86,7 +89,10 @@ def _private_companion_record(source: Path, companion_name: str, data: bytes, *,
 
 def _extract_pdf_text(source: Path) -> str:
     try:
-        import fitz
+        try:
+            import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+        except ImportError:  # 旧版 PyMuPDF 只有 fitz
+            import fitz
     except ImportError as exc:
         raise RuntimeError("PyMuPDF is required for private PDF ingestion") from exc
     try:

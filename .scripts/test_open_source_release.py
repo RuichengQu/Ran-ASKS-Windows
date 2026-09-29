@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Regression checks for manifest-governed public release construction."""
+import os
 import subprocess
 import sys
 import tempfile
+import traceback
 from pathlib import Path
 from unittest.mock import patch
 
+try:
+    import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+except ImportError:  # 旧版 PyMuPDF 只有 fitz
+    import fitz
 import open_source_release as release
 
 
@@ -14,7 +20,7 @@ SCRIPT = REPO / ".scripts/open_source_release.py"
 
 
 def run(*args: str, expected: int = 0) -> subprocess.CompletedProcess:
-    result = subprocess.run([sys.executable, str(SCRIPT), *args], cwd=REPO, text=True, encoding="utf-8", errors="replace",
+    result = subprocess.run([sys.executable, str(SCRIPT), *args], cwd=REPO, text=True,
                             capture_output=True)
     assert result.returncode == expected, result.stdout + result.stderr
     return result
@@ -36,18 +42,29 @@ def check_version_preparation() -> None:
         version_path = repository / "VERSION"
         changelog = repository / "public-CHANGELOG.md"
         mirror = repository / "CHANGELOG.md"
-        original = "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- Image OCR.\n\n## [0.4.0] - 2026-09-04\n\n- Earlier work.\n"
+        original = (
+            "# Changelog\n\n## [Unreleased]\n\n### Highlights\n\n- Image OCR.\n\n"
+            "### 主要更新\n\n- 新增图片文字识别。\n\n"
+            "## [0.4.0] - 2026-09-04\n\n- Earlier work.\n"
+        )
         version_path.write_text("0.4.0\n", encoding="utf-8", newline="\n")
         changelog.write_text(original, encoding="utf-8", newline="\n")
         mirror.write_text("old mirror\n", encoding="utf-8", newline="\n")
         manifest = {"public_assets": {"CHANGELOG.md": changelog.name}}
         with patch.object(release, "REPO", repository), patch.object(release, "VERSION_PATH", version_path), patch.object(release, "load_manifest", return_value=manifest):
-            arguments = {"level": "minor", "reason": "Compatible image ingestion capability", "from_version": "0.4.0", "release_date": "2026-09-08"}
+            arguments = {
+                "level": "minor", "reason": "Compatible image ingestion capability",
+                "reason_zh": "新增向后兼容的图片摄入能力", "from_version": "0.4.0",
+                "release_date": "2026-09-08",
+            }
             snapshot = {item: item.read_bytes() for item in (version_path, changelog, mirror)}
             planned = release.prepare_version(**arguments)
             assert planned["status"] == "planned" and planned["to"] == "0.5.0"
             assert all(item.read_bytes() == content for item, content in snapshot.items())
-            for changes in [{"reason": " "}, {"reason": "two\nlines"}, {"release_date": "invalid"}]:
+            for changes in [
+                {"reason": " "}, {"reason": "two\nlines"}, {"reason_zh": " "},
+                {"reason_zh": "English only"}, {"release_date": "invalid"},
+            ]:
                 try:
                     release.prepare_version(**(arguments | changes), apply=True)
                 except ValueError:
@@ -55,7 +72,12 @@ def check_version_preparation() -> None:
                 else:
                     raise AssertionError(changes)
                 assert all(item.read_bytes() == content for item, content in snapshot.items())
-            for invalid in ["# Changelog\n", "## [Unreleased]\n\n### Added\n", original + "\n## [0.5.0]\n"]:
+            for invalid in [
+                "# Changelog\n",
+                "## [Unreleased]\n\n### Highlights\n\n- English only.\n",
+                "## [Unreleased]\n\n### 主要更新\n\n- 只有中文。\n",
+                original + "\n## [0.5.0]\n",
+            ]:
                 changelog.write_text(invalid, encoding="utf-8", newline="\n")
                 try:
                     release.prepare_version(**arguments, apply=True)
@@ -83,11 +105,12 @@ def check_version_preparation() -> None:
             assert all(item.read_bytes() == content for item, content in snapshot.items())
             applied = release.prepare_version(**arguments, apply=True)
             assert applied["status"] == "applied"
-            assert version_path.read_text(encoding="utf-8") == "0.5.0\n"
+            assert version_path.read_text() == "0.5.0\n"
             assert mirror.read_bytes() == changelog.read_bytes()
-            updated = changelog.read_text(encoding="utf-8")
+            updated = changelog.read_text()
             assert "## [Unreleased]\n\n## [0.5.0] - 2026-09-08" in updated
             assert "- MINOR: Compatible image ingestion capability" in updated
+            assert "- MINOR（中文）：新增向后兼容的图片摄入能力" in updated
             assert "- Image OCR." in updated and "- Earlier work." in updated
             try:
                 release.prepare_version(**arguments, apply=True)
@@ -102,7 +125,7 @@ def check_version_progression() -> None:
         repository = Path(temporary)
 
         def git(*arguments):
-            return subprocess.run(["git", *arguments], cwd=repository, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            return subprocess.run(["git", *arguments], cwd=repository, check=True, capture_output=True, text=True)
 
         assert release.git_publication_diff(repository) == (set(), None)
         git("init", "-q")
@@ -110,17 +133,17 @@ def check_version_progression() -> None:
         git("config", "user.email", "release-test@example.invalid")
         assert release.git_publication_diff(repository) == (set(), None)
         version_path = repository / "VERSION"
-        version_path.write_text("0.4.0\n", encoding="utf-8", newline="\n")
+        version_path.write_text("0.4.0\n")
         git("add", "-A")
         git("commit", "-qm", "baseline")
         assert release.git_publication_diff(repository) == (set(), None)
-        (repository / "README.md").write_text("New capability\n", encoding="utf-8", newline="\n")
+        (repository / "README.md").write_text("New capability\n")
         changes, base = release.git_publication_diff(repository)
         assert changes == {"README.md"} and base == "HEAD"
         for candidate in ["0.4.0", "0.3.9"]:
             assert release.version_progression_errors(repository, candidate, changes, base)
         assert not release.version_progression_errors(repository, "0.5.0", changes, base)
-        version_path.write_text("0.5.0\n", encoding="utf-8", newline="\n")
+        version_path.write_text("0.5.0\n")
         git("add", "-A")
         changes, base = release.git_publication_diff(repository)
         assert changes == {"VERSION", "README.md"} and base == "HEAD"
@@ -130,7 +153,7 @@ def check_version_progression() -> None:
         assert not release.version_progression_errors(repository, "0.5.0", changes, base)
         for candidate in ["0.4.0", "0.3.9"]:
             assert release.version_progression_errors(repository, candidate, changes, base)
-        (repository / "README.md").write_text("Same-version edit\n", encoding="utf-8", newline="\n")
+        (repository / "README.md").write_text("Same-version edit\n")
         git("add", "-A")
         git("commit", "-qm", "unversioned update")
         changes, base = release.git_publication_diff(repository)
@@ -204,11 +227,46 @@ def check_private_release_boundary() -> None:
                 assert sorted(p.name for p in destination.iterdir()) == ['keep.txt']
 
 
+def check_pdf_render_health() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        valid = root / "valid.pdf"
+        document = fitz.open()
+        page = document.new_page()
+        page.insert_text((72, 72), "Valid release page")
+        document.save(valid)
+        document.close()
+        assert release.pdf_render_health(valid)["page_count"] == 1
+
+        missing = root / "missing.pdf"
+        document = fitz.open()
+        page = document.new_page()
+        page.insert_text((72, 72), "missing □", fontname="china-s")
+        document.save(missing)
+        document.close()
+        try:
+            release.pdf_render_health(missing)
+        except ValueError as error:
+            assert "missing-glyph" in str(error)
+        else:
+            raise AssertionError("missing-glyph PDF accepted")
+
+        blank = root / "blank.pdf"
+        document = fitz.open(); document.new_page(); document.save(blank); document.close()
+        try:
+            release.pdf_render_health(blank)
+        except ValueError as error:
+            assert "renders blank" in str(error)
+        else:
+            raise AssertionError("blank PDF accepted")
+
+
 def main() -> None:
     check_private_release_boundary()
     check_documentation_omissions()
     check_version_preparation()
     check_version_progression()
+    check_pdf_render_health()
     expected_version = (REPO / "VERSION").read_text(encoding="utf-8").strip()
     with tempfile.TemporaryDirectory() as temporary:
         destination = Path(temporary) / "release"
@@ -228,12 +286,12 @@ def main() -> None:
         assert not (destination / "projects").exists()
         private_ignored = subprocess.run(
             ["git", "check-ignore", "projects/local-input/manuscript.pdf"],
-            cwd=destination, text=True, encoding="utf-8", errors="replace", capture_output=True,
+            cwd=destination, text=True, capture_output=True,
         )
         assert private_ignored.returncode == 0, private_ignored.stderr
         skill_check = subprocess.run(
             [sys.executable, "-B", str(skill / "scripts/test_diagnosis_preflight.py")],
-            cwd=destination, text=True, encoding="utf-8", errors="replace", capture_output=True,
+            cwd=destination, text=True, capture_output=True,
         )
         assert skill_check.returncode == 0, skill_check.stdout + skill_check.stderr
         readme_path = destination / "README.md"
@@ -245,6 +303,16 @@ def main() -> None:
         assert (destination / "README.md").is_file()
         assert (destination / "README.zh-CN.md").is_file()
         assert (destination / "CHANGELOG.md").is_file()
+        governance = (destination / "GOVERNANCE.md").read_text(encoding="utf-8")
+        ecosystem = (destination / "ECOSYSTEM.md").read_text(encoding="utf-8")
+        downstream_template = (
+            destination / "templates/downstream/DOWNSTREAM.md"
+        ).read_text(encoding="utf-8")
+        assert "generated public release tree" in governance
+        assert "contribution proposal" in governance
+        normalized_ecosystem = " ".join(ecosystem.split())
+        assert "Ran-ASKS currently lists none." in normalized_ecosystem
+        assert "not an extension manifest" in downstream_template
         changelog = (destination / "CHANGELOG.md").read_text(encoding="utf-8")
         assert f"## [{expected_version}]" in changelog
         assert "[CHANGELOG.md](CHANGELOG.md)" in (
@@ -375,14 +443,14 @@ def main() -> None:
                 "verify",
                 "paper-artifacts/v0.2.0",
             ],
-            cwd=destination, text=True, encoding="utf-8", errors="replace", capture_output=True,
+            cwd=destination, text=True, capture_output=True,
         )
         assert artifact_check.returncode == 0, artifact_check.stdout + artifact_check.stderr
         assert (destination / "paper-artifacts/v0.2.1/metadata.json").is_file()
         audit_artifact_check = subprocess.run(
             [sys.executable, "verify.py"],
             cwd=destination / "paper-artifacts/v0.2.1",
-            text=True, encoding="utf-8", errors="replace",
+            text=True,
             capture_output=True,
         )
         assert audit_artifact_check.returncode == 0, (
@@ -424,7 +492,7 @@ def main() -> None:
         assert "path: projects/ForBetterScience" not in graph_text
         graph_check = subprocess.run(
             [sys.executable, ".scripts/engineering_graph.py", "validate"],
-            cwd=destination, text=True, encoding="utf-8", errors="replace", capture_output=True,
+            cwd=destination, text=True, capture_output=True,
         )
         assert graph_check.returncode == 0, graph_check.stdout + graph_check.stderr
 
@@ -454,11 +522,20 @@ def main() -> None:
         synchronized_originals = {path: path.read_bytes() for path in synchronized_paths}
         for path in synchronized_paths:
             path.write_bytes(path.read_bytes() + b"\n")
+        provenance_path = destination / release.PROVENANCE_PATH
+        provenance_original = provenance_path.read_bytes()
+        provenance = release.json.loads(provenance_original)
+        provenance["payload_sha256"] = release.release_payload_sha256(destination)
+        provenance_path.write_text(
+            release.json.dumps(provenance, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         synchronized = run("verify", str(destination))
         assert "Public release verified" in synchronized.stdout
         changed_path.write_bytes(original_changed)
         for path, content in synchronized_originals.items():
             path.write_bytes(content)
+        provenance_path.write_bytes(provenance_original)
 
         gitignore = destination / ".gitignore"
         original_gitignore = gitignore.read_text(encoding="utf-8")
@@ -472,7 +549,7 @@ def main() -> None:
         changelog_path.write_text(
             original_changelog.replace(f"## [{expected_version}]", "## [9.9.9]", 1),
             encoding="utf-8",
-        newline="\n")
+        )
         stale_changelog = run("verify", str(destination), expected=1)
         assert "CHANGELOG.md missing current release heading" in stale_changelog.stderr
         changelog_path.write_text(original_changelog, encoding="utf-8", newline="\n")
@@ -480,7 +557,7 @@ def main() -> None:
         changelog_path.write_text(
             original_changelog.replace("## [Unreleased]", "## [Unreleased]\n\n## [9.9.9]", 1),
             encoding="utf-8",
-        newline="\n")
+        )
         misordered = run("verify", str(destination), expected=1)
         assert "newest release heading must match VERSION" in misordered.stderr
         changelog_path.write_text(original_changelog, encoding="utf-8", newline="\n")
@@ -493,4 +570,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            details = traceback.format_exc().replace("%", "%25")
+            details = details.replace("\r", "%0D").replace("\n", "%0A")
+            print(
+                f"::error title=Open source release regression failed::{details}",
+                file=sys.stderr,
+            )
+        raise

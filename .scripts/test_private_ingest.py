@@ -93,7 +93,10 @@ class PrivateCreateTests(unittest.TestCase):
         self.assertFalse(self.target.exists())
 
     def test_text_layer_pdf_archives_companion_with_page_bound_evidence(self):
-        import fitz
+        try:
+            import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+        except ImportError:  # 旧版 PyMuPDF 只有 fitz
+            import fitz
         source = self.root / 'private/outputs/report.pdf'
         document = fitz.open()
         page = document.new_page()
@@ -134,7 +137,10 @@ class PrivateCreateTests(unittest.TestCase):
         self.assertIn('Synthetic official health report', pi.sl.read_locator_text(read_target, 'page-1'))
 
     def test_pdf_companion_change_is_rejected_before_writes(self):
-        import fitz
+        try:
+            import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+        except ImportError:  # 旧版 PyMuPDF 只有 fitz
+            import fitz
         source = self.root / 'private/outputs/report.pdf'
         document = fitz.open()
         document.new_page().insert_textbox(
@@ -150,7 +156,10 @@ class PrivateCreateTests(unittest.TestCase):
         self.assertFalse(self.target.exists())
 
     def test_completed_legacy_pdf_transaction_backfills_companion(self):
-        import fitz
+        try:
+            import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+        except ImportError:  # 旧版 PyMuPDF 只有 fitz
+            import fitz
         source = self.root / 'private/outputs/report.pdf'
         document = fitz.open()
         document.new_page().insert_textbox(
@@ -199,7 +208,10 @@ class PrivateCreateTests(unittest.TestCase):
         self.assertEqual(pi.commit(result['transaction_id']), upgraded)
 
     def test_pdf_requires_text_layer_and_separate_source_mode(self):
-        import fitz
+        try:
+            import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+        except ImportError:  # 旧版 PyMuPDF 只有 fitz
+            import fitz
         source = self.root / 'private/outputs/blank.pdf'
         document = fitz.open()
         document.new_page()

@@ -57,6 +57,37 @@ code and synthetic tests, not private knowledge. The update changes no frozen
 paper artifact; the PDF retains its reviewed earlier pages and appends the same
 engineering update.
 
+The 2026-09-26 `v0.9.0` addendum makes public publication reproducible from an
+explicit committed source snapshot. It adds release provenance, transactional
+clean-tree installation with rollback, remote/branch/divergence guards,
+post-push commit confirmation, GitHub-side verification, mechanical PDF page
+health checks, and bilingual changelog/version rationales. This is a compatible
+engineering and publication capability and does not change any frozen paper
+artifact or authorize a tag/GitHub Release.
+
+The 2026-09-26 `v0.9.1` patch exposes uncaught public-release regression
+tracebacks as machine-readable GitHub Actions annotations. This improves CI
+diagnosis without changing the knowledge model, ingestion contracts, or frozen
+paper artifacts. The Markdown introduction records this patch; the PDF remains
+the reviewed `v0.9.0` edition.
+
+The 2026-09-26 `v0.9.2` patch adds pinned NumPy and Pillow dependencies to the
+GitHub Actions verification environment so runtime function-registry imports
+can be validated on a fresh Python 3.12 runner. This is a CI dependency fix
+only; the PDF remains the reviewed `v0.9.0` edition.
+
+The 2026-09-26 `v0.9.3` patch adds pinned python-pptx for the editable-
+presentation tool imported by runtime function-registry validation. This is a
+CI dependency fix only; the PDF remains the reviewed `v0.9.0` edition.
+
+The 2026-09-26 `v0.10.0` update establishes public governance for independently
+maintained Community Downstreams, evaluated ASKS-Compatible status, and later
+explicit Reference Distribution designation. It also documents the current
+GitHub contribution round trip through the governed source repository. Ran-ASKS
+designates no official domain distribution, and this release does not promise a
+plugin API or Extension Contract. The Markdown and appended PDF page contain
+the same governance update; frozen paper artifacts remain unchanged.
+
 | Content described in the introduction | Ran-ASKS boundary | Paper artifact | Status |
 | --- | --- | --- | --- |
 | Core method and 56-paper chronological demonstration | `v0.2.0` | `1.0.0` | Frozen arXiv v1 boundary for arXiv:2608.29612 |
@@ -106,6 +137,30 @@ Markdown 增加带日期的工程补充；PDF 保留之前已审阅的版式，�
 可复用幻灯片组件、受管可编辑图稿和显式服务商 API 路径。上述内容是向后兼容的工作流
 与配置能力，因此按 MINOR 升版。公开树只包含通用隔离实现和合成测试，不包含私有知识；
 本次更新不改变冻结论文产物，PDF 保留此前已审阅页面，并附加同一工程更新内容。
+
+2026年9月26日的 `v0.9.0` 补充说明把公开发布固定为从显式、已提交源快照生成，
+新增发布 provenance、带回滚的事务性 clean 树安装、远端／分支／分叉检查、推送后
+commit 确认、GitHub 侧验证、PDF 逐页机械健康检查，以及中英文双语 Changelog 与
+版本判断。这是兼容新增的工程发布能力，不改变任何冻结论文产物，也不授权创建标签
+或 GitHub Release。
+
+2026年9月26日的 `v0.9.1` 补丁把公开发布回归中的未捕获 traceback 输出为机器可读的
+GitHub Actions 错误注解，以增强 CI 故障定位能力。该补丁不改变知识模型、摄入契约
+或冻结论文产物；Markdown 说明记录本次更新，PDF 保持为已审阅的 `v0.9.0` 版本。
+
+2026年9月26日的 `v0.9.2` 补丁在 GitHub Actions 固定校验环境中补充 NumPy 与 Pillow，
+使公开功能注册表的运行时导入检查可以在全新的 Python 3.12 runner 上执行。该补丁只
+修复 CI 依赖声明；PDF 保持为已审阅的 `v0.9.0` 版本。
+
+2026年9月26日的 `v0.9.3` 补丁在 GitHub Actions 固定校验环境中补充 python-pptx，
+供运行时功能注册表校验导入可编辑演示文稿工具。该补丁只修复 CI 依赖声明；PDF
+保持为已审阅的 `v0.9.0` 版本。
+
+2026年9月26日的 `v0.10.0` 更新建立独立 Community Downstream、受评估的
+ASKS-Compatible 身份和后续明确授予 Reference Distribution 的公开治理规则，并说明
+当前 GitHub 贡献须回灌受管源仓库后重新发布。Ran-ASKS 目前没有指定官方领域发行版，
+本次更新也不承诺插件 API 或 Extension Contract。Markdown 与 PDF 新增页包含同一
+治理说明，冻结论文产物保持不变。
 
 | 中文说明涉及的内容 | Ran-ASKS 边界 | 论文数据产物 | 状态 |
 | --- | --- | --- | --- |

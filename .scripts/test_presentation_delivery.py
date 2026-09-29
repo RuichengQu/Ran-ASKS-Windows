@@ -324,7 +324,10 @@ class RealDeliveryTests(unittest.TestCase):
             image = Image.new('RGB', (600, 400), '#E0EBFA')
             ImageDraw.Draw(image).rectangle((100, 90, 480, 300), fill='#3265A8')
             material = project / 'synthetic.png'; image.save(material)
-            import fitz
+            try:
+                import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+            except ImportError:  # 旧版 PyMuPDF 只有 fitz
+                import fitz
             pdf_source = project / 'synthetic-reference.pdf'
             with fitz.open() as document:
                 document.new_page().insert_text((72, 72), 'Synthetic reference value is 42.')
@@ -361,7 +364,10 @@ class RealDeliveryTests(unittest.TestCase):
             deck.slides[0].shapes[0].text = 'Native text remains editable TEST-ONLY'
             deck.save(project / 'editing-test.pptx')
             self.assertEqual(Presentation(project / 'editing-test.pptx').slides[0].shapes[0].text, 'Native text remains editable TEST-ONLY')
-            import fitz
+            try:
+                import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+            except ImportError:  # 旧版 PyMuPDF 只有 fitz
+                import fitz
             with fitz.open(output['artifacts']['pdf']) as pdf:
                 self.assertEqual(len(pdf), 3)
                 for page in pdf:

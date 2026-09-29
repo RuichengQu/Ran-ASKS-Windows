@@ -230,7 +230,10 @@ def _data_id(pdf_path: Path) -> str:
 
 def _pdf_page_count(pdf_path: Path) -> Optional[int]:
     try:
-        import fitz
+        try:
+            import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+        except ImportError:  # 旧版 PyMuPDF 只有 fitz
+            import fitz
         with fitz.open(str(pdf_path)) as document:
             return len(document)
     except Exception:

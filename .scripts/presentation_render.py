@@ -225,7 +225,10 @@ def render(content, design, theme, assets, output):
     """Render actual local artifacts; callers cannot supply a pass receipt."""
     import presentation_runtime as runtime
     import visual_qa as qa
-    import fitz
+    try:
+        import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+    except ImportError:  # 旧版 PyMuPDF 只有 fitz
+        import fitz
     before = fingerprint()
     runtime._load_pptx()
     from pptx import Presentation
@@ -267,7 +270,10 @@ def assemble(slides, theme, assets, output):
     """Generate a deck and previews. Mechanical checks are NOT form/evidence review."""
     import presentation_runtime as runtime
     import visual_qa as qa
-    import fitz
+    try:
+        import pymupdf as fitz  # PyMuPDF >= 1.24 的模块名
+    except ImportError:  # 旧版 PyMuPDF 只有 fitz
+        import fitz
     before = fingerprint()
     runtime._load_pptx()
     from pptx import Presentation
