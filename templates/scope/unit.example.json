@@ -1,0 +1,13 @@
+{
+  "name": "<课程名> <单元名>",
+  "graph": "cross-domain/graph.db",
+  "roots": [
+    "teaching/wiki/topics/<这个单元要考的知识点>",
+    "<也可以直接写页面标题或别名>"
+  ],
+  "follow": ["前置"],
+  "attach": ["来源", "涉及"],
+  "depth": 4,
+  "extra": [],
+  "deny_message": "这超出了本次的范围，我们先把本单元的内容过完。"
+}

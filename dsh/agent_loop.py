@@ -33,6 +33,7 @@ from dsh.guards.repeat_tool_reminder import RepeatToolReminder
 from dsh.guards.timeout_policy import TimeoutPolicy
 from dsh.guards.citation_guard import CitationGuard
 from dsh.guards.ingest_guard import IngestGuard
+from dsh.guards.scope_guard import ScopeContract, ScopeGuard
 
 
 @dataclass
@@ -61,7 +62,12 @@ class AgentLoop:
     组装工具注册表 + guard 管道 + session log，驱动 turn/step 循环。
     """
 
-    def __init__(self, mode: str = "api"):
+    def __init__(self, mode: str = "api", scope=None):
+        """scope: 可选的对话范围契约（ScopeContract、dict 或 json 文件路径）。
+
+        不传 = 不限范围，行为与以前完全一致。
+        传了则由 scope-guard 在工具管道上强制，而不是靠提示词约束模型。
+        """
         if mode != "api":
             raise ValueError("DSH AgentLoop 仅支持 API backend")
         self.mode = mode
@@ -70,24 +76,46 @@ class AgentLoop:
         self.repeat_guard = RepeatToolReminder()
         self.timeout_guard = TimeoutPolicy()
         self.citation_guard = CitationGuard()
+        self.scope_guard = self._make_scope_guard(scope)
         self.max_rounds = 5
         self._setup_registry()
+
+    @staticmethod
+    def _make_scope_guard(scope):
+        if scope is None:
+            return None
+        if isinstance(scope, ScopeGuard):
+            return scope
+        if isinstance(scope, ScopeContract):
+            return ScopeGuard(scope)
+        if isinstance(scope, dict):
+            return ScopeGuard(ScopeContract.from_dict(scope))
+        return ScopeGuard(ScopeContract.load(scope))
 
     def _setup_registry(self):
         """注册工具 + 挂载 guard。"""
         for tool in build_tools():
             self.registry.register(tool)
-        # pre-execute: (此处可加 permission/sandbox guard)
+        # pre-execute: 范围控制（可选）+ (此处可加 permission/sandbox guard)
+        if self.scope_guard:
+            self.registry.on_pre_execute(self.scope_guard.on_pre_execute)
         # execute: timeout wrapper
         self.registry.on_execute(self.timeout_guard.on_execute)
-        # post-execute: repeat-reminder + citation tracking
+        # post-execute: 范围过滤（可选）+ repeat-reminder + citation tracking
+        if self.scope_guard:
+            self.registry.on_post_execute(self.scope_guard.on_post_execute)
         self.registry.on_post_execute(self.repeat_guard.on_post_execute)
         self.registry.on_post_execute(self.citation_guard.on_post_execute)
 
     def _build_prompt(self, query: str, round_num: int, last_results: list) -> str:
         """组装 LLM 提示（含工具 schema + 状态上下文）。"""
         schemas = self.registry.schemas()
-        parts = [
+        parts = []
+        if self.scope_guard:
+            # guard 负责执行，提示只负责解释 —— 让模型知道边界在哪，省掉无谓的越界尝试
+            parts.append(self.scope_guard.describe())
+            parts.append("")
+        parts += [
             f"查询: {query}",
             f"轮次: {round_num}/{self.max_rounds}",
             f"已读来源: {self.citation_guard.read_sources}",
