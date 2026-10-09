@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 import subprocess
+import platform_compat as _pc
 import json
 import re
 import sys
@@ -150,8 +151,8 @@ def read_section(page: str, section: str = "") -> tuple[str, int]:
 def graph_query(command: str, args: list[str]) -> tuple[str, int]:
     """执行只读图查询；图结果纳入统一编排轨迹和 token 计量。"""
     db_script = _SCRIPTS / "query_graph.py"
-    r = subprocess.run([sys.executable, str(db_script), command, *args, "--json", "--db", str(query_db_path())],
-                       capture_output=True, text=True, cwd=_REPO)
+    r = _pc.run_text([sys.executable, str(db_script), command, *args, "--json", "--db", str(query_db_path())],
+                     capture_output=True, cwd=_REPO)
     text = r.stdout.strip() or r.stderr.strip()
     return text, _tok(text)
 
@@ -595,8 +596,8 @@ def read_raw(locator: str = "") -> tuple[str, int]:
     source_target, read_target = sl.evidence_targets(target, loc)
     check_path_scope(source_target)
     check_path_scope(read_target)
-    source_rel = str(source_target.resolve().relative_to(_REPO))
-    read_rel = str(read_target.resolve().relative_to(_REPO))
+    source_rel = source_target.resolve().relative_to(_REPO).as_posix()
+    read_rel = read_target.resolve().relative_to(_REPO).as_posix()
     status = sl.locator_status(loc, read_target)
     if status == "missing":
         return f"[ERROR locator '{loc}' 在 {read_rel} 中未找到]", 0
@@ -616,7 +617,7 @@ def raw_citation_sources(locator: str) -> list[str]:
     if target is None or not loc:
         return [locator] if locator else []
     source_target, _ = sl.evidence_targets(target, loc)
-    source_rel = str(source_target.resolve().relative_to(_REPO))
+    source_rel = source_target.resolve().relative_to(_REPO).as_posix()
     return list(dict.fromkeys([locator, source_rel]))
 
 

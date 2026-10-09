@@ -216,7 +216,8 @@ def cmd_read_raw(args):
         return envelope("read-raw", {"locator": raw}, status="error",
                         error=f"raw 路径未解析: {path_part}")
     qa.check_path_scope(target)
-    requested_rel = str(target.resolve().relative_to(REPO)) if target.is_absolute() else str(target)
+    requested_rel = (target.resolve().relative_to(REPO).as_posix()
+                     if target.is_absolute() else Path(target).as_posix())
     if not loc or loc == "全篇":
         return envelope("read-raw", {"locator": raw, "path": requested_rel}, status="error",
                         error="read-raw 需要精确 locator（标题、Lx-Ly 或 page-x-y）；不向 LLM 返回全文")
@@ -230,8 +231,8 @@ def cmd_read_raw(args):
     source_target, read_target = sl.evidence_targets(target, loc)
     qa.check_path_scope(source_target)
     qa.check_path_scope(read_target)
-    source_rel = str(source_target.resolve().relative_to(REPO))
-    read_rel = str(read_target.resolve().relative_to(REPO))
+    source_rel = source_target.resolve().relative_to(REPO).as_posix()
+    read_rel = read_target.resolve().relative_to(REPO).as_posix()
     status = sl.locator_status(loc, read_target)
     result = {"locator": raw, "path": source_rel, "source_path": source_rel,
               "read_path": read_rel, "evidence_locator": f"{read_rel}#{loc}", "section": loc,
@@ -462,7 +463,7 @@ def cmd_workspace(args):
 
 def cmd_cv(args):
     """Thin wrapper around the deterministic CV workspace function."""
-    command = [sys.executable, str(SCRIPTS / "cv.py"), *args.cv_args]
+    command = [sys.executable, (SCRIPTS / "cv.py").as_posix(), *args.cv_args]
     rc, out, err = run_script(command)
     try:
         result = json.loads(out.strip())

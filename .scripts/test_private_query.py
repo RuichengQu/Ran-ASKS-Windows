@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import graph_lib as gl
+import platform_compat as _pc
 import query_actions as qa
 import query_graph as qg
 import source_locator as sl
@@ -104,6 +105,7 @@ class PrivateQueryTests(unittest.TestCase):
             self.assertFalse(result['ok'])
         self.assertIsNone(qa._QUERY_SCOPE.get())
 
+    @unittest.skipUnless(_pc.symlinks_available(), _pc.SYMLINK_SKIP_REASON)
     def test_symlink_and_traversal_rejected_in_both_directions(self):
         for domain, other, scope in [('private', 'academic', 'private'), ('academic', 'private', 'public')]:
             link = self.root / domain / 'raw/escape.md'
@@ -113,6 +115,7 @@ class PrivateQueryTests(unittest.TestCase):
         result = qa.execute('read_raw', {'locator': 'private/../academic/raw/example.md#L2'}, subproject='private')
         self.assertFalse(result['ok'])
 
+    @unittest.skipUnless(_pc.symlinks_available(), _pc.SYMLINK_SKIP_REASON)
     def test_image_companion_cannot_cross_scope(self):
         image = self.root / 'private/raw/scan.jpg'
         image.write_bytes(b'synthetic not decoded')
@@ -120,6 +123,7 @@ class PrivateQueryTests(unittest.TestCase):
         result = qa.execute('read_raw', {'locator': 'private/raw/scan.jpg#L2'}, subproject='private')
         self.assertFalse(result['ok'])
 
+    @unittest.skipUnless(_pc.symlinks_available(), _pc.SYMLINK_SKIP_REASON)
     def test_extensionless_wiki_symlink_is_rejected_before_read(self):
         link = self.root / 'private/wiki/records/escape.md'
         link.symlink_to(self.root / 'academic/wiki/records/example.md')
@@ -129,6 +133,7 @@ class PrivateQueryTests(unittest.TestCase):
         self.assertIn('mismatch', result['error'])
         reader.assert_not_called()
 
+    @unittest.skipUnless(_pc.symlinks_available(), _pc.SYMLINK_SKIP_REASON)
     def test_private_db_symlink_to_public_is_rejected(self):
         self.priv.unlink()
         self.priv.symlink_to(self.pub)
