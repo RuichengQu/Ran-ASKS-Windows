@@ -86,6 +86,11 @@ change rather than listed individually:
 | `.scripts/test_*.py` (symlinks) | Windows refuses symlink creation without Developer Mode. Those tests now skip rather than report a failure. | **Propose upstream** | Hand-written |
 | `.scripts/**` (`import fitz`) | PyMuPDF ≥ 1.24 prints a deprecation warning to stderr on `import fitz`, and the ingestion pipeline treats a subprocess's stderr as the failure reason — one warning failed every PDF ingestion. | **Propose upstream** | Mechanical; replayable |
 | `.gitattributes` (new) | Git for Windows defaults to `core.autocrlf=true`, so a clone rewrote every text file to CRLF and both frozen paper artifacts failed their checksums. `paper-artifacts/**` is marked `-text`. | **Propose upstream** | Content hashes are part of the data contract |
+| `.scripts/query_actions.py`, `.scripts/wg.py` (separators) | The `[raw source=…]` citation header and `wg.py read-raw`'s `source_path` / `read_path` / `evidence_locator` were still built with `str(path.relative_to(REPO))`, so every locator a model saw on Windows carried backslashes while every locator it was compared against used forward slashes. The port's separator pass had matched a narrower pattern and missed the `str(X.relative_to(Y))` shape. | **Propose upstream** — a no-op on POSIX | Hand-written; `tools/port_codemod.py` does not yet match this shape |
+| `.scripts/query_actions.py` (subprocess) | `graph_query` spawned `query_graph.py` with a bare `subprocess.run(..., text=True)`. The child inherits neither `-X utf8` nor an explicit encoding, so on Chinese Windows it wrote cp936 while the parent decoded UTF-8 and every graph query raised `UnicodeDecodeError`. Routed through the port's own `platform_compat.run_text`. | **Propose upstream** | Three production call sites remain unrouted (`ingest_paper.py`, `recompute_tokens.py`) |
+| `.scripts/test_private_query.py` (symlinks) | Four tests create symlinks; Windows refuses without Developer Mode. Now skipped with the port's existing `_pc.symlinks_available()` guard rather than reported as failures. | **Propose upstream** | The checks themselves go untested on Windows — this hides nothing that was passing |
+| `dsh/scoring.py`, `dsh/test_scoring.py`, `docs/SCORING.md` (new) | **New capability, not portability.** Scores a student conversation point by point against a rubric that is traceable to graph nodes, and keeps an append-only transcript a teacher can verify. Independent of scope-guard; neither imports the other. See *Upstream Candidates*. | **Propose upstream** | Pure addition; nothing existing calls it |
+| `dsh/guards/scope_guard.py`, `dsh/test_scope_guard.py`, `docs/SCOPE_GUARD.md`, `templates/scope/unit.example.json` (new), `dsh/agent_loop.py` (opt-in mount) | **New capability, not portability.** Confines one conversation to a declared region of the graph, enforced in the tool pipeline rather than by prompt text. See *Upstream Candidates*. | **Propose upstream** | `AgentLoop` mounts it only when a `scope` is passed; default behaviour is byte-identical |
 | `requirements.txt` (new) | The project shipped no dependency manifest. | **Propose upstream** | — |
 | `docs/WINDOWS.md`, `FORK_NOTICE.md` (new) | Setup, the platform behaviour table, attribution. | Retain | — |
 
@@ -124,7 +129,28 @@ Windows 11 (26200), Python 3.14, same machine, 82 test files, 2026-09-29:
 16 upstream failures fixed, **0 regressions**. The same comparison at the
 v0.8.0 baseline gave 40/81 versus 56/81 — also +16 with 0 regressions.
 
-The 25 remaining failures are shared with clean upstream and are not caused
+Re-measured 2026-10-09 after the separator, subprocess and symlink fixes
+listed above, against a clean `git worktree` of the preceding commit so that
+both trees run on the same machine on the same day:
+
+| Tree | Pass | Fail |
+| --- | --- | --- |
+| This downstream at `b11b59f` | 57 | 25 |
+| This downstream, current | **61** | 21 |
+
+`test_wg.py`, `test_private_query.py`, `test_query_orchestrate.py` and
+`dsh/test_dsh_harness.py` went FAIL → PASS; **0 regressions**. Counting
+`dsh/test_scope_guard.py`, the current tree is 62/83.
+
+Each of those four failures was the port's own gap, not an upstream defect:
+the separator pass had matched a narrower pattern than the one in use, the
+UTF-8 subprocess pass had missed `query_actions.graph_query`, and the symlink
+skip had missed `test_private_query.py`. They surfaced only when the tree was
+driven from an application rather than from its own tests — a reminder that
+`runtests.py` passing is weaker evidence than it looks, because the runner
+exports `PYTHONUTF8=1` and so hides exactly the class of defect in (2).
+
+The 21 remaining failures are shared with clean upstream and are not caused
 by the port. They have not yet been classified.
 
 `python .scripts/graph_validate.py` reports 0 ERROR (171 WARN, all
@@ -201,6 +227,28 @@ proposals, each with its own failing-then-passing test:
 6. `platform_compat.py` plus its graph registration.
 7. `read_section.py` plus its whitelist entry.
 8. `requirements.txt`.
+9. **scope-guard** — conversation scope control (`dsh/guards/scope_guard.py`).
+   Not portability: a capability this downstream needs and proposes back.
+   A scope is declared as a contract over the graph — named root nodes, a
+   transitive closure over chosen predicates (`前置`), and a one-hop
+   attachment of sources and keywords — and is enforced at
+   `tools/pre-execute` (deny a named read outside the region) and
+   `tools/post-execute` (filter retrieval envelopes), not by prompt text.
+   Unresolvable roots raise rather than silently shrinking the region.
+   34 tests, all on synthetic graphs, no domain data. Opt-in: `AgentLoop`
+   without a `scope` behaves exactly as before.
+10. **conversation-scoring** — rubric scoring with a verifiable transcript
+   (`dsh/scoring.py`). Also a capability, not portability. Three decisions
+   carry it: judge each rubric point separately rather than the answer as a
+   whole (whole-answer judging over-reported by 25% in this downstream's
+   measurements); make the verdict three-valued, so that a point the
+   knowledge base cannot support is `ungradable` and **leaves the
+   denominator** rather than costing the student marks — ASKS withholds
+   answers it cannot ground, and that must not read as a wrong answer; and
+   require every rubric point to name the graph node it came from, validated
+   the way `prerequisites` is. The judge is injected, so ASKS does not decide
+   which model — or whether a model at all — does the grading. 21 tests, no
+   domain data, no model calls.
 
 Four Core defects reported earlier were fixed upstream in v0.7.0–v0.8.0:
 inline comments not stripped from `.env`, the hardcoded embedding API path,
