@@ -874,7 +874,7 @@ class OralExam:
         output_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(output_root, 0o700)
         output_path = output_root / f"{task_id}.json"
-        command = f"python3 .scripts/oral_exam.py {{action}} --client {shlex.quote(client)} --file {output_path.relative_to(self.repo)}"
+        command = f"python3 .scripts/oral_exam.py {{action}} --client {shlex.quote(client)} --file {output_path.relative_to(self.repo).as_posix()}"
         task = agent_task.make_task(
             kind=f"oral_exam.{packet['kind']}", transaction_id=task_id,
             inputs=[{"name": "oral_task_input", "path": input_path.relative_to(self.repo).as_posix()}],
