@@ -7,8 +7,9 @@ import json
 import re
 
 
-PROTOCOL_VERSION = "meeting-compiler-v2"
+PROTOCOL_VERSION = "meeting-compiler-v3"
 LEGACY_PROTOCOL_VERSION = "meeting-compiler-v1"
+LEGACY_MEETING_IR_PROTOCOL_VERSION = "meeting-compiler-v2"
 PREPROCESS_DELIMITER = "<<<PREPROCESS>>>"
 WIKI_DELIMITER = "<<<WIKI>>>"
 MEETING_IR_DELIMITER = "<<<MEETING_IR>>>"
@@ -17,18 +18,48 @@ MAX_REPLACEMENTS = 64
 MAX_ENTITY_DECISIONS = 128
 MAX_MEETING_IR_ITEMS = 128
 
+MEETING_IR_RECORD_FIELDS = {
+    "attendees": ("person", "label", "evidence_ids"),
+    "topics": ("label", "predicate", "evidence_ids"),
+    "reports": ("person", "person_label", "topic", "evidence_ids"),
+    "decisions": ("text", "evidence_ids"),
+    "tasks": ("text", "assignee", "assignee_label", "evidence_ids"),
+    "relations": ("subject", "predicate", "object", "evidence_ids"),
+    "person_updates": ("person", "person_label", "kind", "text", "evidence_ids"),
+}
+UNRESOLVED_PERSON_FIELDS = {"attendees": "person", "reports": "person", "tasks": "assignee"}
+
+
+def meeting_ir_record_contract() -> dict:
+    """Expose the same exact fields and identity boundary used by the validator."""
+    return {
+        section: {
+            "fields": list(fields),
+            "text_fields": [field for field in fields if field != "evidence_ids"],
+            "evidence_ids": "nonempty unique sNNNN IDs from evidence_catalog, at most 16",
+            "unresolved_identity_field": UNRESOLVED_PERSON_FIELDS.get(section),
+            "unresolved_identity": "empty string; retain the source label and fact in Wiki, not a global identity",
+        }
+        for section, fields in MEETING_IR_RECORD_FIELDS.items()
+    }
+
 TYPED_MEETING_PREDICATES = {"参会", "汇报", "决策", "待办", "讨论", "规划"}
 TOPIC_PREDICATES = {"讨论", "涉及", "规划"}
 FREE_RELATION_PREDICATES = {"涉及", "紧密相关于", "指导", "师从", "受指导于"}
 DEICTIC_ENDPOINTS = {"本会议", "本文", "本文件", "本文档", "本论文", "$meeting"}
+PERSON_UPDATE_KINDS = {
+    "progress", "next_step", "blocker", "decision", "milestone", "topic_change",
+}
 
 
 def task_context_hash(source_text: str, entity_candidates: dict, *, meeting_id: str,
-                      target_source_path: str, errors: list[str] | None = None) -> str:
+                      target_source_path: str, errors: list[str] | None = None,
+                      guidance_candidates: dict | None = None) -> str:
     payload = {
         "protocol_version": PROTOCOL_VERSION,
         "source_sha256": hashlib.sha256(source_text.encode("utf-8")).hexdigest(),
         "entity_candidates": entity_candidates,
+        "guidance_candidates": guidance_candidates or {},
         "meeting_id": meeting_id,
         "target_source_path": target_source_path,
         "errors": errors or [],
@@ -126,28 +157,37 @@ def _valid_evidence_ids(value, allowed: set[str] | None) -> bool:
     return allowed is None or set(ids) <= allowed
 
 
-def validate_meeting_ir(value, evidence_ids: set[str] | None = None) -> list[str]:
-    """Validate the typed, evidence-bound semantic result of Meeting Compiler v2."""
+def _validate_meeting_ir(value, evidence_ids: set[str] | None = None, *,
+                         allow_legacy_v2: bool = False) -> list[str]:
+    """Validate typed, evidence-bound meeting semantics before any projection."""
     errors: list[str] = []
     if not isinstance(value, dict):
         return ["MEETING_IR must be an object"]
-    required = {"protocol_version", "attendees", "topics", "reports", "decisions", "tasks", "relations"}
+    current_required = {
+        "protocol_version", "attendees", "topics", "reports", "decisions", "tasks",
+        "relations", "person_updates",
+    }
+    legacy_required = current_required - {"person_updates"}
+    required = (
+        legacy_required
+        if allow_legacy_v2 and value.get("protocol_version") == LEGACY_MEETING_IR_PROTOCOL_VERSION
+        else current_required
+    )
     if set(value) != required:
         errors.append("MEETING_IR fields must be exactly: " + ", ".join(sorted(required)))
         return errors
-    if value.get("protocol_version") != PROTOCOL_VERSION:
-        errors.append(f"MEETING_IR protocol_version must be {PROTOCOL_VERSION}")
+    allowed_versions = (
+        {PROTOCOL_VERSION, LEGACY_MEETING_IR_PROTOCOL_VERSION}
+        if allow_legacy_v2 else {PROTOCOL_VERSION}
+    )
+    if value.get("protocol_version") not in allowed_versions:
+        errors.append(
+            "MEETING_IR protocol_version must be " + " or ".join(sorted(allowed_versions))
+        )
 
     specs = {
-        "attendees": ({"person", "label", "evidence_ids"}, ("person", "label")),
-        "topics": ({"label", "predicate", "evidence_ids"}, ("label", "predicate")),
-        "reports": ({"person", "person_label", "topic", "evidence_ids"},
-                    ("person", "person_label", "topic")),
-        "decisions": ({"text", "evidence_ids"}, ("text",)),
-        "tasks": ({"text", "assignee", "assignee_label", "evidence_ids"},
-                  ("text", "assignee", "assignee_label")),
-        "relations": ({"subject", "predicate", "object", "evidence_ids"},
-                      ("subject", "predicate", "object")),
+        section: (set(fields), tuple(field for field in fields if field != "evidence_ids"))
+        for section, fields in MEETING_IR_RECORD_FIELDS.items() if section in required
     }
     for section, (fields, text_fields) in specs.items():
         rows = value.get(section)
@@ -163,8 +203,15 @@ def validate_meeting_ir(value, evidence_ids: set[str] | None = None) -> list[str
             if not isinstance(row, dict) or set(row) != fields:
                 errors.append(f"{prefix} has invalid fields")
                 continue
-            values = tuple(str(row.get(field) or "").strip() for field in text_fields)
-            if any(not item for item in values):
+            if any(not isinstance(row.get(field), str) for field in text_fields):
+                errors.append(f"{prefix} text fields must be strings")
+                continue
+            values = tuple(row[field].strip() for field in text_fields)
+            optional_identity = (
+                UNRESOLVED_PERSON_FIELDS.get(section)
+                if value.get("protocol_version") == PROTOCOL_VERSION else None
+            )
+            if any(not row[field].strip() for field in text_fields if field != optional_identity):
                 errors.append(f"{prefix} has an empty required value")
             if any(item in DEICTIC_ENDPOINTS for item in values):
                 errors.append(f"{prefix} contains an unresolved deictic endpoint")
@@ -176,13 +223,26 @@ def validate_meeting_ir(value, evidence_ids: set[str] | None = None) -> list[str
             seen.add(identity)
             if section == "topics" and row.get("predicate") not in TOPIC_PREDICATES:
                 errors.append(f"{prefix}.predicate is not a topic predicate")
+            if section == "decisions" and re.search(
+                r"[；;].{0,12}(?:后|随后).{0,12}(?:纠正|改为|否决|替换)",
+                values[0],
+            ):
+                errors.append(
+                    f"{prefix} combines a superseded proposal with the final decision"
+                )
             if section == "relations":
                 predicate = str(row.get("predicate") or "").strip()
                 if predicate not in FREE_RELATION_PREDICATES:
                     errors.append(f"{prefix}.predicate overlaps typed slots or is unsupported")
                 if predicate in TYPED_MEETING_PREDICATES:
                     errors.append(f"{prefix}.predicate must use a typed meeting section")
+            if section == "person_updates" and row.get("kind") not in PERSON_UPDATE_KINDS:
+                errors.append(f"{prefix}.kind is unsupported")
     return errors
+
+
+def validate_meeting_ir(value, evidence_ids: set[str] | None = None) -> list[str]:
+    return _validate_meeting_ir(value, evidence_ids=evidence_ids)
 
 
 def parse_proposal(text: str) -> tuple[dict | None, str]:
@@ -210,11 +270,15 @@ def parse_proposal_detailed(text: str) -> tuple[dict | None, str, dict]:
             "excerpt": json_text[excerpt_start:exc.pos + 100],
         }
     version = str(preprocess.get("protocol_version") or "") if isinstance(preprocess, dict) else ""
-    if not _validate_preprocess_version(preprocess, {PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION}):
+    if not _validate_preprocess_version(
+            preprocess,
+            {PROTOCOL_VERSION, LEGACY_MEETING_IR_PROTOCOL_VERSION, LEGACY_PROTOCOL_VERSION}):
         error = "invalid meeting compiler preprocess proposal"
         return None, error, {"kind": "schema", "stage": "validate_preprocess",
                              "segment": "PREPROCESS", "message": error}
-    semantic_delimiter = MEETING_IR_DELIMITER if version == PROTOCOL_VERSION else SLOTS_DELIMITER
+    semantic_delimiter = (
+        SLOTS_DELIMITER if version == LEGACY_PROTOCOL_VERSION else MEETING_IR_DELIMITER
+    )
     wiki = _section(text, WIKI_DELIMITER, semantic_delimiter)
     semantics = _section(text, semantic_delimiter, None)
     if not wiki:
@@ -248,9 +312,18 @@ def parse_proposal_detailed(text: str) -> tuple[dict | None, str, dict]:
             "excerpt_start": excerpt_start,
             "excerpt": ir_text[excerpt_start:exc.pos + 100],
         }
-    ir_errors = validate_meeting_ir(meeting_ir)
+    if version == LEGACY_MEETING_IR_PROTOCOL_VERSION:
+        ir_errors = _validate_meeting_ir(
+            meeting_ir, evidence_ids=None, allow_legacy_v2=True,
+        )
+        if not ir_errors:
+            meeting_ir = dict(meeting_ir)
+            meeting_ir["protocol_version"] = PROTOCOL_VERSION
+            meeting_ir["person_updates"] = []
+    else:
+        ir_errors = validate_meeting_ir(meeting_ir)
     if ir_errors:
-        error = "invalid meeting-compiler-v2 meeting IR"
+        error = f"invalid {version or PROTOCOL_VERSION} meeting IR"
         return None, error, {"kind": "schema", "stage": "validate_meeting_ir",
                              "segment": "MEETING_IR", "message": error,
                              "issues": ir_errors}

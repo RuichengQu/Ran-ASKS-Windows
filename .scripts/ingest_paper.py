@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import yaml
@@ -87,13 +88,16 @@ WIKI_DELIMITER = "<<<WIKI>>>"
 SLOTS_DELIMITER = "<<<SLOTS>>>"
 BIBLIOGRAPHIC_DELIMITER = "<<<BIBLIOGRAPHIC>>>"
 AGENT_WORKSPACE_PROTOCOL = "paper-agent-workspace-v1"
-AGENT_WORKSPACE_TASK_VERSION = "paper-agent-workspace-task-v2"
+AGENT_WORKSPACE_TASK_VERSION = "paper-agent-workspace-task-v5"
+AGENT_READING_CONTRACT_VERSION = "agent-paper-reading-v2"
+AGENT_BIBLIOGRAPHIC_PROTOCOL = "evidence-bibliography-v1"
+AGENT_FULL_TEXT_MAX_CHARS = 40_000
 AGENT_VALIDATION_RECEIPT_VERSION = "paper-agent-validation-receipt-v1"
-BIBLIOGRAPHIC_VALIDATOR_VERSION = "candidate-id-validator-v2"
-WIKI_VALIDATOR_VERSION = "paper-wiki-validator-v1"
+BIBLIOGRAPHIC_VALIDATOR_VERSION = "bibliographic-review-validator-v3"
+WIKI_VALIDATOR_VERSION = "paper-wiki-validator-v2"
 SEMANTIC_VALIDATOR_VERSION = "paper-semantic-validator-v3"
-GRAPH_PREFLIGHT_VALIDATOR_VERSION = "graph-plan-preflight-v1"
-BIBLIOGRAPHIC_CANDIDATE_PROVIDER_VERSION = "bibliographic-candidate-provider-v6"
+GRAPH_PREFLIGHT_VALIDATOR_VERSION = "graph-plan-preflight-v2"
+BIBLIOGRAPHIC_CANDIDATE_PROVIDER_VERSION = "bibliographic-candidate-provider-v7"
 API_WORKSPACE_OPERATION = "ingest_paper_workspace"
 BIBLIOGRAPHIC_AUTHOR_SHAPE_EXAMPLE = (
     '"authors": {"accepted_ids": [], "rejected_ids": [], "proposed": [], '
@@ -120,6 +124,9 @@ CURRENT_SLOT_SECTIONS = {
 KNOWN_SECTIONS = LEGACY_SLOT_SECTIONS | CURRENT_SLOT_SECTIONS
 PAPER_SEMANTIC_CONTRACT_VERSION = "paper-semantic-v3"
 PROPOSITION_PREDICATES = {"核心创新点", "局限性", "未来展望"}
+PAPER_SUBJECT_CONCEPT_PREDICATES = {"研究基础", "核心方法", "对比方法"}
+CONCEPT_RELATION_PREDICATES = {"基于", "改进", "结合", "对比", "推广", "替代", "扩展", "应用于"}
+PROGRAM_GENERATED_PREDICATES = {"作者", "第一作者", "通讯作者", "发表于", "主要研究"}
 SEMANTIC_PREDICATES = {
     "作者", "通讯作者", "引用", "发表于", "主要研究", "涉及", "研究基础", "核心方法",
     "核心创新点", "局限性", "未来展望", "研究关键词", "对比方法", "所属", "就读", "导师",
@@ -130,6 +137,10 @@ PREDICATE_CANDIDATES_PATH = REPO / "cross-domain" / "predicate-candidates.jsonl"
 
 # agent 模式 prompt 引用的格式示例（已有论文页，供 agent 参考 section 结构）
 FORMAT_EXAMPLE = "academic/wiki/papers/2019-cheng-ttn-generative.md"
+
+AGENT_READING_SECTIONS = (
+    "Abstract", "Introduction", "Method", "Results", "Discussion", "Conclusions",
+)
 
 # 摄入流水线阶段（plan 用）。needs_agent=True 的阶段需 agent 介入，其余为纯代码步骤。
 # agent 模式 3 步（中间需 agent 写 wiki+slots）；api 模式 1 步（代码+API LLM 全自动，agent 零介入）。
@@ -167,6 +178,10 @@ def _workspace_managed_by_agent(state: dict) -> bool:
     )
 
 
+def _has_paper_workspace(state: dict) -> bool:
+    return (state.get("agent_workspace") or {}).get("protocol_version") == AGENT_WORKSPACE_PROTOCOL
+
+
 def is_valid_predicate_candidate(predicate: str) -> bool:
     """候选谓词须是短的关系词，不能是句子或结构化文本。"""
     return bool(re.fullmatch(r"[\u4e00-\u9fffA-Za-z]{1,12}", predicate))
@@ -179,6 +194,30 @@ def semantic_predicate_guide() -> str:
     except (OSError, json.JSONDecodeError):
         dynamic = set()
     return "、".join(sorted(SEMANTIC_PREDICATES | dynamic))
+
+
+def agent_paper_semantic_protocol() -> dict:
+    """Expose the validator-relevant semantic boundary to the host Agent."""
+    paper_subject_allowed = PAPER_SUBJECT_CONCEPT_PREDICATES | PROPOSITION_PREDICATES
+    return {
+        "contract": PAPER_SEMANTIC_CONTRACT_VERSION,
+        "sections": ["三元组", "概念说明"],
+        "subject": "本论文",
+        "paper_subject_predicates": {
+            "concept": sorted(PAPER_SUBJECT_CONCEPT_PREDICATES),
+            "proposition": sorted(PROPOSITION_PREDICATES),
+            "disallowed": sorted(SEMANTIC_PREDICATES - paper_subject_allowed),
+        },
+        "concept_relation_predicates": sorted(CONCEPT_RELATION_PREDICATES),
+        "program_generated_predicates": sorted(PROGRAM_GENERATED_PREDICATES),
+        "rules": [
+            "本论文到 concept 只用 paper_subject_predicates.concept",
+            "本论文到 proposition 只用 paper_subject_predicates.proposition",
+            "program_generated_predicates 由程序从 Wiki 与锁定书目生成，不写入语义槽",
+            "concept 间关系两端必须是可独立指代的规范概念名",
+            "每个 keyword concept 在概念说明中写一句有 Wiki 证据的局部说明",
+        ],
+    }
 
 
 def record_predicate_candidates(state: dict) -> None:
@@ -1124,7 +1163,8 @@ def _layout_venue_candidates(blocks: list[dict], doi: str = "", year: str = "") 
         r"\b(?:Proceedings|Findings)\s+of\s+.+?(?=,\s*(?:pages?|pp\.?|vol\.?|volume)\b|$)",
         r"\bPhysical\s+Review\s+(?:Letters|[A-E]|X|Research|Applied)\b",
         r"\b(?:Nature|Science|Cell)(?:\s+[A-Z][A-Za-z-]+){0,4}\b",
-        r"\bJournal\s+of\s+[A-Z][A-Za-z&.'-]*(?:\s+[A-Z][A-Za-z&.'-]*){0,8}\b",
+        r"\bJournal\s+of\s+[A-Z][A-Za-z&.'-]*(?:\s+[A-Z][A-Za-z&.'-]*){0,8}"
+        r"(?::\s*[A-Z][A-Za-z&.'-]*(?:\s+[A-Z][A-Za-z&.'-]*){0,8})?\b",
         r"\b(?:IEEE|ACM)\s+(?:Transactions|Journal|Proceedings|Conference)\b[^\n,;]{0,100}",
     )
     for block in blocks:
@@ -1144,8 +1184,20 @@ def _layout_venue_candidates(blocks: list[dict], doi: str = "", year: str = "") 
     return found
 
 
+def _layout_doi_candidates(blocks: list[dict]) -> list[dict]:
+    found = []
+    seen = set()
+    for block in blocks:
+        doi = extract_doi(str(block.get("text") or ""))
+        key = doi.casefold()
+        if doi and key not in seen:
+            seen.add(key)
+            found.append({"value": doi, "evidence": block["evidence"]})
+    return found
+
+
 def _layout_bibliographic_candidates(blocks: list[dict], title: str = "") -> dict:
-    result = {"authors": [], "affiliations": [], "dates": [], "venues": []}
+    result = {"authors": [], "affiliations": [], "dates": [], "venues": [], "dois": []}
     if not blocks:
         return result
     title_key = _bibliographic_text_key(title)
@@ -1186,7 +1238,11 @@ def _layout_bibliographic_candidates(blocks: list[dict], title: str = "") -> dic
                 result["affiliations"].append({
                     "value": affiliation, "evidence": block["evidence"],
                 })
-            for author in _layout_person_names(text):
+            author_text = "\n".join(
+                line for line in text.splitlines()
+                if not (AFFILIATION_HINT_RE.search(line) or "@" in line)
+            )
+            for author in _layout_person_names(author_text):
                 result["authors"].append({
                     "value": author, "evidence": block["evidence"],
                 })
@@ -1199,6 +1255,8 @@ def _layout_bibliographic_candidates(blocks: list[dict], title: str = "") -> dic
     result["affiliations"] = list({
         (item["value"], item["evidence"]): item for item in result["affiliations"]
     }.values())
+    result["dois"] = _layout_doi_candidates(blocks)
+    result["venues"] = _layout_venue_candidates(blocks)
     return result
 
 
@@ -1524,6 +1582,11 @@ def load_bibliographic_metadata(raw_dir: Path) -> dict:
             merged[key] = value
     if detected.get("evidence") and not review_locked:
         merged["evidence"] = detected["evidence"]
+    # Locked scalars remain authoritative until the bibliography gate decides again,
+    # but deterministic PDF evidence must follow the current candidate provider.
+    for key in ("front_matter_blocks", "layout_candidates"):
+        if detected.get(key):
+            merged[key] = detected[key]
     if detected.get("first_page_evidence"):
         merged["first_page_evidence"] = detected["first_page_evidence"]
     return merged
@@ -1536,6 +1599,12 @@ BIBLIOGRAPHIC_SCALAR_FIELDS = ("title", "year", "venue", "doi", "arxiv_id")
 BIBLIOGRAPHIC_YEAR_KINDS = {
     "published", "published_online", "accepted", "received", "revised",
     "preprint", "unknown",
+}
+AGENT_BIBLIOGRAPHIC_ENUMS = {
+    "doc_type": ["paper", "document", "ambiguous"],
+    "review_status": ["clean", "corrected", "ambiguous", "manual_required"],
+    "field_status": ["confirmed", "corrected", "ambiguous"],
+    "year_kind": sorted(BIBLIOGRAPHIC_YEAR_KINDS),
 }
 AFFILIATION_HINT_RE = re.compile(
     r"\b(?:university|universit[aä]t|institute|institution|laborator(?:y|ies)|lab\.?|"
@@ -1638,6 +1707,18 @@ def bibliographic_quality_warnings(bibliography: dict, md_text: str) -> list[dic
 
 
 def _sync_quality_status(state: dict) -> str:
+    history = state.setdefault("quality_warning_history", [])
+    seen = {
+        json.dumps(item, ensure_ascii=False, sort_keys=True)
+        for item in history if isinstance(item, dict)
+    }
+    for warning in state.get("quality_warnings", []):
+        if not isinstance(warning, dict):
+            continue
+        key = json.dumps(warning, ensure_ascii=False, sort_keys=True)
+        if key not in seen:
+            history.append(dict(warning))
+            seen.add(key)
     status = "degraded" if state.get("quality_warnings") else "complete"
     state["quality_status"] = status
     return status
@@ -1759,6 +1840,7 @@ def build_bibliographic_candidates(bibliography: dict | None, md_text: str) -> d
     identity_region = bibliographic_identity_region(md_text)
     layout_dates = list(layout.get("dates") or [])
     layout_venues = list(layout.get("venues") or [])
+    layout_dois = list(layout.get("dois") or [])
     return {
         "doc_type": "paper",
         "title": _unique_nonempty([
@@ -1778,7 +1860,11 @@ def build_bibliographic_candidates(bibliography: dict | None, md_text: str) -> d
             + _acm_reference_venue_candidates(md_text)
             + _first_page_venue_candidates(first_page_evidence)
         ),
-        "doi": _unique_nonempty([bibliography.get("doi"), extract_doi(identity_region)]),
+        "doi": _unique_nonempty(
+            [bibliography.get("doi")]
+            + [item.get("value") for item in layout_dois]
+            + [extract_doi(identity_region)]
+        ),
         "arxiv_id": _unique_nonempty(
             [bibliography.get("arxiv_id"), extract_arxiv_id(identity_region)]
         ),
@@ -1794,6 +1880,7 @@ def build_bibliographic_candidates(bibliography: dict | None, md_text: str) -> d
                 for item in layout_dates
             ],
             "venue": layout_venues,
+            "doi": layout_dois,
         },
         "excluded_affiliations": list(layout.get("affiliations") or []),
     }
@@ -1927,6 +2014,265 @@ def bibliographic_decision_schema(value) -> bool:
     return authors.get("status") in {"confirmed", "corrected", "ambiguous"}
 
 
+def _direct_bibliographic_evidence_schema(value) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {"source", "locator", "quote"}
+        and all(isinstance(value.get(key), str) for key in ("source", "locator", "quote"))
+    )
+
+
+def _empty_direct_bibliographic_evidence() -> dict:
+    return {"source": "", "locator": "", "quote": ""}
+
+
+def agent_bibliographic_decision_template() -> dict:
+    """Return the strict fail-closed scaffold exposed in Agent tasks."""
+    return {
+        "protocol_version": AGENT_BIBLIOGRAPHIC_PROTOCOL,
+        "doc_type": "paper",
+        "review_status": "manual_required",
+        "bibliographic": {
+            "title": {
+                "value": "", "evidence": _empty_direct_bibliographic_evidence(),
+                "status": "ambiguous",
+            },
+            "authors": {
+                "value": [], "evidence": _empty_direct_bibliographic_evidence(),
+                "rejected": [], "status": "ambiguous",
+            },
+            "year": {
+                "value": "", "evidence": _empty_direct_bibliographic_evidence(),
+                "kind": "unknown", "status": "ambiguous",
+            },
+            "venue": {
+                "value": "", "evidence": _empty_direct_bibliographic_evidence(),
+                "status": "ambiguous",
+            },
+            "doi": {
+                "value": "", "evidence": _empty_direct_bibliographic_evidence(),
+                "status": "ambiguous",
+            },
+            "arxiv_id": {
+                "value": "", "evidence": _empty_direct_bibliographic_evidence(),
+                "status": "ambiguous",
+            },
+        },
+        "conflicts": [],
+        "review_notes": [],
+    }
+
+
+def canonicalize_agent_bibliographic_decision(value):
+    """Fill mechanically empty optional identifiers before strict validation."""
+    if not isinstance(value, dict) or value.get("protocol_version") != AGENT_BIBLIOGRAPHIC_PROTOCOL:
+        return value
+    normalized = copy.deepcopy(value)
+    bibliography = normalized.get("bibliographic")
+    if not isinstance(bibliography, dict):
+        return normalized
+    for field in ("doi", "arxiv_id"):
+        item = bibliography.get(field)
+        if item is None:
+            bibliography[field] = {
+                "value": "",
+                "evidence": _empty_direct_bibliographic_evidence(),
+                "status": "ambiguous",
+            }
+            continue
+        if not isinstance(item, dict) or str(item.get("value") or "").strip():
+            continue
+        item.setdefault("value", "")
+        if item.get("evidence") in (None, "", {}):
+            item["evidence"] = _empty_direct_bibliographic_evidence()
+        item.setdefault("status", "ambiguous")
+    return normalized
+
+
+def agent_bibliographic_schema_errors(value) -> list[str]:
+    """Validate Agent-authored values with source-bound evidence, not candidate IDs."""
+    errors = []
+    if not isinstance(value, dict) or set(value) != {
+        "protocol_version", "doc_type", "review_status", "bibliographic",
+        "conflicts", "review_notes",
+    }:
+        return ["bibliography: 顶层字段必须与 evidence-bibliography-v1 模板完全一致"]
+    if value.get("protocol_version") != AGENT_BIBLIOGRAPHIC_PROTOCOL:
+        errors.append(f"protocol_version: 必须为 {AGENT_BIBLIOGRAPHIC_PROTOCOL}")
+    if value.get("doc_type") not in AGENT_BIBLIOGRAPHIC_ENUMS["doc_type"]:
+        errors.append("doc_type: 合法值为 paper, document, ambiguous")
+    if value.get("review_status") not in AGENT_BIBLIOGRAPHIC_ENUMS["review_status"]:
+        errors.append("review_status: 合法值为 clean, corrected, ambiguous, manual_required")
+    if not isinstance(value.get("conflicts"), list) or not all(
+        isinstance(item, (dict, str)) for item in value["conflicts"]
+    ):
+        errors.append("conflicts: 必须是对象或字符串列表")
+    if not isinstance(value.get("review_notes"), list) or not all(
+        isinstance(item, str) for item in value["review_notes"]
+    ):
+        errors.append("review_notes: 必须是字符串列表")
+    bibliography = value.get("bibliographic")
+    if not isinstance(bibliography, dict) or set(bibliography) != set(BIBLIOGRAPHIC_REVIEW_FIELDS):
+        return errors + ["bibliographic: 字段必须与模板完全一致"]
+    for field in BIBLIOGRAPHIC_REVIEW_FIELDS:
+        item = bibliography.get(field)
+        expected = {"value", "evidence", "status"}
+        if field == "year":
+            expected.add("kind")
+        elif field == "authors":
+            expected.add("rejected")
+        if not isinstance(item, dict) or set(item) != expected:
+            errors.append(f"{field}: 字段必须为 {', '.join(sorted(expected))}")
+            continue
+        field_value = item.get("value")
+        if field == "authors":
+            if not isinstance(field_value, list) or not all(
+                isinstance(author, str) and author.strip() for author in field_value
+            ):
+                errors.append("authors: value 必须为非空姓名字符串列表")
+            if not isinstance(item.get("rejected"), list) or not all(
+                isinstance(author, str) for author in item["rejected"]
+            ):
+                errors.append("authors: rejected 必须为字符串列表")
+        elif not isinstance(field_value, str):
+            errors.append(f"{field}: value 必须为字符串")
+        if not _direct_bibliographic_evidence_schema(item.get("evidence")):
+            errors.append(f"{field}: evidence 必须包含字符串 source, locator, quote")
+        if item.get("status") not in AGENT_BIBLIOGRAPHIC_ENUMS["field_status"]:
+            errors.append(f"{field}: status 合法值为 confirmed, corrected, ambiguous")
+        if field == "year" and item.get("kind") not in AGENT_BIBLIOGRAPHIC_ENUMS["year_kind"]:
+            errors.append(
+                f"year: kind={item.get('kind')!r} 不合法；合法值为 "
+                + ", ".join(sorted(BIBLIOGRAPHIC_YEAR_KINDS))
+            )
+    return errors
+
+
+def agent_bibliographic_decision_schema(value) -> bool:
+    return not agent_bibliographic_schema_errors(value)
+
+
+def _direct_evidence_text(evidence: dict, evidence_sources: dict[str, str]) -> tuple[str, str]:
+    source = str(evidence.get("source") or "").strip()
+    locator = str(evidence.get("locator") or "").strip()
+    quote = str(evidence.get("quote") or "").strip()
+    if not source and not locator and not quote:
+        return "", ""
+    if source not in evidence_sources:
+        raise ValueError(f"书目证据 source 不在允许输入中: {source}")
+    match = re.fullmatch(r"L(\d+)(?:-L?(\d+))?", locator)
+    if not match:
+        raise ValueError(f"书目证据 locator 格式错误: {source}#{locator}")
+    start = int(match.group(1))
+    end = int(match.group(2) or start)
+    lines = evidence_sources[source].splitlines()
+    if start < 1 or end < start or end > len(lines) or end - start + 1 > 12:
+        raise ValueError(f"书目证据 locator 越界或超过 12 行: {source}#{locator}")
+    window = "\n".join(lines[start - 1:end])
+    if not quote or " ".join(quote.split()) not in " ".join(window.split()):
+        raise ValueError(f"书目证据 quote 未逐字出现在 locator 窗口: {source}#{locator}")
+    return f"{source}#{locator}", quote
+
+
+def _direct_value_in_quote(field: str, value: str, quote: str) -> bool:
+    if not value:
+        return True
+    if field in {"title", "venue"}:
+        return _bibliographic_text_key(value) in _bibliographic_text_key(quote)
+    return str(value).strip().casefold() in str(quote).casefold()
+
+
+def _direct_candidate_conflicts(review: dict, candidates: dict) -> list[dict]:
+    """Report provider disagreement after extraction; candidates never authorize Agent values."""
+    conflicts = []
+    bibliography = review.get("bibliographic") or {}
+    for field in BIBLIOGRAPHIC_REVIEW_FIELDS:
+        item = bibliography.get(field) or {}
+        direct = (
+            item.get("value") or []
+            if field == "authors"
+            else item.get("value", "")
+        )
+        provided = list(candidates.get(field) or [])
+        if not provided or not direct:
+            continue
+        if field == "authors":
+            agrees = [_bibliographic_text_key(value) for value in direct] == [
+                _bibliographic_text_key(value) for value in provided
+            ]
+        else:
+            agrees = any(
+                _bibliographic_text_key(str(direct)) == _bibliographic_text_key(value)
+                for value in provided
+            )
+        if not agrees:
+            conflicts.append({
+                "field": field,
+                "kind": "background_candidate_disagreement",
+                "direct_value": direct,
+                "candidate_values": provided,
+            })
+    return conflicts
+
+
+def compile_agent_bibliographic_decision(
+    decision: dict,
+    evidence_sources: dict[str, str],
+    candidates: dict | None = None,
+) -> dict:
+    """Verify Agent evidence and compile it to the shared normalized review."""
+    if not agent_bibliographic_decision_schema(decision):
+        raise ValueError(f"Agent 书目裁决不符合 {AGENT_BIBLIOGRAPHIC_PROTOCOL} schema")
+    bibliography = {}
+    errors = []
+    for field in BIBLIOGRAPHIC_REVIEW_FIELDS:
+        item = decision["bibliographic"][field]
+        value = item["value"]
+        try:
+            locator, quote = _direct_evidence_text(item["evidence"], evidence_sources)
+        except ValueError as exc:
+            errors.append(f"{field}: {exc}")
+            continue
+        values = value if field == "authors" else [value]
+        nonempty = [str(entry).strip() for entry in values if str(entry).strip()]
+        if nonempty and not locator:
+            errors.append(f"{field} 非空时必须提供 source/locator/quote")
+            continue
+        for entry in nonempty:
+            if not _direct_value_in_quote(field, entry, quote):
+                errors.append(f"{field} 值未逐字出现在 evidence quote: {entry}")
+        if not nonempty and any(item["evidence"].values()):
+            errors.append(f"{field} 为空时 evidence 必须为空")
+        if not nonempty and item["status"] != "ambiguous":
+            errors.append(f"{field} 为空时 status 必须为 ambiguous")
+        if field == "authors":
+            bibliography[field] = {
+                "value": [str(author).strip() for author in value],
+                "evidence": locator,
+                "rejected": [str(author).strip() for author in item["rejected"]],
+                "status": item["status"],
+            }
+        else:
+            bibliography[field] = {
+                "value": str(value).strip(),
+                "evidence": locator,
+                "status": item["status"],
+            }
+            if field == "year":
+                bibliography[field]["kind"] = item["kind"]
+    if errors:
+        raise ValueError("\n".join(errors))
+    review = {
+        "doc_type": decision["doc_type"],
+        "review_status": decision["review_status"],
+        "bibliographic": bibliography,
+        "conflicts": list(decision["conflicts"]),
+        "review_notes": list(decision["review_notes"]),
+    }
+    review["conflicts"].extend(_direct_candidate_conflicts(review, candidates or {}))
+    return review
+
+
 def _candidate_evidence(value: str, field: str, bibliography: dict, md_text: str) -> str:
     """Locate candidate evidence deterministically; never ask the worker for locators."""
     source_value = bibliography.get(field)
@@ -1937,6 +2283,7 @@ def _candidate_evidence(value: str, field: str, bibliography: dict, md_text: str
             if str(evidence).startswith("pdf_layout_front_matter"):
                 layout_field = {
                     "authors": "authors", "year": "dates", "venue": "venues",
+                    "doi": "dois",
                 }.get(field)
                 layout_items = (
                     (bibliography.get("layout_candidates") or {}).get(layout_field, [])
@@ -1950,7 +2297,9 @@ def _candidate_evidence(value: str, field: str, bibliography: dict, md_text: str
                         return exact
             return str(evidence)
         return "pdf_metadata"
-    layout_field = {"authors": "authors", "year": "dates", "venue": "venues"}.get(field)
+    layout_field = {
+        "authors": "authors", "year": "dates", "venue": "venues", "doi": "dois",
+    }.get(field)
     if layout_field:
         for item in (bibliography.get("layout_candidates") or {}).get(layout_field) or []:
             if str(item.get("value") or "").strip() == value:
@@ -2555,6 +2904,8 @@ def validate_bibliographic_review(
     review: dict,
     candidates: dict,
     md_text: str = "",
+    *,
+    enforce_candidate_boundary: bool = True,
 ) -> list[str]:
     """在 schema 之外复查候选边界与基础格式。"""
     errors = []
@@ -2574,9 +2925,9 @@ def validate_bibliographic_review(
         evidence_bound = field in {"title", "venue"} and _bibliographic_evidence_contains(
             raw_value, (item or {}).get("evidence", ""), md_text,
         )
-        if not candidate_sets[field] and not evidence_bound:
+        if enforce_candidate_boundary and not candidate_sets[field] and not evidence_bound:
             errors.append(f"{field} 程序候选为空却生成值")
-        elif raw_value not in candidate_sets[field] and not (
+        elif enforce_candidate_boundary and raw_value not in candidate_sets[field] and not (
             field == "title" and any(
                 _bibliographic_text_key(raw_value) == _bibliographic_text_key(candidate)
                 for candidate in candidate_sets[field]
@@ -2591,9 +2942,9 @@ def validate_bibliographic_review(
     year_value = str(year.get("value") or "").strip()
     if year_value and not re.fullmatch(r"(?:19|20)\d{2}", year_value):
         errors.append("year 格式错误")
-    if year_value and not candidate_sets["year"]:
+    if enforce_candidate_boundary and year_value and not candidate_sets["year"]:
         errors.append("year 程序候选为空却生成值")
-    elif year_value and year_value not in candidate_sets["year"]:
+    elif enforce_candidate_boundary and year_value and year_value not in candidate_sets["year"]:
         errors.append("year 值不在程序候选中")
     authors = bib.get("authors") or {}
     author_candidates = candidate_sets["authors"]
@@ -2611,9 +2962,9 @@ def validate_bibliographic_review(
             fragment, authors.get("evidence", ""), md_text,
         )
     }
-    if unknown_authors:
+    if enforce_candidate_boundary and unknown_authors:
         errors.append("authors 包含程序候选之外的值: " + ", ".join(sorted(unknown_authors)))
-    if unknown_rejected:
+    if enforce_candidate_boundary and unknown_rejected:
         errors.append("rejected 包含未出现在作者候选项中的片段: " + ", ".join(sorted(unknown_rejected)))
     if accepted & rejected:
         errors.append("authors 不能同时出现在 value 和 rejected")
@@ -2946,24 +3297,55 @@ def _resume_bibliographic_review(state: dict) -> bool:
         except Exception as exc:
             state["errors"] = [f"书目预审草稿读取失败: {exc}"]
             return False
+    normalized_review = canonicalize_agent_bibliographic_decision(review)
+    if normalized_review != review:
+        review = normalized_review
+        if draft_path.is_file():
+            draft_path.write_text(
+                json.dumps(review, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+            )
     candidates = review_state.get("candidates") or build_bibliographic_candidates(
         state.get("bibliographic_meta"), (REPO / state["extract_dir"] / "paper.md").read_text(encoding="utf-8"))
     md_text = (REPO / state["extract_dir"] / "paper.md").read_text(encoding="utf-8")
     catalog = review_state.get("catalog") or build_bibliographic_candidate_catalog(
         candidates, state.get("bibliographic_meta"), md_text,
     )
-    decision = review if bibliographic_decision_schema(review) else None
-    if decision:
+    candidate_decision = review if bibliographic_decision_schema(review) else None
+    agent_decision = review if agent_bibliographic_decision_schema(review) else None
+    decision = candidate_decision or agent_decision
+    direct_agent_review = bool(agent_decision)
+    if candidate_decision:
         try:
-            review = compile_bibliographic_decision(decision, catalog, md_text)
+            review = compile_bibliographic_decision(candidate_decision, catalog, md_text)
+        except ValueError as exc:
+            state["errors"] = [str(exc)]
+            return False
+    elif agent_decision:
+        evidence_sources = {"paper.md": md_text}
+        first_pages = REPO / state["extract_dir"] / "first-two-pages.txt"
+        if first_pages.is_file():
+            evidence_sources["first-two-pages.txt"] = first_pages.read_text(encoding="utf-8")
+        try:
+            review = compile_agent_bibliographic_decision(
+                agent_decision, evidence_sources, candidates,
+            )
         except ValueError as exc:
             state["errors"] = [str(exc)]
             return False
     elif not bibliographic_review_schema(review):
-        state["errors"] = ["书目预审草稿不符合 candidate-id 或 legacy JSON schema"]
+        state["errors"] = (
+            agent_bibliographic_schema_errors(review)
+            if isinstance(review, dict)
+            and review.get("protocol_version") == AGENT_BIBLIOGRAPHIC_PROTOCOL else [
+                "书目预审草稿不符合 evidence-bibliography、candidate-id 或 legacy JSON schema"
+            ]
+        )
         return False
     normalize_bibliographic_review(review, candidates)
-    errors = validate_bibliographic_review(review, candidates, md_text)
+    errors = validate_bibliographic_review(
+        review, candidates, md_text,
+        enforce_candidate_boundary=not direct_agent_review,
+    )
     if errors:
         state["errors"] = errors
         return False
@@ -2980,12 +3362,18 @@ def _resume_bibliographic_review(state: dict) -> bool:
     _record_bibliographic_quality_warnings(state, md_text)
     persist_bibliographic_metadata(REPO / state["extract_dir"], state["bibliographic_meta"])
     input_hash = review_state.get("input_hash") or _bibliographic_worker_input_hash(catalog, md_text)
-    if decision:
-        _save_bibliographic_decision_cache(state["transaction_id"], input_hash, decision)
+    if candidate_decision:
+        _save_bibliographic_decision_cache(
+            state["transaction_id"], input_hash, candidate_decision,
+        )
     state["bibliographic_review"] = {
         "status": "ok",
         "review": review,
         "decision": decision,
+        "contract": (
+            AGENT_BIBLIOGRAPHIC_PROTOCOL if direct_agent_review
+            else BIBLIOGRAPHIC_DECISION_PROTOCOL
+        ),
         "candidates": candidates,
         "catalog": catalog,
         "input_hash": input_hash,
@@ -3385,26 +3773,32 @@ def step_extract(state: dict) -> tuple[bool, str]:
             return False
         try:
             meta = yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}
-            mineru = ((meta.get("engines") or {}).get("mineru") or {})
+            from paddleocr_api import is_official_paddleocr_record
+            preferred = meta.get("preferred")
+            record = ((meta.get("engines") or {}).get(preferred) or {})
             return (
-                meta.get("preferred") == "mineru"
-                and mineru.get("input_sha256") == _file_sha256(pdf_path)
+                (preferred == "mineru" or (
+                    preferred == "paddleocr" and is_official_paddleocr_record(record)))
+                and record.get("input_sha256") == _file_sha256(pdf_path)
                 and _file_sha256(local_pdf) == _file_sha256(pdf_path)
             )
         except (OSError, ValueError, TypeError, yaml.YAMLError):
             return False
 
     if not reusable_extraction():
-        # Preserve only the remote MinerU job checkpoint across an interrupted extract.
+        # Preserve only remote extraction workspaces across an interrupted extract.
         for child in extract_dir.iterdir():
-            if child.name == ".mineru":
+            if child.name in {".mineru", ".paddleocr"} and not child.is_symlink():
                 continue
             if child.is_dir() and not child.is_symlink():
                 shutil.rmtree(child)
             else:
                 child.unlink()
-        run([sys.executable, str(REPO / ".scripts/extractor.py"), "--external-pdf", str(pdf_path),
-             "--paper", txn, "--papers-dir", "temp/inbox-extract"])
+        command = [sys.executable, str(REPO / ".scripts/extractor.py"), "--external-pdf", str(pdf_path),
+                   "--paper", txn, "--papers-dir", "temp/inbox-extract"]
+        if not pdf_path.is_relative_to((REPO / "private").resolve()):
+            command.append("--allow-paddleocr")
+        run(command)
     paper_md = extract_dir / "paper.md"
     if not paper_md.is_file():
         return False, "提取未生成 paper.md"
@@ -3447,28 +3841,8 @@ def step_extract(state: dict) -> tuple[bool, str]:
             "worker": locked_review.get("worker"),
         }
     elif review_result.get("status") in {"prepared", "agent_required"}:
-        draft_rel = str(extract_dir.relative_to(REPO) / "bibliographic-review.json")
-        if review_result.get("status") == "prepared":
-            prepare_agent_workspace_handoff(state, review_result, paper_md)
-            return False, "Agent task prepared"
-        state["agent_required"] = True
-        state["pre_handoff_status"] = "extract"
-        state["agent_prompt"] = (
-            review_result.get("agent_prompt", "")
-            + f"\n\n请将符合 {BIBLIOGRAPHIC_DECISION_PROTOCOL} schema 的书目裁决 JSON 写入 `{draft_rel}`，"
-            + f"然后运行 `{_resume_cmd(state)}`。"
-        )
-        state["bibliographic_review"] = {
-            "status": "agent_required",
-            "review": review_result.get("review", {}),
-            "decision": review_result.get("decision"),
-            "candidates": review_result.get("candidates", {}),
-            "catalog": review_result.get("catalog", {}),
-            "input_hash": review_result.get("input_hash", ""),
-            "worker": review_result.get("worker", {}),
-            "draft_path": draft_rel,
-        }
-        return False, "需要 agent 接管书目预审"
+        prepare_agent_workspace_handoff(state, review_result, paper_md)
+        return False, "Agent task prepared"
     if not review_result.get("ok"):
         draft_rel = str(extract_dir.relative_to(REPO) / "bibliographic-review.json")
         if isinstance(review_result.get("review"), dict):
@@ -3826,9 +4200,218 @@ def materialize_bibliographic_pages(pdf_path: Path, output_path: Path) -> bool:
     return True
 
 
+def _agent_reading_contract(paper_md: Path, workspace: dict | None = None) -> dict:
+    """Describe how the host Agent should read one extracted paper."""
+    workspace = workspace or {}
+    source_chars = int(workspace.get("source_character_count") or 0)
+    if paper_md.is_file():
+        source_chars = len(paper_md.read_text(encoding="utf-8"))
+    mode = str(workspace.get("reading_strategy") or "")
+    if mode not in {"full", "adaptive_sections"}:
+        mode = "full" if source_chars <= AGENT_FULL_TEXT_MAX_CHARS else "adaptive_sections"
+    try:
+        relative_path = str(paper_md.relative_to(REPO))
+    except ValueError:
+        relative_path = str(paper_md)
+    section_command = " ".join([
+        "python3", ".scripts/read_paper.py", shlex.quote(relative_path),
+        *AGENT_READING_SECTIONS,
+    ])
+    return {
+        "version": AGENT_READING_CONTRACT_VERSION,
+        "mode": mode,
+        "source_character_count": source_chars,
+        "full_text_threshold": AGENT_FULL_TEXT_MAX_CHARS,
+        "read_policy": {
+            "protocol": "read_once_then_reuse",
+            "sections": "read_one_section_per_call_then_follow_specific_evidence_gaps",
+            "reports": "read_status_diagnostics_and_next_actions_before_detail",
+        },
+        "primary": (
+            {"action": "read_full", "path": relative_path}
+            if mode == "full"
+            else {
+                "action": "read_sections",
+                "sections": list(AGENT_READING_SECTIONS),
+                "command": section_command,
+                "section_commands": {
+                    section: " ".join([
+                        "python3", ".scripts/read_paper.py", shlex.quote(relative_path),
+                        shlex.quote(section),
+                    ]) for section in AGENT_READING_SECTIONS
+                },
+            }
+        ),
+        "fallback_rules": [
+            {"when": "requested_section_missing", "action": "read_relevant_source_ranges"},
+            {"when": "claim_or_locator_unresolved", "action": "read_relevant_source_ranges"},
+            {"when": "cross_section_dependency", "action": "read_additional_named_sections"},
+        ],
+        "authority": relative_path,
+    }
+
+
+def _agent_knowledge_lookup_contract() -> dict:
+    """Expose optional read-only graph discovery without making it a managed action."""
+    return {
+        "mode": "optional_read_only",
+        "identity_rule": "search results are candidates; resolve before identity reuse",
+        "argv_templates": {
+            "resolve_concept": [
+                "python3", ".scripts/node_semantics.py", "resolve", "<name>",
+                "--context", "<context>",
+            ],
+            "search_concepts": [
+                "python3", ".scripts/node_semantics.py", "search", "<query>",
+                "--scope", "node",
+            ],
+            "search_hubs": [
+                "python3", ".scripts/node_semantics.py", "search", "<query>",
+                "--scope", "hub",
+            ],
+        },
+    }
+
+
+def _agent_repair_scope(stage: str) -> tuple[str, str]:
+    stage_key = str(stage or "").casefold()
+    if "bibliograph" in stage_key or "书目" in stage_key:
+        return "bibliography", "edit_workspace_bibliography_section"
+    if "relation" in stage_key or "关系" in stage_key:
+        return "relationship", "edit_relationship_decision"
+    if "语义" in stage_key or "slot" in stage_key or "semantic" in stage_key:
+        return "slots", "edit_workspace_slots_section"
+    if "wiki" in stage_key:
+        return "wiki", "edit_workspace_wiki_section"
+    if "graph" in stage_key:
+        return "wiki_or_slots", "inspect_preflight_error_and_edit_relevant_section"
+    if "hash" in stage_key:
+        return "inputs", "restore_or_refresh_hash_bound_inputs"
+    return "all", "edit_affected_workspace_sections"
+
+
+def _agent_repair_issue(stage: str, error) -> dict:
+    scope, action = _agent_repair_scope(stage)
+    issue = {
+        "stage": str(stage or "workspace"),
+        "scope": scope,
+        "error": str(error),
+        "action": action,
+    }
+    # Preserve validator-owned targets; do not discard a structured relationship
+    # diagnostic by turning its only copy into a Python dict string.
+    if isinstance(error, dict):
+        issue["code"] = str(error.get("issue") or "validation_error")
+        issue["target"] = {
+            key: error[key] for key in ("section", "line", "field", "is_triple")
+            if key in error
+        }
+        issue["hint"] = str(error.get("reason") or "仅修改 target 指向的内容后重新校验")
+        return issue
+    message = str(error)
+    footnote = re.search(r"\[\^([A-Za-z0-9_-]+)\]", message)
+    if scope == "wiki" and footnote:
+        issue.update({
+            "code": "wiki_raw_citation",
+            "target": {"footnote_id": footnote.group(1)},
+            "hint": "核对该脚注的定义与引用；地址格式为 raw/path.md#Lx[-Ly]，保留其余正文",
+        })
+    elif scope == "bibliography":
+        fields = list(dict.fromkeys(re.findall(
+            r"(?:^|[;；\n]\s*)(title|authors|year|venue|doi|arxiv_id)(?=[:：\s])",
+            message,
+        )))
+        if fields:
+            issue.update({
+                "code": "bibliographic_field_evidence",
+                "target": {"fields": [f"bibliographic.{field}" for field in fields]},
+                "hint": "仅修正所列字段的值或原文证据；保留其他已核验字段",
+            })
+    elif scope == "wiki_or_slots" and message.startswith("graph:"):
+        field = ("authors" if "作者" in message else "venue" if "venue" in message
+                 or "期刊" in message else "sources" if "Raw" in message else "")
+        if field:
+            issue.update({
+                "code": "graph_page_metadata_mismatch",
+                "target": {"field": field},
+                "hint": "核对该字段与预期图的差异；保留无关正文和关系，不以改写来源事实迁就图",
+            })
+    return issue
+
+
+def _agent_repair_issues(diagnostics: list[dict]) -> list[dict]:
+    issues = []
+    for diagnostic in diagnostics:
+        stage = str(diagnostic.get("stage") or "workspace")
+        for error in diagnostic.get("errors", []):
+            issues.append(_agent_repair_issue(stage, error))
+        for warning in diagnostic.get("blocking_warnings", []):
+            issues.append(_agent_repair_issue(stage, warning))
+    return issues
+
+
+def _agent_ingest_telemetry(state: dict) -> dict:
+    return state.setdefault("telemetry", {}).setdefault("agent_ingest", {})
+
+
+def _initialize_agent_ingest_telemetry(state: dict, reading: dict) -> None:
+    telemetry = _agent_ingest_telemetry(state)
+    telemetry.update({
+        "backend": "agent",
+        "source_character_count": reading["source_character_count"],
+        "reading_strategy": reading["mode"],
+    })
+    telemetry.setdefault("check_attempts", 0)
+    telemetry.setdefault("repair_scopes", [])
+
+
+def _record_agent_check_telemetry(state: dict, result: dict) -> None:
+    workspace = state.get("agent_workspace") or {}
+    if str(workspace.get("execution_backend") or "agent") != "agent":
+        return
+    telemetry = _agent_ingest_telemetry(state)
+    telemetry["backend"] = "agent"
+    telemetry["source_character_count"] = int(
+        workspace.get("source_character_count") or telemetry.get("source_character_count") or 0
+    )
+    telemetry["reading_strategy"] = str(
+        workspace.get("reading_strategy") or telemetry.get("reading_strategy") or ""
+    )
+    telemetry["check_attempts"] = int(telemetry.get("check_attempts") or 0) + 1
+    validation = str(result.get("validation") or "unknown")
+    telemetry.setdefault("first_pass_validation", validation)
+    telemetry["last_validation"] = validation
+    scopes = telemetry.setdefault("repair_scopes", [])
+    for issue in result.get("repair_issues", []):
+        scope = str(issue.get("scope") or "")
+        if scope and scope not in scopes:
+            scopes.append(scope)
+    telemetry["final_warnings"] = list(result.get("warnings") or [])
+    telemetry.setdefault("check_history", []).append({
+        "attempt": telemetry["check_attempts"],
+        "validation": validation,
+        "repair_issues": copy.deepcopy(result.get("repair_issues") or []),
+        "warnings": copy.deepcopy(result.get("warnings") or []),
+        "versions": copy.deepcopy(result.get("versions") or {}),
+    })
+
+
+def _agent_telemetry_payload(state: dict) -> dict:
+    telemetry = dict(((state.get("telemetry") or {}).get("agent_ingest") or {}))
+    # Keep detailed validator history in the transaction, not every handoff.
+    telemetry.pop("check_history", None)
+    workspace = state.get("agent_workspace") or {}
+    if str(workspace.get("execution_backend") or "") != "agent" and not telemetry:
+        return {}
+    if state.get("status") == "completed":
+        telemetry["final_warnings"] = list(state.get("quality_warnings") or [])
+    return telemetry
+
+
 def prepare_agent_workspace_handoff(state: dict, review_result: dict, paper_md: Path) -> None:
     """Create one prompt-free Agent task after extraction without final writes."""
     extract_dir = paper_md.parent
+    reading = _agent_reading_contract(paper_md)
     skeleton_path, _skeleton, raw_placeholder = _write_workspace_skeleton(
         state, paper_md,
     )
@@ -3837,11 +4420,6 @@ def prepare_agent_workspace_handoff(state: dict, review_result: dict, paper_md: 
     if not bibliographic_pages_path.is_file():
         materialize_bibliographic_pages(extract_dir / "paper.pdf", bibliographic_pages_path)
     review_path = extract_dir / "bibliographic-review.json"
-    catalog_path = extract_dir / "bibliographic-candidates.json"
-    catalog_path.write_text(
-        json.dumps(review_result.get("catalog", {}), ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
     task_inputs = [{
         "name": "source_pdf_first_two_pages",
         "path": str((extract_dir / "paper.pdf").relative_to(REPO)),
@@ -3858,15 +4436,11 @@ def prepare_agent_workspace_handoff(state: dict, review_result: dict, paper_md: 
     task_inputs.extend([
         {
             "name": "paper_text", "path": paper_md.relative_to(REPO).as_posix(),
-            "role": "authoritative_extracted_source", "read": "full",
+            "role": "authoritative_extracted_source", "read": reading["mode"],
         },
         {
             "name": "wiki_skeleton", "path": skeleton_path.relative_to(REPO).as_posix(),
             "role": "program_owned_structure",
-        },
-        {
-            "name": "bibliographic_candidates", "path": catalog_path.relative_to(REPO).as_posix(),
-            "role": "evidence_bound_candidate_catalog",
         },
     ])
     task_outputs = [{
@@ -3928,16 +4502,21 @@ def prepare_agent_workspace_handoff(state: dict, review_result: dict, paper_md: 
             if bibliographic_pages_path.is_file() else ""
         ),
         "bibliographic_input_hash": review_result.get("input_hash", ""),
+        "bibliography_contract": AGENT_BIBLIOGRAPHIC_PROTOCOL,
         "output_path": output_path.relative_to(REPO).as_posix(),
         "raw_source_placeholder": raw_placeholder,
         "candidate_provider_contract": BIBLIOGRAPHIC_CANDIDATE_PROVIDER_VERSION,
         "relationship_input_hash": (
             (state.get("relationship_review") or {}).get("input_hash", "")
         ),
+        "source_character_count": reading["source_character_count"],
+        "reading_strategy": reading["mode"],
     }
+    _initialize_agent_ingest_telemetry(state, reading)
     state["pre_handoff_status"] = "extract"
     state["bibliographic_review"] = {
         "status": "prepared",
+        "contract": AGENT_BIBLIOGRAPHIC_PROTOCOL,
         "review": review_result.get("review", {}),
         "decision": review_result.get("decision"),
         "candidates": review_result.get("candidates", {}),
@@ -3962,8 +4541,8 @@ def prepare_agent_workspace_handoff(state: dict, review_result: dict, paper_md: 
                 "semantics": SLOTS_DELIMITER,
             },
             "bibliography": {
-                "contract": BIBLIOGRAPHIC_DECISION_PROTOCOL,
-                "selection_source": catalog_path.relative_to(REPO).as_posix(),
+                "contract": AGENT_BIBLIOGRAPHIC_PROTOCOL,
+                "template": agent_bibliographic_decision_template(),
                 "priority_evidence": [
                     {
                         "path": str((extract_dir / "paper.pdf").relative_to(REPO)),
@@ -3974,7 +4553,48 @@ def prepare_agent_workspace_handoff(state: dict, review_result: dict, paper_md: 
                         "read": "full",
                     }] if bibliographic_pages_path.is_file() else []),
                 ],
-                "free_proposal_scope": "authors only, with exact paper.md locators",
+                "allowed_sources": [
+                    "paper.md",
+                    *(["first-two-pages.txt"] if bibliographic_pages_path.is_file() else []),
+                ],
+                "evidence_shape": {
+                    "source": "paper.md|first-two-pages.txt",
+                    "locator": "Lx or Lx-Ly (maximum 12 lines)",
+                    "quote": "exact text inside the locator window",
+                    "quote_mode": "verbatim; preserve Unicode and diacritics",
+                },
+                "enums": copy.deepcopy(AGENT_BIBLIOGRAPHIC_ENUMS),
+                "value_evidence_policy": {
+                    "non_empty": "the value must occur contiguously in quote",
+                    "authors": "each ordered author value must occur verbatim in quote",
+                    "fragmented_layout": (
+                        "if a full value is split by PDF layout, use a contiguous "
+                        "source-supported abbreviation or mark the field ambiguous"
+                    ),
+                },
+                "decision_shape": {
+                    "protocol_version": AGENT_BIBLIOGRAPHIC_PROTOCOL,
+                    "doc_type": "paper|document|ambiguous",
+                    "review_status": "clean|corrected|ambiguous|manual_required",
+                    "bibliographic": {
+                        "title": "{value,evidence,status}",
+                        "authors": "{value:[names],evidence,rejected:[],status}",
+                        "year": "{value,evidence,kind,status}",
+                        "venue": "{value,evidence,status}",
+                        "doi": "{value,evidence,status}",
+                        "arxiv_id": "{value,evidence,status}",
+                    },
+                    "conflicts": [],
+                    "review_notes": [],
+                },
+                "rule": (
+                    "Extract values directly; every non-empty field must be supported by "
+                    "source+locator+quote, with Unicode and diacritics copied verbatim. "
+                    "The value must occur contiguously in quote; do not reconstruct text "
+                    "split by PDF layout. Keep the complete template and exact key sets. "
+                    "For an unknown DOI or arXiv ID, keep the template's empty evidence "
+                    "object and ambiguous status."
+                ),
             },
             **({"relationship": relationship_protocol} if relationship_protocol else {}),
             "wiki": {
@@ -3982,16 +4602,15 @@ def prepare_agent_workspace_handoff(state: dict, review_result: dict, paper_md: 
                 "required_sections": ["Navigation", "研究方向定位", "Content", "Sources"],
                 "evidence": "Raw line footnotes bound to paper.md",
             },
-            "semantics": {
-                "contract": PAPER_SEMANTIC_CONTRACT_VERSION,
-                "sections": ["三元组", "概念说明"],
-                "subject": "本论文",
-                "predicates": sorted(SEMANTIC_PREDICATES),
-                "proposition_predicates": sorted(PROPOSITION_PREDICATES),
-            },
+            "semantics": agent_paper_semantic_protocol(),
+            "reading_strategy": reading,
+            "existing_knowledge_lookup": _agent_knowledge_lookup_contract(),
             "validators": _agent_versions()["validators"],
         },
-        issues=list(state.get("errors") or []),
+        issues=[
+            _agent_repair_issue("workspace", error)
+            for error in state.get("errors", [])
+        ],
         commands={
             "read": f"python3 .scripts/ingest_paper.py --agent-workspace {state['transaction_id']}",
             "check": f"python3 .scripts/ingest_paper.py --agent-check {state['transaction_id']}",
@@ -4009,7 +4628,6 @@ def prepare_agent_workspace_handoff(state: dict, review_result: dict, paper_md: 
                 if bibliographic_pages_path.is_file() else ""
             ),
             "bibliographic_input_hash": review_result.get("input_hash", ""),
-            "candidate_provider_contract": BIBLIOGRAPHIC_CANDIDATE_PROVIDER_VERSION,
             "spec_locator": "operations/INGEST.md",
         },
     )
@@ -4048,12 +4666,14 @@ def execute_api_paper_workspace(
         "output_path": output_path.relative_to(REPO).as_posix(),
         "raw_source_placeholder": raw_placeholder,
         "candidate_provider_contract": BIBLIOGRAPHIC_CANDIDATE_PROVIDER_VERSION,
+        "bibliography_contract": BIBLIOGRAPHIC_DECISION_PROTOCOL,
         "repair_scope": "all",
     }
     state["agent_workspace"] = workspace
     state["pre_handoff_status"] = "extract"
     state["bibliographic_review"] = {
         "status": "prepared",
+        "contract": BIBLIOGRAPHIC_DECISION_PROTOCOL,
         "review": review_result.get("review", {}),
         "decision": review_result.get("decision"),
         "candidates": review_result.get("candidates", {}),
@@ -4063,6 +4683,7 @@ def execute_api_paper_workspace(
         "draft_path": review_path.relative_to(REPO).as_posix(),
     }
     state["status"] = "prepared"
+    inbox_state.save(state["transaction_id"], state)
     prompt = build_api_paper_workspace_prompt(
         paper_md.read_text(encoding="utf-8"),
         paper_md,
@@ -4240,9 +4861,152 @@ def refresh_agent_workspace_handoff(
     return True
 
 
+def _refresh_managed_workspace_bundle_baseline(state: dict) -> dict | None:
+    """Rebind legacy workspaces after the managed bibliography manifest rewrite."""
+    workspace = state.get("agent_workspace") or {}
+    if (state.get("status") not in {"prepared", "agent_required"}
+            or workspace.get("protocol_version") != AGENT_WORKSPACE_PROTOCOL
+            or workspace.get("status") != "awaiting_output"):
+        return None
+    output_path = REPO / str(workspace.get("output_path") or "")
+    state_bundle = str(state.get("artifact_bundle_sha256") or "")
+    workspace_bundle = str(workspace.get("artifact_bundle_sha256") or "")
+    if (not output_path.is_file() or not state_bundle or not workspace_bundle
+            or state_bundle == workspace_bundle):
+        return None
+    extract_dir = REPO / str(state.get("extract_dir") or "")
+    try:
+        current_bundle = _current_artifact_bundle_sha256(extract_dir)
+        source = yaml.safe_load(
+            (extract_dir / "source.yaml").read_text(encoding="utf-8")
+        ) or {}
+    except (OSError, ValueError, TypeError, yaml.YAMLError):
+        return None
+    if (current_bundle != state_bundle
+            or source.get("bibliographic") != state.get("bibliographic_meta")):
+        return None
+    workspace["artifact_bundle_sha256"] = state_bundle
+    state["agent_workspace"] = workspace
+    entry = {
+        "refreshed_at": datetime.now().isoformat(timespec="seconds"),
+        "reason": "managed_bibliographic_manifest_rebase",
+        "from_artifact_bundle_sha256": workspace_bundle,
+        "to_artifact_bundle_sha256": state_bundle,
+    }
+    state.setdefault("workspace_refresh_history", []).append(entry)
+    state["errors"] = []
+    return entry
+
+
+def _restore_agent_check_bundle_drift(state: dict) -> dict | None:
+    """Undo the legacy check-only bibliography write when it is fully proven."""
+    workspace = state.get("agent_workspace") or {}
+    if (state.get("status") not in {"prepared", "agent_required"}
+            or workspace.get("protocol_version") != AGENT_WORKSPACE_PROTOCOL
+            or workspace.get("status") != "awaiting_output"):
+        return None
+    expected_bundle = str(state.get("artifact_bundle_sha256") or "")
+    if not expected_bundle or workspace.get("artifact_bundle_sha256") != expected_bundle:
+        return None
+    extract_dir = REPO / str(state.get("extract_dir") or "")
+    source_path = extract_dir / "source.yaml"
+    output_path = REPO / str(workspace.get("output_path") or "")
+    paper_md = extract_dir / "paper.md"
+    if not source_path.is_file() or not output_path.is_file() or not paper_md.is_file():
+        return None
+    try:
+        if _current_artifact_bundle_sha256(extract_dir) == expected_bundle:
+            return None
+        source = yaml.safe_load(source_path.read_text(encoding="utf-8")) or {}
+        persisted_bibliography = source.get("bibliographic")
+        if not isinstance(persisted_bibliography, dict):
+            return None
+        decision, _wiki, _slots = _parse_agent_workspace(
+            output_path.read_text(encoding="utf-8")
+        )
+        review_state = state.get("bibliographic_review") or {}
+        candidates = review_state.get("candidates") or build_bibliographic_candidates(
+            state.get("bibliographic_meta"), paper_md.read_text(encoding="utf-8"),
+        )
+        catalog = review_state.get("catalog") or build_bibliographic_candidate_catalog(
+            candidates, state.get("bibliographic_meta"), paper_md.read_text(encoding="utf-8"),
+        )
+        md_text = paper_md.read_text(encoding="utf-8")
+        if agent_bibliographic_decision_schema(decision):
+            evidence_sources = {"paper.md": md_text}
+            first_pages = extract_dir / "first-two-pages.txt"
+            if first_pages.is_file():
+                evidence_sources["first-two-pages.txt"] = first_pages.read_text(
+                    encoding="utf-8"
+                )
+            review = compile_agent_bibliographic_decision(
+                decision, evidence_sources, candidates,
+            )
+            enforce_candidate_boundary = False
+        else:
+            review = compile_bibliographic_decision(decision, catalog, md_text)
+            enforce_candidate_boundary = True
+        normalize_bibliographic_review(review, candidates)
+        if validate_bibliographic_review(
+                review, candidates, md_text,
+                enforce_candidate_boundary=enforce_candidate_boundary):
+            return None
+        locked = merge_bibliographic_review(state.get("bibliographic_meta"), review)
+        if persisted_bibliography != locked:
+            return None
+        restored_source = dict(source)
+        restored_source.pop("bibliographic", None)
+        restored_bytes = yaml.safe_dump(
+            restored_source, allow_unicode=True, sort_keys=False,
+        ).encode("utf-8")
+        artifacts = _paper_artifact_entries(extract_dir)
+        for item in artifacts:
+            if item["path"] == "source.yaml":
+                item["bytes"] = len(restored_bytes)
+                item["sha256"] = hashlib.sha256(restored_bytes).hexdigest()
+                break
+        reconstructed = hashlib.sha256(
+            json.dumps(artifacts, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        if reconstructed != expected_bundle:
+            return None
+    except (OSError, ValueError, TypeError, yaml.YAMLError):
+        return None
+
+    original_bytes = source_path.read_bytes()
+    temporary = source_path.with_name(f".{source_path.name}.partial-{os.getpid()}")
+    try:
+        temporary.write_bytes(restored_bytes)
+        os.replace(temporary, source_path)
+        if _current_artifact_bundle_sha256(extract_dir) != expected_bundle:
+            raise ValueError("restored bundle hash mismatch")
+    except Exception:
+        temporary.write_bytes(original_bytes)
+        os.replace(temporary, source_path)
+        return None
+    entry = {
+        "refreshed_at": datetime.now().isoformat(timespec="seconds"),
+        "reason": "legacy_agent_check_input_restore",
+        "restored_artifact_bundle_sha256": expected_bundle,
+    }
+    state.setdefault("workspace_refresh_history", []).append(entry)
+    state["errors"] = []
+    return entry
+
+
 def explicit_agent_workspace_refresh(state: dict) -> dict:
     """Archive stale unsubmitted output and refresh the same typed workspace."""
     transaction_id = str(state.get("transaction_id") or "")
+    managed_rebase = (
+        _restore_agent_check_bundle_drift(state)
+        or _refresh_managed_workspace_bundle_baseline(state)
+    )
+    if managed_rebase:
+        inbox_state.save(transaction_id, state)
+        payload = read_agent_workspace(state)
+        payload["refreshed"] = True
+        payload["refresh_receipt"] = managed_rebase
+        return payload
     previous_errors = list(state.get("errors") or [])
     if not refresh_agent_workspace_handoff(state, archive_existing_output=True):
         diagnostics = list(state.get("errors") or ["workspace refresh 不适用于当前事务"])
@@ -4279,6 +5043,7 @@ def _parse_agent_workspace(text: str) -> tuple[dict, str, str]:
         decision = json.loads(bibliography_text.strip())
     except json.JSONDecodeError as exc:
         raise ValueError(f"workspace 书目 JSON 无法解析: {exc}") from exc
+    decision = canonicalize_agent_bibliographic_decision(decision)
     wiki = parse_delimited(text, WIKI_DELIMITER)
     slots = parse_delimited(text, SLOTS_DELIMITER)
     if not wiki or not slots:
@@ -4377,7 +5142,9 @@ def resume_agent_workspace(
         return False
     persist_bibliographic_metadata(paper_md.parent, state.get("bibliographic_meta"))
     if (paper_md.parent / "paper.pdf").is_file():
-        _write_paper_artifact_manifest(state, paper_md.parent)
+        workspace["artifact_bundle_sha256"] = _write_paper_artifact_manifest(
+            state, paper_md.parent,
+        )
     combined_path = REPO / state["extract_dir"] / "agent-wiki-slots.txt"
     materialized_wiki = state.get("wiki_content", "") if repair_scope == "slots" else wiki
     combined_path.write_text(
@@ -4476,7 +5243,9 @@ def _agent_versions() -> dict:
     return {
         "workspace_protocol": AGENT_WORKSPACE_PROTOCOL,
         "workspace_task": AGENT_WORKSPACE_TASK_VERSION,
-        "bibliography_contract": BIBLIOGRAPHIC_DECISION_PROTOCOL,
+        "reading_contract": AGENT_READING_CONTRACT_VERSION,
+        "bibliography_contract": AGENT_BIBLIOGRAPHIC_PROTOCOL,
+        "api_bibliography_contract": BIBLIOGRAPHIC_DECISION_PROTOCOL,
         "candidate_provider_contract": BIBLIOGRAPHIC_CANDIDATE_PROVIDER_VERSION,
         "semantic_contract": PAPER_SEMANTIC_CONTRACT_VERSION,
         "validators": {
@@ -4501,6 +5270,7 @@ def read_agent_workspace(state: dict) -> dict:
             "errors": ["事务不是 paper-agent-workspace-v1"],
         }
     paper_path = REPO / state["extract_dir"] / "paper.md"
+    reading = _agent_reading_contract(paper_path, workspace)
     bibliographic_pages_path = REPO / state["extract_dir"] / "first-two-pages.txt"
     output_path = str(workspace.get("output_path") or "")
     workflow_status = agent_public_workflow_status(state)
@@ -4515,6 +5285,10 @@ def read_agent_workspace(state: dict) -> dict:
         )
     if (state.get("agent_task") or {}).get("schema") == agent_task.SCHEMA_VERSION:
         task = agent_task.payload(state)
+        protocol = dict(task.get("protocol") or {})
+        protocol.setdefault("reading_strategy", reading)
+        protocol.setdefault("existing_knowledge_lookup", _agent_knowledge_lookup_contract())
+        task["protocol"] = protocol
     else:
         fallback_inputs = [{
             "name": "source_pdf_first_two_pages",
@@ -4531,7 +5305,7 @@ def read_agent_workspace(state: dict) -> dict:
             })
         fallback_inputs.append({
             "name": "paper_text", "path": paper_path.relative_to(REPO).as_posix(),
-            "role": "authoritative_extracted_source", "read": "full",
+            "role": "authoritative_extracted_source", "read": reading["mode"],
         })
         task = agent_task.make_task(
             kind="ingest_paper",
@@ -4549,8 +5323,13 @@ def read_agent_workspace(state: dict) -> dict:
                     "wiki": WIKI_DELIMITER,
                     "semantics": SLOTS_DELIMITER,
                 },
+                "reading_strategy": reading,
+                "existing_knowledge_lookup": _agent_knowledge_lookup_contract(),
             },
-            issues=state.get("errors", []),
+            issues=[
+                _agent_repair_issue("workspace", error)
+                for error in state.get("errors", [])
+            ],
             commands=next_actions,
         )
     task.update({
@@ -4579,6 +5358,7 @@ def read_agent_workspace(state: dict) -> dict:
             "semantics": state.get("semantic_path", ""),
         },
         "diagnostics": state.get("errors", []),
+        "agent_telemetry": _agent_telemetry_payload(state),
         "next_actions": next_actions,
     })
     return task
@@ -4587,6 +5367,12 @@ def read_agent_workspace(state: dict) -> dict:
 def agent_workspace_commit_payload(state: dict) -> dict:
     """Return a stable four-state result for the typed commit action."""
     workflow_status = agent_public_workflow_status(state)
+    report = state.get("graph_report") or {}
+    subgraph = (report.get("graph_delta") or {}).get("subgraph") or {}
+    route = report.get("hub_scope_route") or {}
+    receipt = (state.get("agent_workspace") or {}).get("validation_receipt") or {}
+    maintenance = state.get("maintenance") or {}
+    state_ref = f"temp/inbox-state/{state.get('transaction_id', '')}.json"
     return inbox_state.output_payload(state, {
         "status": workflow_status,
         "workflow_status": workflow_status,
@@ -4597,12 +5383,42 @@ def agent_workspace_commit_payload(state: dict) -> dict:
         "wiki_path": state.get("wiki_path", ""),
         "errors": state.get("errors", []),
         "versions": _agent_versions(),
-        "validation_receipt": (
-            (state.get("agent_workspace") or {}).get("validation_receipt", {})
-        ),
-        "graph_report": state.get("graph_report"),
+        "validation_receipt": {
+            "schema": receipt.get("schema"), "transaction_id": state.get("transaction_id"),
+            "state_ref": state_ref, "field": "agent_workspace.validation_receipt",
+        } if receipt else {},
+        "graph_summary": {
+            "edge_count": subgraph.get("edge_count"),
+            "semantic_edges": subgraph.get("semantic_edges"),
+            "hard_errors": subgraph.get("hard_errors", []),
+            "hub_scope_route": {key: route[key] for key in (
+                "decision", "reason", "node_id", "top_score",
+            ) if key in route},
+        },
+        "graph_report_ref": {"path": state_ref, "field": "graph_report"},
+        "maintenance": {
+            **{key: maintenance[key] for key in (
+                "status", "receipt_path", "report_path", "errors", "publication",
+                "next_action", "retryable", "reason", "pending_count",
+            ) if key in maintenance},
+            "action_count": len(maintenance.get("actions") or []),
+            "components": {
+                name: {key: component[key] for key in (
+                    "status", "next_action", "review_file", "candidates_file",
+                    "route_review_file", "reason", "retryable", "warning_count",
+                ) if key in component}
+                for name, component in (maintenance.get("components") or {}).items()
+            },
+        } if maintenance else None,
+        "frontier_capture": {
+            key: (state.get("frontier_capture") or {})[key] for key in (
+                "status", "backend", "answer_policy", "captured", "reused", "count", "error",
+            ) if key in (state.get("frontier_capture") or {})
+        },
         "quality_status": state.get("quality_status") or _sync_quality_status(state),
         "quality_warnings": state.get("quality_warnings", []),
+        "quality_warning_history": state.get("quality_warning_history", []),
+        "agent_telemetry": _agent_telemetry_payload(state),
     })
 
 
@@ -4657,7 +5473,7 @@ def run_agent_graph_preflight(state: dict) -> tuple[list[str], dict]:
         "--transaction-id", transaction_id,
         "--knowledge-ir-out", ir_path.relative_to(REPO).as_posix(),
         "--graph-plan-out", plan_path.relative_to(REPO).as_posix(),
-        "--plan-only",
+        "--plan-only", "--validate-page",
     ]
     raw_relationship = state.get("raw_relationship")
     if not raw_relationship and state.get("related_to"):
@@ -4672,6 +5488,13 @@ def run_agent_graph_preflight(state: dict) -> tuple[list[str], dict]:
         ])
     result = subprocess.run(command, cwd=REPO, text=True, capture_output=True)
     if result.returncode != 0:
+        try:
+            failure = json.loads(result.stdout)
+            errors = failure.get("page_validation", {}).get("errors", [])
+            if errors:
+                return errors, failure
+        except (json.JSONDecodeError, AttributeError):
+            pass
         detail = (result.stderr or result.stdout or "Graph preflight failed").strip()
         return [detail[-2000:]], {}
     try:
@@ -4696,6 +5519,7 @@ def run_agent_graph_preflight(state: dict) -> tuple[list[str], dict]:
         "knowledge_ir": report.get("knowledge_ir", {}),
         "graph_plan": report.get("graph_plan", {}),
         "graph_delta": report.get("graph_delta", {}),
+        "page_validation": report.get("page_validation", {}),
         "committed": False,
     }
     state["graph_preflight"] = preflight
@@ -4731,6 +5555,7 @@ def reopen_agent_workspace(state: dict, stage: str, errors: list[str]) -> None:
         repair_scope = "wiki"
     else:
         repair_scope = "all"
+    issue_scope, _repair_action = _agent_repair_scope(stage)
     workspace["status"] = "awaiting_output"
     workspace["repair_scope"] = repair_scope
     workspace.pop("output_sha256", None)
@@ -4738,6 +5563,15 @@ def reopen_agent_workspace(state: dict, stage: str, errors: list[str]) -> None:
     workspace.pop("validation_receipt", None)
     state["agent_workspace"] = workspace
     execution_backend = str(workspace.get("execution_backend") or "agent")
+    paper_file = REPO / str(Path(state.get("extract_dir", "")) / "paper.md")
+    reading = _agent_reading_contract(paper_file, workspace)
+    workspace.setdefault("source_character_count", reading["source_character_count"])
+    workspace.setdefault("reading_strategy", reading["mode"])
+    if execution_backend == "agent":
+        telemetry = _agent_ingest_telemetry(state)
+        scopes = telemetry.setdefault("repair_scopes", [])
+        if issue_scope not in scopes:
+            scopes.append(issue_scope)
     if (execution_backend == "agent"
             and (state.get("agent_task") or {}).get("schema") != agent_task.SCHEMA_VERSION):
         paper_path = str(Path(state.get("extract_dir", "")) / "paper.md")
@@ -4746,7 +5580,7 @@ def reopen_agent_workspace(state: dict, stage: str, errors: list[str]) -> None:
             transaction_id=state.get("transaction_id", "legacy-agent-workspace"),
             inputs=[{
                 "name": "paper_text", "path": paper_path,
-                "role": "authoritative_extracted_source", "read": "full",
+                "role": "authoritative_extracted_source", "read": reading["mode"],
             }],
             outputs=[{
                 "name": "paper_workspace", "path": str(workspace.get("output_path") or ""),
@@ -4760,8 +5594,10 @@ def reopen_agent_workspace(state: dict, stage: str, errors: list[str]) -> None:
                     "wiki": WIKI_DELIMITER,
                     "semantics": SLOTS_DELIMITER,
                 },
+                "reading_strategy": reading,
+                "existing_knowledge_lookup": _agent_knowledge_lookup_contract(),
             },
-            issues=errors,
+            issues=[_agent_repair_issue(stage, error) for error in errors],
             commands={"resume": _resume_cmd(state)},
         )
     review = state.get("bibliographic_review") or {}
@@ -4769,7 +5605,7 @@ def reopen_agent_workspace(state: dict, stage: str, errors: list[str]) -> None:
         review["status"] = "prepared"
     state["bibliographic_review"] = review
     state["pre_handoff_status"] = "extract"
-    issues = [{"stage": stage, "error": error} for error in errors]
+    issues = [_agent_repair_issue(stage, error) for error in errors]
     if execution_backend == "agent":
         agent_task.reopen(state, issues)
     else:
@@ -4790,6 +5626,17 @@ def reopen_agent_workspace(state: dict, stage: str, errors: list[str]) -> None:
     if repair_scope != "slots":
         state["wiki_content"] = ""
     state["slots_content"] = ""
+
+
+def handoff_after_semantic_recovery(
+    state: dict, errors: list[str], recovery_message: str,
+) -> None:
+    """Keep workspace-backed repairs on their single declared output artifact."""
+    if _has_paper_workspace(state):
+        reopen_agent_workspace(state, "语义结构", errors)
+    else:
+        ic.stop_for_semantic_errors(state, errors, _resume_cmd(state))
+    state["semantic_recovery_message"] = recovery_message
 
 
 def record_legacy_paper_meta(state: dict, text: str) -> None:
@@ -5022,6 +5869,7 @@ def step_write_wiki(state: dict) -> tuple[bool, str]:
     wiki_content = re.sub(
         r'(sources:\s*\n\s*-\s*)(?:path:\s*)?"?[^\n]+"?',
         f'\\1"{correct_source}"', wiki_content, count=1)
+    wiki_content = wl.normalize_raw_footnotes(wiki_content)
     (extract_dir / "wiki.md").write_text(wiki_content, encoding="utf-8", newline="\n")
     state["wiki_content"] = wiki_content
     # agent 模式：合并任务已同时产出语义槽，提前存入 state 供第二阶段跳过
@@ -5272,7 +6120,7 @@ def is_clearly_descriptive(obj: str) -> bool:
 def step_validate_semantics(state: dict) -> tuple[list[str], list[dict]]:
     """校验语义槽合法性。返回 (hard_errors, slot_warnings)。
 
-    hard_errors: 结构性错误（谓词非法、解析失败），需回 3.3 全量重生成。
+    hard_errors: 结构性错误（谓词非法、解析失败），只修复相关语义槽。
     slot_warnings: 客体内容问题（描述性短语、裸缩写），可走局部修复。
     """
     semantic_path = REPO / state["semantic_path"]
@@ -5403,7 +6251,8 @@ def step_validate_semantics(state: dict) -> tuple[list[str], list[dict]]:
                     "reason": "主体含逗号/句号等标点，应为规范概念名/实体名",
                     "is_triple": is_triple,
                 })
-            if (obj and pred not in graph_ingest.PROPOSITION_PREDICATES
+            if (obj and pred not in (graph_ingest.PROPOSITION_PREDICATES
+                                     | graph_ingest.CONCEPT_KW_PREDICATES)
                     and is_clearly_descriptive(obj)):
                 slot_warnings.append({
                     "section": source_section or find_slot_section(pred, sem_text, obj),
@@ -5810,6 +6659,9 @@ def _record_graph_quality_warnings(state: dict) -> None:
         })
     state["quality_warnings"] = retained
     _sync_quality_status(state)
+    workspace = state.get("agent_workspace") or {}
+    if str(workspace.get("execution_backend") or "") == "agent":
+        _agent_ingest_telemetry(state)["final_warnings"] = list(retained)
 
 
 def _refresh_completed_derived_quality(state: dict) -> bool:
@@ -5828,6 +6680,7 @@ def _refresh_completed_derived_quality(state: dict) -> bool:
     before = json.dumps({
         "quality_status": state.get("quality_status"),
         "quality_warnings": state.get("quality_warnings", []),
+        "quality_warning_history": state.get("quality_warning_history", []),
     }, ensure_ascii=False, sort_keys=True)
     _record_bibliographic_quality_warnings(
         state, paper_md.read_text(encoding="utf-8"),
@@ -5836,6 +6689,7 @@ def _refresh_completed_derived_quality(state: dict) -> bool:
     after = json.dumps({
         "quality_status": state.get("quality_status"),
         "quality_warnings": state.get("quality_warnings", []),
+        "quality_warning_history": state.get("quality_warning_history", []),
     }, ensure_ascii=False, sort_keys=True)
     if before != after:
         inbox_state.save(state["transaction_id"], state)
@@ -5855,6 +6709,10 @@ def step_update_graph(state: dict) -> tuple[bool, str]:
 def resume_after_semantic_fix(state: dict) -> bool:
     """Load a hand-fixed semantic file and resume from commit validation."""
     if state.get("status") != "agent_required":
+        return False
+    workspace = state.get("agent_workspace") or {}
+    if (workspace.get("protocol_version") == AGENT_WORKSPACE_PROTOCOL
+            and workspace.get("status") == "awaiting_output"):
         return False
     if (state.get("_awaiting_agent_wiki_slots") or state.get("_awaiting_agent_slots")
             or (state.get("bibliographic_review") or {}).get("status") == "agent_required"
@@ -6228,8 +7086,7 @@ def run_prepare(state: dict) -> dict:
                 inbox_state.save(state["transaction_id"], state)
                 break
             progress(f"  ↳ 语义槽结构错误 {len(sem_hard)} 个，停止重复生成并交接修复", flush=True)
-            ic.stop_for_semantic_errors(state, sem_hard, _resume_cmd(state))
-            state["semantic_recovery_message"] = recovery_msg
+            handoff_after_semantic_recovery(state, sem_hard, recovery_msg)
             inbox_state.save(state["transaction_id"], state)
             return state
     # 落位
@@ -6246,6 +7103,9 @@ def run_prepare(state: dict) -> dict:
             record_agent_workspace_validation(state, graph_preflight)
             inbox_state.save(state["transaction_id"], state)
             progress("通过（live graph 已回滚）", flush=True)
+        if state.get("reingest") and state["status"] == "finalize":
+            state["status"] = "propositions"
+            inbox_state.save(state["transaction_id"], state)
         # 3.6c 子图构建：保留完整命题；概念链接由 graph_ingest 唯一精确匹配。
         step_extract_propositions(state)
         inbox_state.save(state["transaction_id"], state)
@@ -6339,10 +7199,12 @@ def _batch_item_payload(state: dict) -> dict:
         "semantic_repair_worker": state.get("semantic_repair_worker"),
         "quality_status": state.get("quality_status") or _sync_quality_status(state),
         "quality_warnings": state.get("quality_warnings", []),
+        "quality_warning_history": state.get("quality_warning_history", []),
         "execution_backend": (
             (state.get("agent_workspace") or {}).get("execution_backend")
             or state.get("execution_backend")
         ),
+        "agent_telemetry": _agent_telemetry_payload(state),
     }
     if agent_task.is_prepared(state):
         payload["agent_task"] = agent_task.payload(state)
@@ -6432,12 +7294,16 @@ def run_inbox_batch(verbose: bool) -> int:
     return 0 if all(r["status"] in {"completed", "duplicate_found"} for r in results) else 1
 
 
-def check_agent_workspace(state: dict) -> dict:
+def _check_agent_workspace_once(state: dict) -> dict:
     """Run all pre-commit Agent artifact gates without final Raw/Graph writes."""
     working = copy.deepcopy(state)
     transaction_id = state.get("transaction_id")
     diagnostics = []
     if not resume_agent_workspace(working):
+        repair_issues = [
+            _agent_repair_issue("bibliography", error)
+            for error in working.get("errors", ["workspace 尚未就绪"])
+        ]
         return {
             "status": "awaiting_agent", "workflow_status": "awaiting_agent",
             "internal_status": state.get("status", ""),
@@ -6449,6 +7315,7 @@ def check_agent_workspace(state: dict) -> dict:
                 "errors": working.get("errors", ["workspace 尚未就绪"]),
             }],
             "errors": working.get("errors", ["workspace 尚未就绪"]),
+            "repair_issues": repair_issues,
             "versions": _agent_versions(),
         }
     if working.get("status") == "duplicate_found":
@@ -6509,6 +7376,9 @@ def check_agent_workspace(state: dict) -> dict:
     graph_preflight = {}
     if not wiki_errors and not hard_errors and not blocking:
         graph_errors, graph_preflight = run_agent_graph_preflight(working)
+        warnings.extend({
+            "issue": "page_preflight_warning", "reason": warning,
+        } for warning in graph_preflight.get("page_validation", {}).get("warnings", []))
         if graph_errors:
             diagnostics.append({
                 "stage": "graph_preflight",
@@ -6542,6 +7412,7 @@ def check_agent_workspace(state: dict) -> dict:
             "diagnostics": diagnostics,
             "errors": errors,
             "warnings": warnings,
+            "repair_issues": _agent_repair_issues(diagnostics),
             "versions": _agent_versions(),
         }
 
@@ -6564,9 +7435,40 @@ def check_agent_workspace(state: dict) -> dict:
         "validated_hashes": (working.get("agent_workspace") or {}).get("validated_hashes", {}),
         "validation_receipt": receipt,
         "diagnostics": [],
+        "repair_issues": [],
         "warnings": warnings,
         "next_action": f"python3 .scripts/ingest_paper.py --agent-commit {transaction_id}",
     }
+
+
+def check_agent_workspace(state: dict) -> dict:
+    """Run the dry-run checks without changing hash-bound input artifacts."""
+    extract_dir = REPO / str(state.get("extract_dir") or "")
+    protected = [
+        extract_dir / "source.yaml",
+        extract_dir / "paper.pdf.source.json",
+        extract_dir / "manifest.json",
+    ]
+    snapshots = {
+        path: path.read_bytes() if path.is_file() else None
+        for path in protected
+    }
+    result = None
+    try:
+        result = _check_agent_workspace_once(state)
+        _record_agent_check_telemetry(state, result)
+        result["agent_telemetry"] = _agent_telemetry_payload(state)
+        return result
+    finally:
+        for path, content in snapshots.items():
+            if content is None:
+                path.unlink(missing_ok=True)
+                continue
+            if path.is_file() and path.read_bytes() == content:
+                continue
+            temporary = path.with_name(f".{path.name}.partial-{os.getpid()}")
+            temporary.write_bytes(content)
+            os.replace(temporary, path)
 
 
 def main() -> None:
@@ -6580,7 +7482,7 @@ def main() -> None:
     source_group.add_argument("--agent-commit", help="复验并提交已完成的 Agent workspace")
     source_group.add_argument("--agent-refresh", help="归档旧输出并刷新候选提供器已升级的未提交 Agent workspace")
     source_group.add_argument("--validate", help="对事务跑全量语义校验并输出 warning（不跑 pipeline，供修正后自检）")
-    source_group.add_argument("--raw", help="已入库 raw paper.md 路径（网上下载等非 inbox 来源）")
+    source_group.add_argument("--raw", help="兼容入口：转交 re_ingest.py --raw 编译已归档论文；局部 Wiki 修订走 ingest update")
     parser.add_argument("--verbose", action="store_true", help="进度打印到 stdout（调试/建设/审计用；默认写日志文件）")
     args = parser.parse_args()
     resume_id = args.resume or args.agent_commit
@@ -6620,7 +7522,9 @@ def main() -> None:
                 "errors": [f"事务不存在: {args.agent_check}"],
             }, ensure_ascii=False, indent=2))
             return
-        print(json.dumps(check_agent_workspace(state), ensure_ascii=False, indent=2))
+        result = check_agent_workspace(state)
+        inbox_state.save(args.agent_check, state)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return
     elif args.agent_refresh:
         state = inbox_state.load(args.agent_refresh)
@@ -6635,12 +7539,12 @@ def main() -> None:
         print(json.dumps(explicit_agent_workspace_refresh(state), ensure_ascii=False, indent=2))
         return
     elif args.raw:
-        raw_path = (REPO / args.raw).resolve()
-        if raw_path.is_dir():
-            raw_path = raw_path / "paper.md"
-        if not raw_path.is_file():
-            raise SystemExit(f"ERROR: raw 不存在: {args.raw}")
-        state = new_state_for_raw(raw_path)
+        # Archived papers already have a workspace-aware owner with version
+        # protection, Raw immutability and the correct clean-commit/resume path.
+        command = [sys.executable, str(REPO / ".scripts/re_ingest.py"), "--raw", args.raw]
+        if args.verbose:
+            command.append("--verbose")
+        raise SystemExit(subprocess.run(command, cwd=REPO, check=False).returncode)
     elif args.pdf:
         pdf_path = (REPO / args.pdf).resolve()
         if not pdf_path.is_file():
@@ -6719,6 +7623,7 @@ def _run_phase(state: dict, verbose: bool, fn) -> dict:
     try:
         state = fn(state)
     except Exception as exc:
+        state.pop("_pending_transition", None)
         state["status"] = "failed"
         state["errors"] = [f"未预期异常: {type(exc).__name__}: {exc}"]
         inbox_state.save(state["transaction_id"], state)
@@ -6771,11 +7676,13 @@ def print_result(state: dict) -> None:
             "semantic_repair_worker": state.get("semantic_repair_worker"),
             "quality_status": state.get("quality_status") or _sync_quality_status(state),
             "quality_warnings": state.get("quality_warnings", []),
+            "quality_warning_history": state.get("quality_warning_history", []),
             "transaction_id": state["transaction_id"],
             "execution_backend": (
                 (state.get("agent_workspace") or {}).get("execution_backend")
                 or state.get("execution_backend")
             ),
+            "agent_telemetry": _agent_telemetry_payload(state),
         }
         if state.get("maintenance") is not None:
             payload["maintenance"] = state["maintenance"]

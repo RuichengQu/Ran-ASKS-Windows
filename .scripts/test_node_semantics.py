@@ -103,6 +103,27 @@ def test_decomposed_method_alias_does_not_reuse_longer_compound_concept():
     assert result["decision"] != "resolved", result
 
 
+def test_named_framework_does_not_reuse_generic_component():
+    for mention in ("OSPREY框架", "SPARK框架", "框架framework(OSPREY)"):
+        conn = make_db()
+        add_node(conn, "generic", "框架")
+        gl.insert_aliases(conn, "generic", ["framework"])
+        result = ns.resolve_node(conn, mention, node_types=["entity"])
+        assert result["decision"] == "unmatched", (mention, result)
+
+
+def test_named_framework_reuses_specific_abbreviation_after_generic_filter():
+    conn = make_db()
+    add_node(conn, "generic", "框架")
+    add_node(conn, "osprey", "OSPREY")
+    add_node(conn, "spark", "SPARK")
+    for mention, expected in (("OSPREY框架", "osprey"), ("SPARK框架", "spark")):
+        result = ns.resolve_node(conn, mention, node_types=["entity"])
+        assert result["decision"] == "resolved", result
+        assert result["node_id"] == expected, result
+    assert ns.resolve_node(conn, "框架")["node_id"] == "generic"
+
+
 def test_full_method_name_reuses_variant_with_optional_trailing_acronym():
     conn = make_db()
     add_node(conn, "simple-update", "简单更新simple update(SU)")
@@ -303,6 +324,38 @@ def test_embedding_failure_degrades_to_lexical_search():
     assert result["decision"] == "candidates"
     assert result["mode"] == "lexical_degraded"
     assert result["candidates"][0]["node_id"] == "mps"
+
+
+def test_persisted_distinction_blocks_alias_and_embedding_identity_reuse():
+    conn = make_db()
+    add_node(conn, "tensor-network", "张量网络", "张量表示方法")
+    gl.insert_aliases(conn, "tensor-network", ["谱张量网络"])
+    assert ns.record_identity_distinction(
+        conn,
+        "谱张量网络",
+        "张量网络",
+        source="user:2026-10-06",
+        reason="用户明确要求保持不同概念",
+    )
+    assert ns.record_identity_distinction(
+        conn,
+        "张量网络",
+        "谱张量网络",
+        source="user:2026-10-06",
+        reason="幂等更新",
+    )
+    assert conn.execute("SELECT COUNT(*) FROM identity_distinctions").fetchone()[0] == 1
+    old_queries = ns._embed_queries
+    ns._embed_queries = lambda _texts: (_ for _ in ()).throw(
+        AssertionError("persisted distinction must run before embeddings")
+    )
+    try:
+        result = ns.resolve_node(conn, "谱张量网络")
+    finally:
+        ns._embed_queries = old_queries
+    assert result["decision"] == "unmatched"
+    assert result["reason"] == "persisted_distinct"
+    assert result["allowed_actions"] == ["create_local"]
 
 
 def test_dsh_registers_semantic_capabilities_not_raw_embedding_tools():

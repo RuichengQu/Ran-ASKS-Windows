@@ -1096,7 +1096,7 @@ def test_inbox_state_records_telemetry_events():
             state = {"source": "source.txt", "status": "init",
                      "retry_count": 0, "errors": []}
             inbox_state.save("txn", state)
-            state["status"] = "write_wiki"
+            inbox_state.advance(state, "preprocess", reason="source_registered")
             state["errors"] = ["e"]
             inbox_state.save("txn", state)
             state = inbox_state.load("txn")
@@ -1105,7 +1105,7 @@ def test_inbox_state_records_telemetry_events():
     assert state["telemetry"]["source_hash"] == hashlib.sha256(b"hello").hexdigest()
     events = state["telemetry"]["events"]
     assert len(events) == 2
-    assert events[0]["to"] == "init" and events[1]["to"] == "write_wiki"
+    assert events[0]["to"] == "init" and events[1]["to"] == "preprocess"
     assert events[1]["errors_count"] == 1
     assert events[1]["recovery_attempts"] == 0
     assert state["telemetry"]["execution_events"] == {
@@ -1131,6 +1131,42 @@ def test_inbox_state_records_telemetry_events():
     })
     assert protocol_failure["category"] == "worker_output_invalid"
     assert protocol_failure["next_action"] == "bounded_output_revision"
+
+
+def test_inbox_state_writes_bounded_runtime_status_document():
+    import inbox_state
+    with tempfile.TemporaryDirectory() as directory:
+        repo = Path(directory)
+        original_repo = inbox_state.REPO
+        inbox_state.REPO = repo
+        try:
+            running = {"status": "extract", "errors": []}
+            inbox_state.save("txn-runtime", running)
+            status_path = inbox_state.runtime_status_path("txn-runtime")
+            text = status_path.read_text(encoding="utf-8")
+            assert "signal: `running`" in text
+            assert "stage: `extract`" in text
+            assert "next_check_after_seconds: `60`" in text
+
+            running["status"] = "failed"
+            running["errors"] = ["MinerU failed: 请稍后重试" * 30]
+            inbox_state.save("txn-runtime", running)
+            text = status_path.read_text(encoding="utf-8")
+            assert "signal: `attention`" in text
+            assert "MinerU failed" in text
+            assert "next_check_after_seconds: `0`" in text
+            assert len(text.encode("utf-8")) < 1024
+
+            completed = {"status": "completed", "errors": []}
+            inbox_state.save("txn-done", completed)
+            done = inbox_state.runtime_status_path("txn-done").read_text(encoding="utf-8")
+            assert "signal: `done`" in done
+            payload = inbox_state.output_payload(completed, {"status": "completed"})
+            assert payload["runtime_status_ref"] == (
+                "temp/inbox-state/txn-done.status.md"
+            )
+        finally:
+            inbox_state.REPO = original_repo
 
 
 def test_inbox_state_atomic_save_and_guarded_resume():
@@ -1175,6 +1211,121 @@ def test_inbox_state_atomic_save_and_guarded_resume():
         finally:
             inbox_state.os.replace = original_replace
             inbox_state.REPO = original_repo
+
+
+def test_inbox_state_forward_graph_receipts_and_operation_view():
+    import inbox_state
+
+    with tempfile.TemporaryDirectory() as directory:
+        repo = Path(directory)
+        artifact = repo / "academic/wiki/demo.md"
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text("stable artifact\n", encoding="utf-8")
+        original_repo = inbox_state.REPO
+        inbox_state.REPO = repo
+        try:
+            state = {"status": "init", "errors": []}
+            inbox_state.save("forward", state)
+            inbox_state.advance(state, "preprocess", reason="source_ready")
+            inbox_state.save("forward", state)
+            assert inbox_state.load("forward")["status"] == "preprocess"
+
+            illegal = {"status": "init", "errors": []}
+            inbox_state.save("illegal", illegal)
+            illegal["status"] = "completed"
+            illegal["_pending_transition"] = {
+                "from": "init", "to": "completed", "reason": "crafted",
+            }
+            try:
+                inbox_state.save("illegal", illegal)
+            except ValueError as exc:
+                assert "init -> completed" in str(exc)
+            else:
+                raise AssertionError("crafted transition receipt must not bypass the graph")
+
+            completed = {
+                "status": "completed", "errors": [],
+                "wiki_path": "academic/wiki/demo",
+            }
+            inbox_state.save("completed", completed)
+            stored = inbox_state.load("completed")
+            receipt = stored["verification_receipt"]
+            assert receipt["schema"] == "verification-receipt-v1"
+            assert receipt["status"] == "PASS"
+            assert receipt["outcome"] == "committed" and receipt["committed"] is True
+            assert receipt["artifacts"]["wiki_path"]["path"] == "academic/wiki/demo.md"
+            assert len(receipt["transitions_sha256"]) == 64
+            assert inbox_state.verify_receipt(stored, repo)["status"] == "PASS"
+
+            artifact.write_text("tampered artifact\n", encoding="utf-8")
+            mismatch = inbox_state.verify_receipt(stored, repo)
+            assert mismatch["status"] == "FAILED"
+            assert mismatch["error"] == "verification receipt mismatch"
+
+            nonterminal = {"status": "init", "transaction_id": "pending", "errors": []}
+            assert inbox_state.verify_receipt(nonterminal, repo)["status"] == "INCOMPLETE"
+            view = inbox_state.operation_view(nonterminal, repo)
+            assert view == {
+                "schema": "ingest-operation-view-v1",
+                "transaction_id": "pending",
+                "workflow_status": "awaiting_agent",
+                "internal_status": "init",
+                "terminal": False,
+                "committed": False,
+                "state_ref": "temp/inbox-state/pending.json",
+                "runtime_status_ref": "temp/inbox-state/pending.status.md",
+                "next_action": "resume",
+                "allowed_actions": [],
+                "artifact_refs": {},
+            }
+
+            duplicate = {"status": "duplicate_found", "errors": []}
+            inbox_state.save("duplicate", duplicate)
+            duplicate_receipt = inbox_state.load("duplicate")["verification_receipt"]
+            assert duplicate_receipt["status"] == "PASS"
+            assert duplicate_receipt["outcome"] == "duplicate"
+            assert duplicate_receipt["committed"] is False
+
+            post_workspace_duplicate = {"status": "write_wiki", "errors": []}
+            inbox_state.save("post-workspace-duplicate", post_workspace_duplicate)
+            inbox_state.advance(
+                post_workspace_duplicate, "duplicate_found",
+                reason="locked_bibliography_duplicate",
+            )
+            inbox_state.save("post-workspace-duplicate", post_workspace_duplicate)
+            assert inbox_state.verify_receipt(
+                inbox_state.load("post-workspace-duplicate"), repo,
+            )["status"] == "PASS"
+        finally:
+            inbox_state.REPO = original_repo
+
+
+def test_batch_commit_flag_only_represents_actual_knowledge_commits():
+    import inbox_state
+
+    completed = inbox_state.output_payload(
+        {"status": "completed", "transaction_id": "committed"},
+        {"status": "completed"},
+    )
+    duplicate = inbox_state.output_payload(
+        {"status": "duplicate_found", "transaction_id": "duplicate"},
+        {"status": "duplicate_found"},
+    )
+    duplicate_only = inbox_state.batch_output_payload(
+        items=[duplicate], status="duplicate_found", phase="commit",
+    )
+    assert duplicate_only["workflow_status"] == "completed"
+    assert duplicate_only["terminal"] is True
+    assert duplicate_only["committed"] is False
+    assert duplicate_only["counts"]["committed"] == 0
+
+    mixed = inbox_state.batch_output_payload(
+        items=[completed, duplicate], status="completed", phase="commit",
+    )
+    assert mixed["workflow_status"] == "completed"
+    assert mixed["terminal"] is True
+    assert mixed["committed"] is False
+    assert mixed["counts"]["committed"] == 1
 
 
 def test_inbox_state_runtime_summary_uses_canonical_events():
@@ -1310,6 +1461,44 @@ def test_cleanup_waits_for_completion_and_retries_without_replaying_ingest():
                 validate.assert_not_called()
                 assert state["status"] == "completed" and not state["cleanup_pending"]
                 assert "cleanup_error" not in state
+
+
+def test_post_commit_projection_is_required_and_resumable():
+    from unittest.mock import patch
+
+    calls = []
+    state = {
+        "transaction_id": "projection-test", "status": "validate_graph", "errors": [],
+        "semantic_path": "temp/semantic.txt", "graph_report": {"edges_added": 1},
+    }
+    fail_once = {"value": True}
+
+    def project(_state):
+        calls.append("projection")
+        if fail_once["value"]:
+            fail_once["value"] = False
+            return False, "projection failed"
+        return True, ""
+
+    spec = {
+        "script_name": "test.py",
+        "steps": {
+            "validate_semantics": lambda _state: ([], []),
+            "validate_graph": lambda _state: [],
+            "post_commit_projection": project,
+            "finalize_tail": lambda _state: (calls.append("tail") or True, ""),
+        },
+    }
+    with patch.object(ingest_pipeline, "_save"), \
+            patch.object(ingest_pipeline.ic, "validate_before_commit", return_value=[]), \
+            patch.object(ingest_pipeline.ic, "validate_completion", return_value=[]):
+        result = ingest_pipeline.run_pipeline(state, spec, lambda *args, **kwargs: None)
+        assert result["status"] == "failed"
+        assert result["resume_from"] == "post_commit_projection"
+        assert calls == ["projection"] and "tail" not in calls
+        result = ingest_pipeline.run_pipeline(state, spec, lambda *args, **kwargs: None)
+        assert result["status"] == "completed"
+        assert calls == ["projection", "projection", "tail"]
 
 
 def test_resolve_bare_name_normalized_match():
@@ -1490,6 +1679,50 @@ def test_agent_slots_resume_does_not_rewrite_wiki():
         assert calls == ["write_slots"]
 
 
+def test_semantic_success_persists_finalize_before_artifact_commit():
+    import inbox_state
+    from unittest.mock import patch
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        state = {
+            "transaction_id": "persist-finalize",
+            "status": "write_slots",
+            "wiki_content": "validated wiki",
+            "errors": [],
+        }
+        observed = []
+
+        def finalize(current):
+            persisted = inbox_state.load(current["transaction_id"])
+            observed.append(persisted["status"])
+            assert persisted["status"] == "finalize"
+            return True, ""
+
+        spec = {
+            "script_name": "test_driver.py",
+            "normalize_slots": lambda text: text,
+            "completion_label_key": None,
+            "steps": {
+                "write_slots": lambda current: (True, ""),
+                "validate_semantics": lambda current: ([], []),
+                "finalize": finalize,
+                "update_graph": lambda current: (True, ""),
+                "validate_graph": lambda current: [],
+                "finalize_tail": lambda current: (True, ""),
+            },
+        }
+        with patch.object(inbox_state, "REPO", root), \
+                patch.object(ingest_pipeline, "REPO", root), \
+                patch.object(ingest_pipeline.ic, "step_fill_semantics", return_value=(True, "")), \
+                patch.object(ingest_pipeline.ic, "validate_completion", return_value=[]):
+            inbox_state.save(state["transaction_id"], state)
+            result = ingest_pipeline.run_pipeline(state, spec, lambda *args, **kwargs: None)
+            assert result["status"] == "completed"
+            assert inbox_state.load(state["transaction_id"])["status"] == "completed"
+        assert observed == ["finalize"]
+
+
 def test_update_graph_failure_rolls_back_and_exposes_resume_point():
     state = {
         "transaction_id": "update-graph-failure",
@@ -1520,6 +1753,33 @@ def test_update_graph_failure_rolls_back_and_exposes_resume_point():
     assert result["status"] == "failed"
     assert result["resume_from"] == "finalize"
     assert "raw companion" in result["errors"][1]
+
+
+def test_update_graph_failure_without_rollback_exposes_graph_retry_point():
+    state = {
+        "transaction_id": "meeting-graph-failure",
+        "status": "update_graph",
+        "errors": [],
+    }
+    spec = {
+        "script_name": "test_driver.py",
+        "steps": {
+            "validate_semantics": lambda _state: ([], []),
+            "update_graph": lambda _state: (False, "provider model unavailable"),
+        },
+    }
+    original_save = ingest_pipeline._save
+    original_validate = ingest_pipeline.ic.validate_before_commit
+    try:
+        ingest_pipeline._save = lambda _state: None
+        ingest_pipeline.ic.validate_before_commit = lambda *_args, **_kwargs: []
+        result = ingest_pipeline.run_pipeline(state, spec, lambda *args, **kwargs: None)
+    finally:
+        ingest_pipeline._save = original_save
+        ingest_pipeline.ic.validate_before_commit = original_validate
+    assert result["status"] == "failed"
+    assert result["resume_from"] == "graph_ready"
+    assert "reingest" not in result
 
 
 def test_graph_validation_failure_exposes_clean_graph_retry_point():
@@ -1785,6 +2045,7 @@ def test_resume_post_maintenance_uses_unified_inbox_tail():
     import sys
     from types import ModuleType
     import ingest_common as ic
+    import inbox_source_policy
 
     calls = []
     fake = ModuleType("ingest_inbox")
@@ -1803,9 +2064,12 @@ def test_resume_post_maintenance_uses_unified_inbox_tail():
     sys.modules["ingest_inbox"] = fake
     try:
         with tempfile.TemporaryDirectory() as directory:
-            repo = Path(directory)
+            repo = Path(directory).resolve()
             inbox = repo / "inbox"
             inbox.mkdir()
+            original = (inbox / "retained-original.pdf").resolve()
+            original.write_bytes(b"retained original")
+            inbox_source_policy.retain_original(repo, original)
             pending = inbox / "next-paper.pdf"
             pending.write_bytes(b"pending")
             state = {
@@ -1815,6 +2079,7 @@ def test_resume_post_maintenance_uses_unified_inbox_tail():
                 "graph_report": {"hub_dynamics": {"affected_nodes": ["node-a"]}},
                 "quality_status": "degraded",
                 "quality_warnings": [{"issue": "demo"}],
+                "quality_warning_history": [],
             }
             deferred = ic.run_resume_post_maintenance(state)
             assert deferred["status"] == "deferred"
@@ -1847,8 +2112,10 @@ def test_resume_post_maintenance_uses_unified_inbox_tail():
                 "graph_report": {"hub_dynamics": {"affected_nodes": ["node-a"]}},
                 "quality_status": "degraded",
                 "quality_warnings": [{"issue": "demo"}],
+                "quality_warning_history": [],
             }
             assert calls == [([expected_item], "resume-txn-1")]
+            assert original.read_bytes() == b"retained original"
             persisted = json.loads((repo / maintenance["report_path"]).read_text(encoding="utf-8"))
             assert persisted["files"][0]["graph_report"]["hub_dynamics"]["affected_nodes"] == ["node-a"]
             assert persisted["degraded"] == 1
@@ -1963,6 +2230,48 @@ def test_resume_reconciles_parent_batch_before_maintenance():
             sys.modules["ingest_inbox"] = previous
 
 
+def test_inbox_state_finds_only_one_compatible_same_source_transaction():
+    import inbox_state
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        source = root / "inbox" / "paper.pdf"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"same source")
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        original_repo = inbox_state.REPO
+        inbox_state.REPO = root
+        try:
+            shared = {
+                "status": "extract", "source": "inbox/paper.pdf",
+                "pipeline_script": "ingest_paper.py", "semantic_backend": "agent",
+                "telemetry": {"source_hash": digest},
+            }
+            inbox_state.save("txn-one", dict(shared))
+            match = inbox_state.find_resumable_transaction(
+                "inbox/paper.pdf", "ingest_paper.py", semantic_backend="agent",
+            )
+            assert match["transaction_id"] == "txn-one"
+            assert inbox_state.find_resumable_transaction(
+                "inbox/paper.pdf", "ingest_document.py", semantic_backend="agent",
+            ) is None
+            assert inbox_state.find_resumable_transaction(
+                "inbox/paper.pdf", "ingest_paper.py", semantic_backend="api",
+            ) is None
+
+            inbox_state.save("txn-two", dict(shared))
+            try:
+                inbox_state.find_resumable_transaction(
+                    "inbox/paper.pdf", "ingest_paper.py", semantic_backend="agent",
+                )
+            except ValueError as error:
+                assert "ambiguous same-source transactions" in str(error)
+            else:
+                raise AssertionError("multiple same-source transactions must fail closed")
+        finally:
+            inbox_state.REPO = original_repo
+
+
 def test_inbox_state_supersede_requires_completed_same_source():
     import inbox_state
 
@@ -1984,6 +2293,11 @@ def test_inbox_state_supersede_requires_completed_same_source():
             assert receipt["status"] == "superseded"
             assert stale["status"] == "superseded"
             assert stale["superseded_by"] == "new-txn"
+
+            inbox_state.save("old-extract", {**shared, "status": "extract"})
+            receipt = inbox_state.supersede_transaction("old-extract", "new-txn")
+            assert receipt["status"] == "superseded"
+            assert inbox_state.load("old-extract")["status"] == "superseded"
 
             old_document = "20260910-旧事务-软著证书"
             new_document = "20260910-量子心电-软件著作权登记证书"
@@ -2012,6 +2326,16 @@ def test_inbox_state_supersede_requires_completed_same_source():
                 pass
             else:
                 raise AssertionError("cross-source supersede must be rejected")
+
+            inbox_state.save("missing-hash", {
+                **shared, "status": "extract", "telemetry": {"source_hash": ""},
+            })
+            try:
+                inbox_state.supersede_transaction("missing-hash", "new-txn")
+            except ValueError as error:
+                assert "non-empty source hashes" in str(error)
+            else:
+                raise AssertionError("supersede without both source hashes must be rejected")
         finally:
             inbox_state.REPO = original_repo
 
@@ -2054,16 +2378,21 @@ def main():
     test_free_edge_bare_abbreviation_report_accurate()
     test_cleanup_ghost_hubs_removes_orphan()
     test_inbox_state_records_telemetry_events()
+    test_inbox_state_writes_bounded_runtime_status_document()
     test_inbox_state_atomic_save_and_guarded_resume()
+    test_inbox_state_forward_graph_receipts_and_operation_view()
+    test_batch_commit_flag_only_represents_actual_knowledge_commits()
     test_inbox_state_runtime_summary_uses_canonical_events()
     test_step_update_graph_fails_on_non_json_output()
     test_validate_completion_blocks_stale_errors_and_empty_graph()
     test_cleanup_waits_for_completion_and_retries_without_replaying_ingest()
+    test_post_commit_projection_is_required_and_resumable()
     test_resolve_bare_name_normalized_match()
     test_ensure_keyword_connectivity()
     test_locator_aware_page_adds_optional_wiki_section_locator_only()
     test_raw_original_and_locator_companion_share_node_and_wiki_source_edge()
     test_agent_slots_resume_does_not_rewrite_wiki()
+    test_semantic_success_persists_finalize_before_artifact_commit()
     test_bare_abbreviation_resolved_to_keyword_no_warning()
     test_bare_abbreviation_resolve_miss_keeps_warning()
     test_resolve_abbreviations_list_reports_unresolved_warnings()
@@ -2071,6 +2400,7 @@ def main():
     test_sync_keyword_appends_to_hub_dedup()
     test_resolve_abbreviation_todo_finds_full_name_node()
     test_update_graph_failure_rolls_back_and_exposes_resume_point()
+    test_update_graph_failure_without_rollback_exposes_graph_retry_point()
     test_graph_validation_failure_exposes_clean_graph_retry_point()
     test_wiki_validation_retry_budget_hands_off_without_third_full_rewrite()
     test_semantic_hard_error_gets_one_bounded_rewrite_then_handoff()
@@ -2079,6 +2409,7 @@ def main():
     test_legacy_protocol_failure_resume_migrates_to_handoff()
     test_resume_post_maintenance_uses_unified_inbox_tail()
     test_resume_reconciles_parent_batch_before_maintenance()
+    test_inbox_state_finds_only_one_compatible_same_source_transaction()
     test_inbox_state_supersede_requires_completed_same_source()
     print("ingest pipeline regression: PASS")
 
@@ -2265,6 +2596,66 @@ def test_resolve_abbreviations_list_reports_unresolved_warnings():
         assert "MPS" not in out, "resolve 命中的缩写不应报 warning"
         assert "GPT" in out and "warning" in out, "resolve miss 的缩写应报 warning"
         conn.close()
+
+
+def test_runtime_summary_reports_api_breakdown_and_unmetered_costs():
+    import inbox_state
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        states = root / "states"
+        events = root / "events"
+        states.mkdir()
+        events.mkdir()
+        (states / "txn.json").write_text(json.dumps({
+            "transaction_id": "ingest-parent", "status": "completed",
+        }), encoding="utf-8")
+        event = {
+            "event_version": "execution-event-v1", "event_kind": "llm_api_call",
+            "transaction_id": "ingest-parent", "operation": "frontier_answer", "status": "ok",
+            "latency_sec": 9.25,
+            "usage": {"prompt_tokens": 1548, "completion_tokens": 439, "total_tokens": 1987},
+        }
+        untagged = {**event, "transaction_id": ""}
+        (events / "events.jsonl").write_text(
+            json.dumps(event) + "\n" + json.dumps(untagged) + "\n", encoding="utf-8",
+        )
+        result = inbox_state.summarize_runtime(states, events)
+        assert result["api"]["prompt_tokens"] == 1548
+        assert result["api"]["completion_tokens"] == 439
+        assert result["api"]["token_breakdown_missing_calls"] == 0
+        assert result["api"]["calls"] == 1
+        assert result["unattributed_api_events"]["calls"] == 1
+        assert result["api"]["usage_by_operation"]["frontier_answer"]["total_tokens"] == 1987
+        assert result["cost_coverage"]["monetary_cost"] is None
+        assert "host_agent" in result["cost_coverage"]["unmetered_components"]
+
+
+def test_subprocess_stdout_honors_quiet_log_without_hiding_stderr():
+    import ingest_common
+    from contextlib import redirect_stderr
+    original_run = ingest_common.subprocess.run
+    body = json.dumps({"large_report": "detail" * 1000}) + "\n"
+    try:
+        ingest_common.subprocess.run = lambda *_args, **_kwargs: type("Result", (), {
+            "returncode": 0, "stdout": body, "stderr": "WARN remains visible\n",
+        })()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log_file = root / "transaction.log"
+            output, errors = StringIO(), StringIO()
+            ingest_common.set_progress_file(log_file.open("w", encoding="utf-8"))
+            with redirect_stdout(output), redirect_stderr(errors):
+                returned = ingest_common.run_tracked(["local-command"], root)
+            ingest_common.close_progress_file()
+            assert returned == body and log_file.read_text() == body
+            assert output.getvalue() == ""
+            assert "WARN remains visible" in errors.getvalue()
+            with redirect_stdout(output), redirect_stderr(errors):
+                ingest_common.run_tracked(["local-command"], root)
+            assert output.getvalue() == body
+    finally:
+        ingest_common.close_progress_file()
+        ingest_common.subprocess.run = original_run
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 # Ran-ASKS: Agent-Driven Scientific Knowledge System
-> Current release: v0.10.0
+> Current main version: v0.15.0
 
 > **Note:** This is a Windows-compatibility port of
 > [ranshiju/Ran-ASKS](https://github.com/ranshiju/Ran-ASKS). It changes
@@ -91,6 +91,58 @@ and structured navigation; graph edges and Hubs express the evolving knowledge
 structure and make it easier to move through that structure. Factual answers
 resolve back to the preserved source record.
 
+### ASKS and retrieval
+
+ASKS does not replace retrieval. It governs what happens before and after a
+retrieval call: preserving evidence, retaining revisable interpretation,
+maintaining navigation and research state, and publishing reusable artifacts.
+
+| Concern | Retrieval systems commonly provide | Ran-ASKS adds |
+| --- | --- | --- |
+| Finding context | Ranked chunks or records | Persistent Wiki and Graph navigation surfaces |
+| Evidence | Retrieved text and citations | Stable source locators back to preserved records |
+| Revision | Re-index or regenerate | Explicit, governed interpretation and state updates |
+| Agent work | Request/session execution | Typed handoffs, validators, transactions, and rollback |
+
+### Install and first success
+
+Python 3.12 and [`uv`](https://docs.astral.sh/uv/) are the supported baseline.
+The default environment is deliberately small and makes no model or network
+call:
+
+```bash
+git clone https://github.com/ranshiju/Ran-ASKS.git
+cd Ran-ASKS
+uv sync --frozen
+uv run ran-asks doctor
+uv run ran-asks demo
+```
+
+The synthetic demo walks from a temporary Graph navigation edge to a Wiki
+interpretation and then to an exact Raw excerpt. It makes no production write.
+Runs on macOS, Linux, and Windows. On Windows see [`docs/WINDOWS.md`](docs/WINDOWS.md) for setup, the two optional capabilities that need extra configuration (symbolic links and LibreOffice), and the platform behaviour table.
+
+Use `uv sync --frozen --extra release` and `uv run ran-asks test foundation`
+when contributing. Capability extras such as `pdf`, `office`, `analysis`, and
+`visual` keep unrelated parser and rendering dependencies out of the core
+environment.
+
+Persisted ingestion transactions expose read-only `wg.py task status`, `next`,
+and `verify` views. Final receipts bind protocol state, transition history,
+validator receipts, and declared artifact hashes; they do not claim that an
+interpretation is semantically entailed by its source. The foundation suite
+also runs an offline synthetic weak-model governance exam covering malformed
+output, missing evidence, prompt injection, and fallback trace completeness.
+
+Agent-mode paper ingestion uses one versioned workspace for bibliographic
+review, Wiki composition, and semantic slots. Every non-empty bibliographic
+field must quote a bounded source-line window, while adaptive section reading
+keeps the Wiki and semantic output grounded in the extracted paper. Validators
+enforce predicate roles and keep program-owned author, venue, and paper-topic
+edges out of model-authored slots before the same transaction can commit.
+Reviewed concept-name distinctions are persisted as governance metadata and
+applied before embedding-based identity resolution.
+
 ## Chat documents and presentation ingestion
 
 Files submitted in a conversation and pasted text use the existing inbox
@@ -180,6 +232,25 @@ require code changes. See the [ingestion contract](operations/INGEST.md),
 [presentation contract](operations/PRESENTATION.md), and
 [query contract](operations/QUERY.md).
 
+## Graph visualization, reusable slide templates, and safer meeting maintenance
+
+`wg.py graph-visualize` creates bounded, read-only graph views with topic,
+neighborhood, and relation filters. Its local provenance JSON records the
+selected nodes, edges, and source locators; the visualization remains a
+navigation aid rather than factual evidence. Public and private graph stores
+remain physically isolated.
+
+`wg.py slide-library` manages reusable presentation templates with explicit
+direct-reuse and parameterized-adaptation modes. Every reusable item retains
+source and version receipts, while generated work stays in the selected project
+workspace for review and delivery.
+
+Meeting compilation now keeps only the final active decision state, nests Raw
+citation navigation under Content, and persists unresolved entity mentions as
+quality warnings instead of inventing identities. Transactional repair validates
+the planned Wiki and graph changes before publication and rolls back on failure.
+Generated people pages likewise require real Raw support and graph validation.
+
 ## Reproducible public releases
 
 The public repository is generated from an explicit committed source snapshot,
@@ -188,9 +259,10 @@ checks every manifest-selected source file, builds and verifies a temporary
 tree, records the source commit/tree, manifest and payload hashes in
 `RELEASE_PROVENANCE.json`, then transactionally installs the result while
 preserving the public repository's Git metadata. Remote URL, branch and
-ahead/behind checks run before publication; pushing requires an explicit flag
-and is confirmed against the remote commit without force-push, tags, or a
-GitHub Release.
+ahead/behind checks run before publication. Pushing requires an explicit flag;
+the branch and immutable version tag are pushed atomically and confirmed
+against the remote commit without force-push. A GitHub Release remains a
+separate milestone or paper-archive action.
 
 GitHub Actions repeats the release boundary, engineering-graph, regression and
 frozen-artifact checks on pull requests and `main`. The downloadable Chinese
@@ -243,9 +315,11 @@ failed cleanup can be retried without replaying ingestion. See the
 [image OCR and review contract](operations/IMAGE_OCR.md) and
 [inbox workflow](operations/INBOX.md) for commands and state meanings.
 
-The September 8, 2026 update establishes the `v0.5.0` capability boundary on
-`main`, without creating a tag/Release or changing frozen paper artifacts.
-Future public updates receive an Agent-assessed PATCH, MINOR, or MAJOR increment
+The September 8, 2026 update established the historical `v0.5.0` capability
+boundary on `main` without a tag/Release or a frozen paper-artifact change.
+From `v0.12.0`, every published public-tree version receives an immutable Git
+tag; GitHub Releases remain reserved for explicit milestones and paper archives.
+Public updates receive an Agent-assessed PATCH, MINOR, or MAJOR increment
 based on behavior and compatibility, not diff size. Version preparation records
 the rationale and synchronizes the changelog; publication validation rejects
 unchanged or decreasing versions. Rebuilding the same batch does not bump again.
@@ -256,8 +330,9 @@ and empty content templates, not personal images, Wiki pages, databases, or keys
 ## Paper and code versions
 
 Development continues on `main`, so the repository may advance more quickly
-than the paper. Every paper-associated implementation will be preserved as an
-immutable Git tag and GitHub Release.
+than the paper. Every published public-tree version from `v0.12.0` has an
+immutable Git tag. Paper-associated implementations additionally receive a
+GitHub Release and a frozen artifact boundary.
 
 | Manuscript | Ran-ASKS version | Paper artifact | Status |
 | --- | --- | --- | --- |
@@ -384,22 +459,60 @@ edit requires visible page context; ordinary text editing and compilation do
 not trigger it automatically. See `operations/VISUAL_QA.md` and
 `operations/VISUAL_TO_EDITABLE_PPT.md`.
 
-## Quick start
+## Extraction recovery and evidence-scoped research updates
 
-```bash
-git clone https://github.com/ranshiju/Ran-ASKS.git
-cd Ran-ASKS
-python3 -m pip install -r requirements.txt
-cp .env.example .env
-python3 .scripts/engineering_graph.py validate
-```
+Public PDF extraction can optionally use the official PaddleOCR document-parsing
+API after MinerU fails. Enable `extraction.paddleocr.enabled` in your local
+configuration and set `PADDLEOCR_ACCESS_TOKEN`; a token alone is not upload
+authorization. The extractor also requires `--allow-paddleocr` for that run.
+Private inputs are excluded. Jobs can resume from a source-bound checkpoint;
+requests, polling, downloads, and returned assets have bounded budgets, and
+extraction records retain the backend and fallback reason. Without authorization,
+the enabled PaddleOCR fallback stops rather than silently cascading to another
+engine. See `operations/INGEST.md` for the managed workflow.
 
-Runs on macOS, Linux, and Windows. On Windows, use `python` in place of
-`python3` and see [`docs/WINDOWS.md`](docs/WINDOWS.md) for setup, the two
-optional capabilities that need extra configuration (symbolic links and
-LibreOffice), and the platform behaviour table.
+Frontier keeps answer versions tied to the evidence actually provided and cited.
+Refresh compares the previous answer with newly checked Raw excerpts, prioritizes
+the question's own sources, and reports unreadable or truncated evidence. An
+answer is scoped to that evidence, not a claim that the scientific question is
+finally solved. Reference lists and ordinary expectations are filtered from
+future-work candidates; admission remains a separate semantic judgment.
 
-Configure model backends in `.env` only for workflows that need them. Ingestion
+After an approved Hub split, reconcile the batch maintenance report to verify
+canonical child Scopes, split history, and complete member migration. This
+read-only reconciliation closes only the satisfied handoff, preserves unrelated
+review actions and quality warnings, and synchronizes linked transaction receipts
+without re-ingestion or embedding calls. See `operations/INBOX.md` and
+`operations/HUB.md`.
+
+## Intelligent oral examination (preview)
+
+Oral examination is a persistent state, with preparation, confirmed readiness,
+active examination, pause, and explicit completion. Prepare a reusable scope
+and Raw-backed objectives with `/oral prepare <topic>`, confirm the plan with
+`/oral confirm`, and begin with `/oral start`. Use `/oral pause`, `/oral resume`,
+and `/oral end` for lifecycle control; `/oral status` reads the recorded state.
+Natural-language discussion does not substitute for these control commands.
+
+New plans default to discussion-diagnostic dialogue: students may ask questions,
+and examiners may explain, correct, or guide self-correction with recorded Raw
+evidence. Complete private transcripts support a separate end-of-exam assessment
+of independent understanding and learning after assistance, rather than error
+counts. Confirmed legacy plans keep their original style. API execution requires
+`ORAL_EXAM_BACKEND=api` and per-call sharing authorization, including full-dialogue
+assessment; Agent execution never silently falls back to API.
+
+Read the [user guide](operations/ORAL_EXAM_HELP.md) with `/oral help` or
+`ran-asks oral help`. See [the integration contract](operations/ORAL_EXAM.md)
+for host delivery, private storage, and assessment details. This is a preview,
+not certified grading; real weak-model trials and teacher review remain required.
+Meeting ingestion also preserves unresolved roles without inventing global
+identities and requires archived source evidence for explicit identity repairs.
+
+## Using real material
+
+Copy `.env.example` to `.env` only when a selected workflow needs a model or
+remote extraction backend. Ingestion
 orchestration is selected independently with `INGEST_BACKEND`; API ingestion can
 also assign separate generation and proposition models through
 `INGEST_GENERATION_*` and `INGEST_PROPOSITION_*`, while unset values reuse the
@@ -446,12 +559,16 @@ system.
 
 ## Validation
 
-Run focused checks after a change:
+Run the stable foundation profile after a Core change:
 
 ```bash
-python3 .scripts/test_prompt_audit.py
-python3 .scripts/engineering_graph.py validate
+uv run ran-asks test foundation
 ```
+
+`uv run ran-asks test release` reproduces the public CI gate, while
+`uv run ran-asks test all` discovers all deterministic Python regression
+scripts. Impact analysis still selects the smallest relevant checks during
+normal engineering work.
 
 For release construction and privacy audit, see
 `operations/engineering/open-source-release.md`.

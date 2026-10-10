@@ -12,6 +12,7 @@
 from __future__ import annotations
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -823,6 +824,11 @@ def validate_semantics(state: dict, REPO: Path, allowed_predicates: set[str],
     semantic_path = REPO / state["semantic_path"]
     sem_text = semantic_path.read_text(encoding="utf-8")
     state["slots_content"] = sem_text
+    canonicalized = canonicalize_semantic_abbreviations(sem_text)
+    if canonicalized != sem_text:
+        semantic_path.write_text(canonicalized, encoding="utf-8")
+        sem_text = canonicalized
+        state["slots_content"] = canonicalized
     # 裸缩写三段式第二步: alias 未命中时从 raw 全文查全称,自动补全为 full(ABBR) 格式
     # 论文管道(step_validate_semantics)已有等价逻辑;此处使文档/会议管道共享同一消解能力
     _raw_abbr_map = load_raw_abbr_map(state.get("wiki_path", ""))
@@ -880,7 +886,8 @@ def validate_semantics(state: dict, REPO: Path, allowed_predicates: set[str],
                         "subject": t.get("subject", ""),
                         "object": obj,
                     })
-            if obj and is_descriptive_phrase(obj):
+            if (obj and pred not in graph_ingest.CONCEPT_KW_PREDICATES
+                    and is_descriptive_phrase(obj)):
                 slot_warnings.append({
                     "section": "三元组", "line": f"{t.get('subject','')}|{pred}|{obj}",
                     "issue": "descriptive_phrase",
@@ -1211,13 +1218,13 @@ def progress(*args, **kwargs) -> None:
 # ===== 子进程封装 =====
 
 def run(command: list[str], REPO: Path) -> str:
-    """运行子进程，失败抛 RuntimeError。stdout/stderr 实时打印，返回 stdout。"""
+    """运行子进程，stdout 遵循进度通道，stderr 保持可见，失败抛 RuntimeError。"""
     return run_tracked(command, REPO)
 
 
 def run_tracked(command: list[str], REPO: Path, state: dict | None = None,
                 label: str | None = None) -> str:
-    """运行子进程，失败抛 RuntimeError。stdout/stderr 实时打印，返回 stdout。
+    """运行子进程，stdout 遵循进度通道，stderr 保持可见，返回完整 stdout。
 
     P0 遥测：传入 state+label 时记录 returncode/duration，便于事后定位
     「子进程退出码被静默吞掉」的问题。"""
@@ -1225,7 +1232,7 @@ def run_tracked(command: list[str], REPO: Path, state: dict | None = None,
     result = subprocess.run(command, cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True)
     duration_ms = int((time.monotonic() - start) * 1000)
     if result.stdout:
-        print(result.stdout, end="")
+        progress(result.stdout, end="")
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
     if state is not None and label:
@@ -1352,6 +1359,7 @@ def step_fill_semantics(state: dict, REPO: Path, normalize_fn) -> tuple[bool, st
         return False, "无语义槽内容"
     normalized = normalize_fn(slots_content)
     normalized = remove_no_info_slot_values(normalized)
+    normalized = canonicalize_semantic_abbreviations(normalized)
     semantic_path = REPO / "temp" / "inbox-state" / f"{state['transaction_id']}-semantic.txt"
     semantic_path.parent.mkdir(parents=True, exist_ok=True)
     semantic_path.write_text(normalized, encoding="utf-8", newline="\n")
@@ -1657,6 +1665,46 @@ def autofix_bare_abbreviations(sem_text: str, abbr_map: dict) -> str:
     return sem_text
 
 
+def canonicalize_semantic_abbreviations(sem_text: str) -> str:
+    """Reuse an unambiguous canonical concept name already present in one slot bundle."""
+    candidates: dict[str, set[str]] = {}
+    for line in sem_text.splitlines():
+        for raw_field in line.split("|"):
+            field = raw_field.strip()
+            match = re.search(r"[（(]\s*([A-Z]{2,}[A-Za-z0-9]*)\s*[）)]$", field)
+            if match and field != match.group(1):
+                candidates.setdefault(match.group(1), set()).add(field)
+    canonical = {
+        abbreviation: next(iter(names))
+        for abbreviation, names in candidates.items() if len(names) == 1
+    }
+    if not canonical:
+        return sem_text
+    lines = sem_text.splitlines()
+    changed = False
+    for index, line in enumerate(lines):
+        parts = line.split("|")
+        if len(parts) != 3:
+            continue
+        line_changed = False
+        for field_index in (0, 2):
+            raw_field = parts[field_index]
+            replacement = canonical.get(raw_field.strip())
+            if not replacement:
+                continue
+            leading = raw_field[:len(raw_field) - len(raw_field.lstrip())]
+            trailing_length = len(raw_field) - len(raw_field.rstrip())
+            trailing = raw_field[-trailing_length:] if trailing_length else ""
+            parts[field_index] = f"{leading}{replacement}{trailing}"
+            line_changed = True
+        if line_changed:
+            lines[index] = "|".join(parts)
+            changed = True
+    if changed:
+        return "\n".join(lines) + ("\n" if sem_text.endswith("\n") else "")
+    return sem_text
+
+
 def lightweight_abbr_resolve(REPO: Path) -> dict:
     """Query 后轻量裸缩写消解（只查图 alias，不扫 raw，零 LLM）。
 
@@ -1731,6 +1779,7 @@ def _resume_result_item(state: dict, *, file_name: str = "") -> dict:
         "graph_report": state.get("graph_report"),
         "quality_status": state.get("quality_status"),
         "quality_warnings": state.get("quality_warnings", []),
+        "quality_warning_history": state.get("quality_warning_history", []),
     }
 
 
@@ -1781,12 +1830,14 @@ def run_resume_post_maintenance(state: dict) -> dict | None:
     repo = Path(state.get("repo") or state.get("repo_path") or Path(__file__).resolve().parents[1])
     inbox = repo / "inbox"
     from inbox_plan import fact_entries
+    from inbox_source_policy import is_retained
     skip_files = {".gitkeep", ".DS_Store"}
     pending = [
         path for path in inbox.iterdir()
         if (path.is_file()
             and path.name not in skip_files
             and not path.name.startswith(".")
+            and not is_retained(repo, path)
             and (path.name != "facts-pending.md" or fact_entries(path) > 0))
     ] if inbox.is_dir() else []
     parent_batch = _reconcile_parent_batch_report(repo, state)
@@ -2062,7 +2113,7 @@ def step_finalize_tail(state: dict, REPO: Path, config: dict) -> tuple[bool, str
         build_entry: (ctx) -> str | None — 自定义 index 条目；None 则用默认格式
         skip_index: bool — True 时跳过 index.md 追加（re-ingest 等已有索引场景）
         frontier_capture: bool — 论文成功后限量捕获作者明示开放问题；失败仅 warning
-        frontier_answer: bool — 捕获后在当前 WikiGraph 内非阻断尝试回答；默认 True
+        frontier_answer: bool — API 捕获后非阻断尝试回答；Agent 始终由宿主按需回答
         fingerprint_artifact: (state, REPO) -> {source_path,text_path,source_kind}
     """
     import graph_lib as gl
@@ -2153,17 +2204,32 @@ def step_finalize_tail(state: dict, REPO: Path, config: dict) -> tuple[bool, str
     # 5. Frontier 候选捕获：独立于 ingest 事务，只抓作者明示问题/局限/future work。
     # 失败不得让事实摄入回滚或失败。
     if config.get("frontier_capture") and wiki_page:
+        backend = str(
+            (state.get("agent_workspace") or {}).get("execution_backend")
+            or state.get("semantic_backend") or agent_task.ingest_backend()
+        )
         cmd = [sys.executable, str(REPO / ".scripts/frontier.py"),
                "capture-paper", wiki_page, "--limit", str(config.get("frontier_capture_limit", 3))]
-        if not config.get("frontier_answer", True):
+        if state.get("transaction_id"):
+            cmd.extend(["--transaction-id", state["transaction_id"]])
+        if backend == "agent" or not config.get("frontier_answer", True):
             cmd.append("--no-answer")
         started = time.monotonic()
-        result = subprocess.run(cmd, cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True)
+        result = subprocess.run(
+            cmd, cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True,
+            env={**os.environ, "QUERY_BACKEND": backend},
+        )
         record_subprocess(state, "frontier_capture", cmd, result.returncode,
                           int((time.monotonic() - started) * 1000))
         if result.returncode == 0:
             try:
-                state["frontier_capture"] = json.loads(result.stdout)
+                state["frontier_capture"] = {
+                    **json.loads(result.stdout), "backend": backend,
+                    "answer_policy": (
+                        "host_agent" if backend == "agent" else
+                        "api" if config.get("frontier_answer", True) else "disabled"
+                    ),
+                }
             except json.JSONDecodeError:
                 state["frontier_capture"] = {"status": "degraded", "error": "非 JSON 输出"}
         else:

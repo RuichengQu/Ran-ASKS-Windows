@@ -88,6 +88,33 @@ designates no official domain distribution, and this release does not promise a
 plugin API or Extension Contract. The Markdown and appended PDF page contain
 the same governance update; frozen paper artifacts remain unchanged.
 
+The 2026-10-03 `v0.11.0` update adds bounded, read-only knowledge graph
+visualization, governed slide-template reuse, expanded presentation production
+modes, and stronger evidence-bound meeting ingestion and maintenance recovery.
+Raw remains the factual authority; visualization remains navigation rather than
+evidence, and reusable slide receipts do not imply automatic visual approval.
+The Markdown and appended PDF page contain the same update; frozen paper
+artifacts remain unchanged.
+
+The 2026-10-04 `v0.12.0` update establishes a reproducible first-run and
+verification baseline: an installable `ran-asks` command, a committed `uv`
+lockfile, offline diagnostics, a synthetic Graph-to-Wiki-to-source demo,
+profiled test suites, provider examples, and explicit prompt-injection and data-
+plane threat boundaries. CI installs from the frozen lockfile. Starting with
+this version, every published public-tree version receives an immutable
+annotated Git tag; creating a GitHub Release remains separately authorized.
+The Markdown and appended PDF page contain the same update; frozen paper
+artifacts remain unchanged.
+
+The 2026-10-07 `v0.13.0` update strengthens Agent-mode paper ingestion with a
+single versioned bibliographic/Wiki/semantic workspace, bounded source-line
+evidence for bibliographic values, adaptive section reading, explicit semantic
+predicate roles, and transaction-bound validation and commit handoff. It also
+adds fail-closed inbox-classification evidence checks and persistent reviewed
+concept-identity distinctions. These backward-compatible capabilities do not
+change the Raw/Wiki/Graph boundary or any frozen paper artifact. The Markdown
+and appended PDF page contain the same update.
+
 | Content described in the introduction | Ran-ASKS boundary | Paper artifact | Status |
 | --- | --- | --- | --- |
 | Core method and 56-paper chronological demonstration | `v0.2.0` | `1.0.0` | Frozen arXiv v1 boundary for arXiv:2608.29612 |
@@ -161,6 +188,37 @@ ASKS-Compatible 身份和后续明确授予 Reference Distribution 的公开治�
 当前 GitHub 贡献须回灌受管源仓库后重新发布。Ran-ASKS 目前没有指定官方领域发行版，
 本次更新也不承诺插件 API 或 Extension Contract。Markdown 与 PDF 新增页包含同一
 治理说明，冻结论文产物保持不变。
+
+2026年10月3日的 `v0.11.0` 更新新增有界、只读的知识图可视化、受管幻灯片模板复用、
+扩展的演示文稿生产模式，以及更可靠的证据绑定会议摄入与维护恢复。Raw 仍是事实权威；
+可视化只用于导航，模板复用回执也不代表自动通过视觉审阅。Markdown 与 PDF 新增页
+包含同一更新，冻结论文产物保持不变。
+
+2026年10月4日的 `v0.12.0` 更新建立可复现的首次运行与验证基线：提供可安装的
+`ran-asks` 命令、已提交的 `uv` 锁文件、离线诊断、从 Graph 到 Wiki 再到来源原文的
+合成演示、分层测试、服务商配置示例，以及明确的提示注入和数据平面威胁边界。CI
+严格从锁文件安装。自本版本起，每个已发布的公开树版本获得不可变 annotated Git
+标签；创建 GitHub Release 仍需单独授权。Markdown 与 PDF 新增页包含同一更新，
+冻结论文产物保持不变。
+
+2026年10月7日的 `v0.13.0` 更新强化 Agent 模式论文摄入：使用单一版本化的书目／Wiki／
+语义工作区，为书目值绑定有界来源行证据，按章节自适应阅读论文，显式限制语义谓词角色，
+并让校验与提交接力始终绑定原事务。同时新增失败关闭的 inbox 分类证据检查和持久化的
+概念身份区分。这些能力向后兼容，不改变 Raw／Wiki／Graph 边界或任何冻结论文产物；
+Markdown 与追加的 PDF 页面包含同一更新。
+
+2026年10月10日的 `v0.14.0` 更新新增显式授权的公开 PDF PaddleOCR 官网解析回退、
+按证据范围记录的 Frontier 回答历史与刷新比较，以及 Hub 分裂后的只读维护对账。
+远程提取有恢复检查点和传输预算，private 输入不能使用新增后端；参考文献与普通
+预期不再直接作为未来研究候选。维护对账只闭合已满足的动作，不掩盖其他待审事项。
+Markdown 与追加的 PDF 页面包含同一更新；既有论文实验与冻结产物边界保持不变。
+
+2026年10月10日的 `v0.15.0` 更新新增 preview 智能口试状态：先共同准备并确认有
+知识库依据的范围，再通过明确指令开始、暂停、恢复和结束；独立私有记录保留完整
+对话。新方案默认采用讨论诊断式，允许学生提问、考官纠正和引导自纠，结束后区分
+独立理解与帮助后的学习变化。`/oral help` 提供独立使用帮助。API 外发逐次授权，
+真实模型与教师验收仍必要；会议角色和身份纠正也强化来源约束。这是向后兼容的
+新增能力，Markdown 与追加的 PDF 页面包含同一更新，冻结论文产物保持不变。
 
 | 中文说明涉及的内容 | Ran-ASKS 边界 | 论文数据产物 | 状态 |
 | --- | --- | --- | --- |

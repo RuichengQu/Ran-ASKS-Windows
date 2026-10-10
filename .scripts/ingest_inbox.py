@@ -85,7 +85,6 @@ import ingest_user_assertions
 import source_fingerprints as sf
 import trash_util
 INBOX = REPO / "inbox"
-SKIP_FILES = {".gitkeep", ".DS_Store"}
 
 
 def call_json(*args, **kwargs):
@@ -346,6 +345,19 @@ def reconcile_classification(decision: dict, review: dict) -> tuple[str | None, 
     return str(api_type), ""
 
 
+def _classification_result_template(pending: list[dict]) -> dict:
+    """Build a schema-valid, fail-closed scaffold for the current batch."""
+    return {
+        "decisions": [{
+            "file": item["file"],
+            "doc_type": "ambiguous",
+            "confidence": "low",
+            "reasons": ["证据不足，需根据 review_text 裁决"],
+            "evidence_quotes": [],
+        } for item in pending],
+    }
+
+
 def _classification_task(pending: list[dict], args, issues: list | None = None) -> dict:
     identity = [
         {"file": item["file"], "sha256": hashlib.sha256(
@@ -390,6 +402,7 @@ def _classification_task(pending: list[dict], args, issues: list | None = None) 
         }],
         protocol={
             "name": "inbox-classification-result-v1",
+            "template": _classification_result_template(pending),
             "shape": {"decisions": [{
                 "file": "input file",
                 "doc_type": "allowed_types item or ambiguous",
@@ -397,6 +410,11 @@ def _classification_task(pending: list[dict], args, issues: list | None = None) 
                 "reasons": "1-4 strings",
                 "evidence_quotes": "0-4 exact source quotes",
             }]},
+            "evidence_rules": [
+                "Copy short contiguous snippets from review_text.",
+                "Whitespace and PDF word-internal hyphen line wraps are normalized.",
+                "Do not repair OCR spelling, punctuation, or lexical content inside quotes.",
+            ],
             "validator": "ingest_inbox.classification_review_schema",
         },
         issues=list(issues or []),
@@ -426,16 +444,22 @@ def _validate_agent_classification(path: Path, decision: dict, review: dict) -> 
     if review.get("doc_type") not in allowed_types | {"ambiguous"}:
         raise ValueError(f"{path}: doc_type 不适用于来源格式")
     source = _normalized_evidence_text(decision.get("review_text", ""))
-    if any(
-            quote and _normalized_evidence_text(quote) not in source
-            for quote in review.get("evidence_quotes", [])
-    ):
-        raise ValueError(f"{path}: evidence_quotes 不在分类输入中")
+    invalid = [
+        (index, quote)
+        for index, quote in enumerate(review.get("evidence_quotes", []))
+        if quote and _normalized_evidence_text(quote) not in source
+    ]
+    if invalid:
+        details = "; ".join(
+            f"evidence_quotes[{index}]={quote[:120]!r}" for index, quote in invalid
+        )
+        raise ValueError(f"{path}: 分类引文无法回溯 review_text: {details}")
 
 
 def _normalized_evidence_text(value: str) -> str:
     """Normalize representation noise while preserving lexical evidence."""
     normalized = unicodedata.normalize("NFKC", str(value or ""))
+    normalized = re.sub(r"(?<=\w)-[ \t]*\r?\n[ \t]*(?=\w)", "-", normalized)
     return " ".join(normalized.split())
 
 
@@ -519,13 +543,42 @@ def dsi_tool(file_type: str, rel_path: str, subproject: str,
     return "ingest_document_file", args
 
 
+def _pipeline_script(file_type: str) -> str:
+    return {
+        "paper": "ingest_paper.py",
+        "meeting": "ingest_meeting.py",
+        "document": "ingest_document.py",
+    }.get(file_type, "")
+
+
+def _resume_tool_args(state: dict, *, ocr_result: str | None = None,
+                      allow_remote_ocr: bool = False,
+                      allow_remote_ppt: bool = False) -> tuple[str, dict]:
+    tool = {
+        "ingest_paper.py": "ingest_paper_resume",
+        "ingest_meeting.py": "ingest_meeting_resume",
+        "ingest_document.py": "ingest_document_resume",
+    }.get(str(state.get("pipeline_script") or ""))
+    if not tool:
+        raise ValueError("same-source transaction has unsupported pipeline owner")
+    args = {"txn": str(state.get("transaction_id") or "")}
+    if tool == "ingest_document_resume":
+        if ocr_result:
+            args["ocr_result"] = ocr_result
+        if allow_remote_ocr:
+            args["allow_remote_ocr"] = True
+        if allow_remote_ppt:
+            args["allow_remote_ppt"] = True
+    return tool, args
+
+
 def scan_inbox() -> list[Path]:
     """扫描 inbox/，仅在 facts-pending.md 含事实条目时纳入处理。"""
     if not INBOX.is_dir():
         return []
     files = []
     for p in sorted(INBOX.iterdir()):
-        if not p.is_file() or p.name in SKIP_FILES or p.name.startswith("."):
+        if not p.is_file() or inbox_plan.is_ignored_entry(p):
             continue
         if p.name == "facts-pending.md" and inbox_plan.fact_entries(p) == 0:
             continue
@@ -738,7 +791,7 @@ def _map_paper_batch_results(parsed: dict) -> list[dict]:
                         "transaction_id", "proposition_status", "proposition_details",
                         "bibliographic_worker", "workspace_worker", "relationship_worker",
                         "semantic_repair_worker", "execution_backend",
-                        "quality_status", "quality_warnings"):
+                        "quality_status", "quality_warnings", "quality_warning_history"):
                 if item.get(key) is not None:
                     entry[key] = item[key]
         elif status == "duplicate_found":
@@ -787,6 +840,7 @@ def _result_entry(file_name: str, file_type: str, parsed: dict, content: str = "
             "proposition_details", "bibliographic_worker", "workspace_worker",
             "relationship_worker", "execution_backend",
             "semantic_repair_worker", "quality_status", "quality_warnings",
+            "quality_warning_history",
             "entrypoint", "semantic_backend", "ocr_backend",
         ):
             if parsed.get(key) is not None:
@@ -876,7 +930,7 @@ def stage_external_file(value: str, import_name: str = "") -> tuple[Path, dict]:
     else:
         raise ValueError("--import-file 用于 inbox/ 外附件；已有 inbox 文件请使用 --file")
     name = import_name.strip() or source.name
-    if Path(name).name != name or name.startswith(".") or name in SKIP_FILES:
+    if Path(name).name != name or inbox_plan.is_ignored_entry(Path(name)):
         raise ValueError("--import-name 必须是安全的单文件名")
     digest = _sha256_file(source)
     INBOX.mkdir(parents=True, exist_ok=True)
@@ -927,7 +981,7 @@ def stage_chat_input(*, source: str | None = None, content: bytes | None = None,
     if original is not None and not original.is_file():
         raise ValueError(f"对话附件不存在: {source}")
     name = import_name or (original.name if original else "pasted-document.txt")
-    if (Path(name).name != name or name.startswith(".") or name in SKIP_FILES
+    if (Path(name).name != name or inbox_plan.is_ignored_entry(Path(name))
             or name == "facts-pending.md" or "\\" in name):
         raise ValueError("对话文档名必须是安全的普通文件名")
     if original is None:
@@ -1207,12 +1261,35 @@ def _auto_resolve_abbreviations(session_id: str) -> dict:
 
     base_after = ic.lightweight_abbr_resolve(REPO)
     errors.extend(base_after.get("errors", []))
-    candidates = resolver_report.get("candidates", [])
+    current_entries, current_errors = ic._read_abbreviation_todo(todo_path)
+    errors.extend(current_errors)
+    current_tokens = {
+        str(entry.get("token") or entry.get("value") or "").strip()
+        for entry in current_entries
+        if str(entry.get("token") or entry.get("value") or "").strip()
+    }
+    candidates = [
+        item for item in resolver_report.get("candidates", [])
+        if str(item.get("token") or "").strip() in current_tokens
+    ]
     review_file = ""
+    decision_file = ""
+    next_command = ""
     if candidates:
         review_path = (
             REPO / "temp" / "abbreviation-review" /
             f"{_safe_session_id(session_id)}.json"
+        )
+        decision_path = review_path.with_name(review_path.stem + "-decisions.json")
+        decision_file = str(decision_path.relative_to(REPO))
+        receipt_file = str(
+            (REPO / "temp" / "inbox-maintenance" /
+             f"{_safe_session_id(session_id)}.json").relative_to(REPO)
+        )
+        next_command = (
+            "python3 .scripts/resolve_abbreviations.py "
+            f"--apply-decisions {decision_file} "
+            f"--maintenance-receipt {receipt_file} --json"
         )
         try:
             _write_json_atomic(review_path, {
@@ -1227,6 +1304,15 @@ def _auto_resolve_abbreviations(session_id: str) -> dict:
                     len(item.get("occurrences", [])) for item in candidates
                 ),
                 "candidates": candidates,
+                "decision_file": decision_file,
+                "decision_schema": {
+                    "decisions": [{
+                        "token": "candidate token",
+                        "resolution_kind": "one allowed_resolution_kinds value",
+                        "full_name": "required for alias_to_full_name",
+                    }],
+                },
+                "next_command": next_command,
             })
             review_file = review_path.relative_to(REPO).as_posix()
         except Exception as exc:
@@ -1246,6 +1332,8 @@ def _auto_resolve_abbreviations(session_id: str) -> dict:
     if review_file:
         summary.update({
             "review_file": review_file,
+            "decision_file": decision_file,
+            "next_command": next_command,
             "next_action": "agent_review_abbreviation_candidates",
         })
     if errors:
@@ -1432,6 +1520,29 @@ def compact_maintenance(envelope: dict) -> dict:
     return compact
 
 
+def _validate_people_artifacts(auto_built: dict) -> dict:
+    artifacts = set()
+    for detail in auto_built.get("details", []) if isinstance(auto_built, dict) else []:
+        page_path = str(detail.get("page_path") or "").strip()
+        if page_path:
+            artifacts.add(page_path + ".md")
+        for page in detail.get("updated_link_pages", []) or []:
+            artifacts.add(str(page).removesuffix(".md") + ".md")
+    if not artifacts:
+        return {"status": "no_action", "files": []}
+    command = [
+        sys.executable, str(REPO / ".scripts" / "ingest_check.py"), "--graph",
+        *sorted(artifacts),
+    ]
+    completed = subprocess.run(command, cwd=REPO, text=True, capture_output=True)
+    return {
+        "status": "completed" if completed.returncode == 0 else "error",
+        "files": sorted(artifacts),
+        "returncode": completed.returncode,
+        "output": (completed.stdout or completed.stderr)[-4000:],
+    }
+
+
 def run_post_ingest_maintenance(results: list[dict], session_id: str) -> dict:
     """Run and persist the unified post-ingest maintenance transaction."""
     safe_session = _safe_session_id(session_id)
@@ -1502,6 +1613,16 @@ def run_post_ingest_maintenance(results: list[dict], session_id: str) -> dict:
         try:
             from build_people_pages import build_pending_people
             people_summary["auto_built"] = build_pending_people()
+            people_summary["validation"] = _validate_people_artifacts(
+                people_summary["auto_built"]
+            )
+            if people_summary["validation"]["status"] == "error":
+                people_summary["status"] = "error"
+                people_summary["errors"] = [
+                    "post-maintenance people artifacts failed ingest_check --graph"
+                ]
+            else:
+                people_summary.setdefault("status", "completed")
         except Exception as exc:
             people_summary["auto_built"] = {"error": str(exc)}
     except Exception as exc:
@@ -1528,6 +1649,7 @@ def run_post_ingest_maintenance(results: list[dict], session_id: str) -> dict:
                 "review_file", "candidates_file", "split_candidates_file",
                 "redistribution_candidates_file",
                 "route_review_file",
+                "decision_file", "next_command",
             ):
                 if summary.get(key):
                     action[key] = summary[key]
@@ -1569,6 +1691,38 @@ def run_post_ingest_maintenance(results: list[dict], session_id: str) -> dict:
     return envelope
 
 
+def _reconcile_quality_after_maintenance(record: dict, maintenance: dict) -> None:
+    """Keep warning history while deriving current quality from maintenance state."""
+    current = [
+        dict(warning) for warning in record.get("quality_warnings", [])
+        if isinstance(warning, dict)
+    ]
+    history = [
+        dict(warning) for warning in record.get("quality_warning_history", [])
+        if isinstance(warning, dict)
+    ]
+    seen = {json.dumps(item, ensure_ascii=False, sort_keys=True) for item in history}
+    for warning in current:
+        key = json.dumps(warning, ensure_ascii=False, sort_keys=True)
+        if key not in seen:
+            history.append(warning)
+            seen.add(key)
+    abbreviations = (maintenance.get("components") or {}).get("abbreviations") or {}
+    if (abbreviations.get("status") == "completed"
+            and int(abbreviations.get("remaining_occurrences") or 0) == 0):
+        current = [
+            warning for warning in current
+            if warning.get("issue") != "semantic_bare_abbreviation"
+        ]
+        record["semantic_warnings"] = [
+            warning for warning in record.get("semantic_warnings", [])
+            if not (isinstance(warning, dict) and warning.get("issue") == "bare_abbreviation")
+        ]
+    record["quality_warning_history"] = history
+    record["quality_warnings"] = current
+    record["quality_status"] = "degraded" if current else "complete"
+
+
 def publish_maintenance_report(report_path: Path, report: dict, *,
                                state_overrides: dict | None = None,
                                repo: Path | None = None) -> bool:
@@ -1581,6 +1735,7 @@ def publish_maintenance_report(report_path: Path, report: dict, *,
     updates = []
     report_rel = report_path.relative_to(repo).as_posix()
     checkpoint_written = False
+    receipt_path = None
     try:
         if maintenance.get("receipt_path"):
             receipt_path = (repo / maintenance["receipt_path"]).resolve()
@@ -1588,7 +1743,11 @@ def publish_maintenance_report(report_path: Path, report: dict, *,
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
             if not isinstance(receipt, dict):
                 raise ValueError("maintenance receipt must be an object")
-            maintenance = {**receipt, "receipt_path": receipt_path.relative_to(repo).as_posix()}
+            maintenance = {
+                **receipt,
+                "receipt_path": receipt_path.relative_to(repo).as_posix(),
+                "report_path": report_rel,
+            }
             linked = compact_maintenance({**maintenance, "publication": {"status": "completed"}})
             linked["report_path"] = report_rel
             for item in report.get("files", []):
@@ -1604,6 +1763,8 @@ def publish_maintenance_report(report_path: Path, report: dict, *,
                 item_page = str(item.get("wiki_path") or "").removesuffix(".md")
                 if not state_page or state_page != item_page:
                     raise ValueError(f"maintenance transaction page mismatch: {transaction_id}")
+                _reconcile_quality_after_maintenance(item, maintenance)
+                _reconcile_quality_after_maintenance(state, maintenance)
                 state["maintenance"] = linked
                 updates.append((transaction_id, state))
         report["maintenance"] = {
@@ -1613,10 +1774,16 @@ def publish_maintenance_report(report_path: Path, report: dict, *,
         }
         _write_json_atomic(report_path, report)
         checkpoint_written = True
+        if receipt_path is not None:
+            _write_json_atomic(receipt_path, {
+                **maintenance, "publication": {"status": "pending"},
+            })
         for transaction_id, state in updates:
             inbox_state.save(transaction_id, state)
         report["maintenance"] = {**maintenance, "publication": {"status": "completed"}}
         _write_json_atomic(report_path, report)
+        if receipt_path is not None:
+            _write_json_atomic(receipt_path, report["maintenance"])
         return True
     except (OSError, ValueError) as exc:
         report["maintenance"] = {
@@ -1632,6 +1799,48 @@ def publish_maintenance_report(report_path: Path, report: dict, *,
             except OSError as persist_error:
                 report["maintenance"]["errors"].append(f"publication error checkpoint: {persist_error}")
         return False
+
+
+def _reconcile_split_handoffs(maintenance: dict) -> bool:
+    import hub_semantics
+    hubs = (maintenance.get("components") or {}).get("hubs") or {}
+    if not hubs.get("split_count"):
+        return False
+    split_path = hub_semantics._managed_artifact(
+        str(hubs.get("split_candidates_file") or ""), "temp/hub-auto-split",
+    )
+    if split_path is None or not split_path.is_file():
+        return False
+    candidates = json.loads(split_path.read_text(encoding="utf-8"))
+    if not isinstance(candidates, list) or not candidates or not all(
+        isinstance(item, dict) for item in candidates
+    ):
+        return False
+    graph_path = REPO / "cross-domain/graph.db"
+    if not graph_path.is_file():
+        return False
+    changed = False
+    remaining = 0
+    conn = hub_semantics.gl.connect(graph_path, read_only=True)
+    try:
+        for candidate in candidates:
+            resolution = hub_semantics.completed_split_resolution(conn, candidate)
+            if resolution is None:
+                remaining += 1
+            else:
+                if candidate.get("resolution") != resolution:
+                    candidate["resolution"] = resolution
+                    changed = True
+    finally:
+        conn.close()
+    if changed:
+        _write_json_atomic(split_path, candidates)
+    if remaining != hubs.get("split_count"):
+        hubs["split_count"] = remaining
+        changed = True
+    if changed:
+        hub_semantics._finish_hub_route_action(maintenance, int(hubs.get("route_review_count") or 0))
+    return changed
 
 
 def reconcile_maintenance_report(report_path: Path) -> dict:
@@ -1661,6 +1870,26 @@ def reconcile_maintenance_report(report_path: Path) -> dict:
                     return _compact_summary(closed_report, report_path)
         inbox_state.save(item["transaction_id"], state)
     repaired = json.loads(report_path.read_text(encoding="utf-8"))
+    try:
+        if _reconcile_split_handoffs(repaired.get("maintenance") or {}):
+            receipt_path = hub_semantics._managed_artifact(
+                str(repaired["maintenance"].get("receipt_path") or ""), "temp/inbox-maintenance",
+            )
+            if receipt_path is not None and receipt_path.is_file():
+                _write_json_atomic(receipt_path, repaired["maintenance"])
+    except (OSError, ValueError) as exc:
+        maintenance = repaired.get("maintenance") or {}
+        repaired["maintenance"] = {
+            **maintenance, "status": "error", "retryable": isinstance(exc, OSError),
+            "errors": [*maintenance.get("errors", []), f"split handoff reconciliation failed: {exc}"],
+            "next_action": "reconcile_maintenance_report",
+            "publication": {"status": "error", "report_persisted": True},
+        }
+        try:
+            _write_json_atomic(report_path, repaired)
+        except OSError:
+            repaired["maintenance"]["publication"]["report_persisted"] = False
+        return _compact_summary(repaired, report_path)
     publish_maintenance_report(report_path, repaired)
     return _compact_summary(repaired, report_path)
 
@@ -1707,6 +1936,9 @@ def _compact_summary(report: dict, report_path: Path) -> dict:
                 if isinstance(warning, dict) else {"detail": str(warning)[:240]}
                 for warning in warnings[:5]
             ]
+        history = item.get("quality_warning_history") or []
+        if history:
+            compact["quality_warning_history_count"] = len(history)
         files.append(inbox_state.output_payload(item, compact))
     batch = inbox_state.batch_output_payload(
         items=files,
@@ -2076,8 +2308,35 @@ def main():
         results.append(entry)
         audit("ingest/duplicate_cleanup", entry)
     classified = [item for item in classified if item[2] not in fingerprint_matches]
+    resume_matches = {}
+    resumable_classified = []
+    for f, ftype, rel in classified:
+        pipeline = _pipeline_script(ftype)
+        if not pipeline or ftype == "user-assertions":
+            resumable_classified.append((f, ftype, rel))
+            continue
+        try:
+            match = inbox_state.find_resumable_transaction(
+                rel, pipeline, semantic_backend=backend,
+            )
+        except ValueError as exc:
+            entry = {
+                "file": f.name, "type": ftype, "ok": False,
+                "status": "validation_error", "reason": str(exc),
+                "next_action": "resolve_ambiguous_same_source_transactions",
+            }
+            results.append(entry)
+            audit("ingest/skip", {
+                "file": rel, "status": "validation_error", "reason": str(exc),
+            })
+            continue
+        if match:
+            resume_matches[rel] = match
+        resumable_classified.append((f, ftype, rel))
+    classified = resumable_classified
     paper_batch = (backend == "api" and not args.file and len(classified) > 1 and
                    not classification_blocks and
+                   not resume_matches and
                    all(ftype == "paper" for _, ftype, _ in classified))
     if paper_batch:
         assert loop is not None
@@ -2168,22 +2427,39 @@ def main():
                 })
                 continue
             source_kind = classification_details.get(rel, {}).get("source_kind", "ordinary")
+            resume_state = resume_matches.get(rel)
             if backend == "api":
                 assert loop is not None
-                tool_name, tool_args = dsi_tool(
-                    ftype, rel, args.subproject, document_type=document_type,
-                    source_kind=source_kind,
-                    **ocr_options,
-                )
+                if resume_state:
+                    tool_name, tool_args = _resume_tool_args(resume_state, **ocr_options)
+                else:
+                    tool_name, tool_args = dsi_tool(
+                        ftype, rel, args.subproject, document_type=document_type,
+                        source_kind=source_kind,
+                        **ocr_options,
+                    )
                 content = loop.execute(tool_name, tool_args)
                 parsed = loop.last_structured or _extract_last_json(content)
                 tool_outputs.append({"file": f.name, "tool": tool_name, "output": content})
             else:
-                command = dispatch_command(
-                    ftype, rel, args.subproject, document_type=document_type,
-                    source_kind=source_kind,
-                    **ocr_options,
-                )
+                if resume_state:
+                    command = [
+                        sys.executable,
+                        str(REPO / ".scripts" / resume_state["pipeline_script"]),
+                        "--resume", resume_state["transaction_id"],
+                    ]
+                    if ocr_options.get("ocr_result"):
+                        command.extend(["--ocr-result", ocr_options["ocr_result"]])
+                    if ocr_options.get("allow_remote_ppt"):
+                        command.append("--allow-remote-ppt")
+                    if ocr_options.get("allow_remote_ocr"):
+                        command.append("--allow-remote-ocr")
+                else:
+                    command = dispatch_command(
+                        ftype, rel, args.subproject, document_type=document_type,
+                        source_kind=source_kind,
+                        **ocr_options,
+                    )
                 completed = subprocess.run(
                     command, cwd=REPO, text=True, capture_output=True, check=False,
                 )
@@ -2195,7 +2471,10 @@ def main():
                     "returncode": completed.returncode,
                     "stderr": completed.stderr[-2000:],
                 })
-            results.append(_result_entry(f.name, ftype, parsed, content))
+            result_entry = _result_entry(f.name, ftype, parsed, content)
+            if resume_state:
+                result_entry["resumed_transaction"] = resume_state["transaction_id"]
+            results.append(result_entry)
             audit("ingest/result", {
                 "file": rel, "status": results[-1]["status"],
                 "transaction_id": results[-1].get("transaction_id", ""),

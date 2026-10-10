@@ -270,6 +270,26 @@ def test_extract_engine_warns_on_non_mineru():
             ingest_check.REPO = old_repo
         assert not errors
         assert not any("mineru" in w for w in warnings), f"mineru should not warn, got {warnings}"
+        record = {
+            "source": "paddleocr_official_api", "model": "PaddleOCR-VL-1.6",
+            "task": "doc_parsing", "page_count": 1, "job_id": "job-1",
+            "upload_authorization": "public_pdf", "fallback_reason": "quota",
+            "input_sha256": "a" * 64, "request_sha256": "b" * 64,
+        }
+        for approved in (True, False):
+            if not approved:
+                record.pop("task")
+            import yaml
+            (raw_dir / "parse_meta.yaml").write_text(yaml.safe_dump({
+                "preferred": "paddleocr", "engines": {"paddleocr": record},
+            }), encoding="utf-8")
+            ingest_check.REPO = repo
+            try:
+                errors, warnings = ingest_check.check_file(page, set(), set())
+            finally:
+                ingest_check.REPO = old_repo
+            assert not errors
+            assert any("非 mineru" in warning for warning in warnings) == (not approved)
 
 
 def test_bibliographic_consistency_uses_published_year_and_aps_doi():
@@ -305,6 +325,42 @@ def test_bibliographic_consistency_uses_published_year_and_aps_doi():
             ingest_check.REPO = old_repo
     assert any("published year=2013" in error for error in errors)
     assert any("Phys. Rev. B 88, 035103" in error for error in errors)
+
+
+def test_bibliographic_consistency_accepts_exact_layout_venue_over_stale_scalar():
+    with tempfile.TemporaryDirectory() as directory:
+        repo = Path(directory).resolve()
+        raw_dir = repo / "academic/raw/references/demo"
+        raw_dir.mkdir(parents=True)
+        (raw_dir / "paper.md").write_text("# Demo\n", encoding="utf-8")
+        (raw_dir / "source.yaml").write_text(
+            "bibliographic:\n"
+            "  year: '2007'\n"
+            "  venue: Journal of Physics\n"
+            "  layout_candidates:\n"
+            "    venues:\n"
+            "    - value: Journal of Physics\n"
+            "      evidence: old-layout\n"
+            "  front_matter_blocks:\n"
+            "  - text: 'Journal of Physics: Condensed Matter'\n"
+            "    evidence: pdf_layout_front_matter.page1.block1\n",
+            encoding="utf-8",
+        )
+        page = repo / "academic/wiki/papers/demo.md"
+        page.parent.mkdir(parents=True)
+        fm = {
+            "type": "paper-summary",
+            "sources": ["academic/raw/references/demo/paper.md"],
+            "date": 2007,
+            "venue": "Journal of Physics: Condensed Matter",
+        }
+        old_repo = ingest_check.REPO
+        ingest_check.REPO = repo
+        try:
+            errors = ingest_check.check_bibliographic_consistency(page, fm)
+        finally:
+            ingest_check.REPO = old_repo
+    assert errors == []
 
 
 def test_coverage_anchors_prefer_locked_bibliographic_authors():
@@ -552,6 +608,7 @@ y
 
     test_extract_engine_warns_on_non_mineru()
     test_bibliographic_consistency_uses_published_year_and_aps_doi()
+    test_bibliographic_consistency_accepts_exact_layout_venue_over_stale_scalar()
     test_coverage_anchors_prefer_locked_bibliographic_authors()
     test_coverage_anchors_expand_only_truncated_locked_surname_particle()
     test_locator_aware_page_runs_only_minimal_closed_loop_checks()

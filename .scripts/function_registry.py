@@ -184,7 +184,7 @@ def validate_registry(data: dict[str, Any] | None = None) -> list[str]:
                 raise RegistryError(f"{label}.maturity 非法: {record.get('maturity')}")
             for state_id in _string_list(record.get("states", []), f"{label}.states"):
                 if state_id not in states:
-                    raise RegistryError(f"{label}.states 引用未知状态: {state_id}")
+                    raise RegistryError(f"{label}.states 引用未知工作状态: {state_id}")
             if record["kind"] == "worker":
                 if "user" in audience or backends != ["api"]:
                     raise RegistryError(f"{label} worker 必须是 agent audience 且仅 api backend")
@@ -212,7 +212,7 @@ def validate_registry(data: dict[str, Any] | None = None) -> list[str]:
         route_aliases = _binding_owners(data, "route_task_aliases")
         overlap = sorted((set(route_tasks) | set(route_aliases)) & set(state_route_tasks))
         if overlap:
-            raise RegistryError(f"route task 同时归属状态与功能: {overlap}")
+            raise RegistryError(f"route task 同时归属工作状态与功能: {overlap}")
         _binding_owners(data, "wg")
         dsh_owners = _binding_owners(data, "dsh")
         _route_profiles(data)
@@ -296,6 +296,77 @@ def observed_dsh_tools(data: dict[str, Any] | None = None) -> set[str]:
     return {tool.name for tool in load_dsh_tools(data)}
 
 
+def observed_dsh_tool_names(data: dict[str, Any] | None = None) -> set[str]:
+    """Discover ToolDefinition names without importing optional providers."""
+    data = data if data is not None else load_registry()
+    names: list[str] = []
+    for module_name, _factory_name in dsh_providers(data):
+        path = (REPO / module_name.replace(".", "/")).with_suffix(".py")
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        constants: dict[str, str] = {}
+        for statement in tree.body:
+            if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
+                continue
+            target = statement.targets[0]
+            if isinstance(target, ast.Name):
+                try:
+                    value = ast.literal_eval(statement.value)
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(value, str):
+                    constants[target.id] = value
+        for statement in tree.body:
+            if not isinstance(statement, ast.ImportFrom) or not statement.module:
+                continue
+            imported_path = (REPO / statement.module.replace(".", "/")).with_suffix(".py")
+            if not imported_path.is_file():
+                continue
+            imported_tree = ast.parse(
+                imported_path.read_text(encoding="utf-8"), filename=str(imported_path),
+            )
+            imported_constants = {}
+            for imported_statement in imported_tree.body:
+                if (isinstance(imported_statement, ast.Assign)
+                        and len(imported_statement.targets) == 1
+                        and isinstance(imported_statement.targets[0], ast.Name)):
+                    try:
+                        imported_value = ast.literal_eval(imported_statement.value)
+                    except (ValueError, TypeError):
+                        continue
+                    if isinstance(imported_value, str):
+                        imported_constants[imported_statement.targets[0].id] = imported_value
+            for alias in statement.names:
+                if alias.name in imported_constants:
+                    constants[alias.asname or alias.name] = imported_constants[alias.name]
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            function_name = (
+                node.func.id if isinstance(node.func, ast.Name)
+                else node.func.attr if isinstance(node.func, ast.Attribute) else ""
+            )
+            if function_name != "ToolDefinition":
+                continue
+            keyword = next((item for item in node.keywords if item.arg == "name"), None)
+            value = keyword.value if keyword else (node.args[0] if node.args else None)
+            if isinstance(value, ast.Name) and value.id in constants:
+                names.append(constants[value.id])
+                continue
+            try:
+                name = ast.literal_eval(value)
+            except (ValueError, TypeError):
+                raise RegistryError(
+                    f"{module_name} ToolDefinition.name 必须是字符串常量"
+                ) from None
+            if not isinstance(name, str) or not name:
+                raise RegistryError(f"{module_name} ToolDefinition.name 非法")
+            names.append(name)
+    if len(names) != len(set(names)):
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        raise RegistryError(f"DSH provider 间工具名重复: {duplicates}")
+    return set(names)
+
+
 def _registered_route_tasks(data: dict) -> set[str]:
     tasks = set(_binding_owners(data, "route_tasks")) | set(_binding_owners(data, "route_task_aliases"))
     for state in data["states"].values():
@@ -339,7 +410,7 @@ def validate_runtime(data: dict[str, Any] | None = None) -> list[str]:
                 f"wg command 漂移: missing={sorted(observed_wg - registered_wg)} "
                 f"stale={sorted(registered_wg - observed_wg)}"
             )
-        observed_dsh = observed_dsh_tools(data)
+        observed_dsh = observed_dsh_tool_names(data)
         registered_dsh = set(_binding_owners(data, "dsh"))
         if observed_dsh != registered_dsh:
             errors.append(
@@ -421,9 +492,9 @@ def resolve(function_id: str, *, caller: str, backend: str, state: str = "",
         raise RegistryError(f"{function_id} 不支持 {backend} backend")
     allowed_states = record.get("states") or []
     if state and state not in data["states"]:
-        raise RegistryError(f"未知状态: {state}")
+        raise RegistryError(f"未知工作状态: {state}")
     if state and allowed_states and state not in allowed_states:
-        raise RegistryError(f"{function_id} 不允许在 {state} 状态调用")
+        raise RegistryError(f"{function_id} 不允许在 {state} 工作状态调用")
     bindings = deepcopy(record["bindings"])
     if backend == "agent":
         bindings.pop("dsh", None)
@@ -441,7 +512,7 @@ def resolve(function_id: str, *, caller: str, backend: str, state: str = "",
 
 def render_route_listing(data: dict[str, Any] | None = None) -> str:
     data = data or load_registry()
-    lines = ["持续状态:"]
+    lines = ["工作状态:"]
     for state_id, state in data["states"].items():
         tasks = state.get("route_tasks") or []
         suffix = f" route={','.join(tasks)}" if tasks else ""
@@ -494,7 +565,7 @@ def main(argv: list[str] | None = None) -> int:
     resolve_parser.add_argument("function_id")
     resolve_parser.add_argument("--caller", required=True, choices=sorted(VALID_CALLERS))
     resolve_parser.add_argument("--backend", required=True, choices=sorted(VALID_BACKENDS))
-    resolve_parser.add_argument("--state", default="")
+    resolve_parser.add_argument("--state", default="", help="工作状态类型 ID")
     resolve_parser.add_argument("--format", choices=("yaml", "json"), default="yaml")
 
     validate_parser = sub.add_parser("validate")
@@ -523,7 +594,7 @@ def main(argv: list[str] | None = None) -> int:
                 for error in errors:
                     print(f"- {error}")
             else:
-                print(f"功能注册表有效: {len(data['functions'])} 功能, {len(data['states'])} 状态")
+                print(f"功能注册表有效: {len(data['functions'])} 功能, {len(data['states'])} 工作状态")
             return 1 if errors else 0
     except (OSError, RegistryError, yaml.YAMLError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

@@ -15,7 +15,8 @@ spec 字段：
   finalize_tail_failure  "warn"（失败仍 completed）/ "hard"（失败→failed）
   steps                  dict：dedup_check/preprocess/write_wiki/validate_wiki/
                          write_slots/validate_semantics/repair_slots/finalize/
-                         update_graph/validate_graph/finalize_tail；统一语义 Worker
+                         update_graph/validate_graph/finalize_tail；统一语义 Worker。
+                         可另提供 post_commit_projection，在图校验后、完成态前执行
                          可另提供 prepare_unified_handoff(state, errors, handoff_reason)
 
 step 签名约定：
@@ -24,6 +25,7 @@ step 签名约定：
   write_slots(state)->(bool,str); validate_semantics(state)->(hard,warnings)
   repair_slots(state,warnings)->(bool,str); finalize(state)->(bool,str)
   update_graph(state)->(bool,str); validate_graph(state)->list[str]
+  post_commit_projection(state)->(bool,str)
   finalize_tail(state)->(bool,str)
 """
 from __future__ import annotations
@@ -50,12 +52,18 @@ def _save(state: dict) -> None:
     inbox_state.save(state["transaction_id"], state)
 
 
+def _advance(state: dict, target: str, reason: str) -> None:
+    inbox_state.advance(state, target, reason=reason)
+
+
 def _revisionable_protocol_error(message: str) -> bool:
     text = str(message or "").lower()
     return any(marker in text for marker in (
         "缺少 <<<", "missing <<<", "invalid preprocess json",
         "invalid meeting compiler preprocess proposal",
         "invalid meeting-compiler-v1 preprocess proposal",
+        "invalid meeting ir json", "invalid meeting-compiler-v2 meeting ir",
+        "invalid meeting-compiler-v3 meeting ir", "meeting compiler meeting_ir",
     ))
 
 
@@ -81,7 +89,7 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
         inbox_state.transition(
             state, resume_target, reason="consume_agent_task",
             allowed_targets={"preprocess", "write_wiki", "write_slots", "finalize", "update_graph",
-                             "validate_graph", "finalize_tail", "graph_ready"},
+                             "validate_graph", "post_commit_projection", "finalize_tail", "graph_ready"},
         )
         state["errors"] = []
         _save(state)
@@ -149,7 +157,8 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
                 return state
             resume_status = state.get("pre_handoff_status", "")
             resume_target = resume_status if resume_status in {
-                "finalize", "update_graph", "validate_graph", "finalize_tail", "graph_ready"
+                "finalize", "update_graph", "validate_graph", "post_commit_projection",
+                "finalize_tail", "graph_ready"
             } else "finalize"
             inbox_state.transition(state, resume_target, reason="resume_after_semantic_validation")
             state.pop("agent_required", None)
@@ -164,7 +173,9 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
         _save(state)
 
     # 恢复或手工修复后，落位前全量复验（resume 安全网）
-    if state["status"] in {"finalize", "update_graph", "validate_graph", "finalize_tail", "graph_ready"}:
+    if state["status"] in {
+            "finalize", "update_graph", "validate_graph", "post_commit_projection",
+            "finalize_tail", "graph_ready"}:
         validation_errors = ic.validate_before_commit(
             state, steps["validate_semantics"], spec.get("non_blocking_issues", ()),
             spec.get("record_semantic_warnings"),
@@ -182,11 +193,11 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
         is_dup, msg = steps["dedup_check"](state)
         if is_dup:
             progress(f"  ↳ 已摄入：{msg}", flush=True)
-            state["status"] = "duplicate_found"
+            _advance(state, "duplicate_found", "dedup_match")
             _save(state)
             return state
         progress("  ↳ 未摄入，继续", flush=True)
-        state["status"] = "preprocess"
+        _advance(state, "preprocess", "dedup_clear")
         _save(state)
 
     # 3.2 preprocess
@@ -197,12 +208,12 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
             if agent_task.is_prepared(state):
                 _save(state)
                 return state
-            state["status"] = "failed"
+            _advance(state, "failed", "preprocess_failed")
             state["errors"] = [msg]
             _save(state)
             return state
         progress("完成", flush=True)
-        state["status"] = "write_wiki"
+        _advance(state, "write_wiki", "preprocess_completed")
         _save(state)
 
     # 3.3-3.6 两阶段循环
@@ -223,11 +234,11 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
                 return state
             if state.get("agent_required"):
                 state["pre_handoff_status"] = "write_wiki"
-                state["status"] = "agent_required"
+                _advance(state, "agent_required", "wiki_agent_handoff")
                 _save(state)
                 return state
             if state.get("type_mismatch"):
-                state["status"] = "type_mismatch"
+                _advance(state, "type_mismatch", "source_type_mismatch")
                 state["errors"] = [msg]
                 _save(state)
                 return state
@@ -250,7 +261,7 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
                         ) if prepare_handoff else (False, "")
                     )
                     if prepared:
-                        state["status"] = "agent_required"
+                        _advance(state, "agent_required", "wiki_protocol_revision_exhausted")
                         state["pre_handoff_status"] = "write_wiki"
                         state["agent_required"] = True
                         state["errors"] = [str(msg)]
@@ -258,7 +269,7 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
                         return state
                     if prepare_handoff:
                         state["errors"] = [prepare_msg or "统一语义 Worker handoff 准备失败"]
-                state["status"] = "failed"
+                _advance(state, "failed", "wiki_generation_failed")
                 _save(state)
                 return state
             progress("[3.4] wiki结构校验...", flush=True, end=" ")
@@ -272,7 +283,7 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
                     if spec.get("unified_semantic_worker"):
                         prepare_handoff = steps.get("prepare_unified_handoff")
                         if prepare_handoff is None:
-                            state["status"] = "failed"
+                            _advance(state, "failed", "missing_unified_handoff_contract")
                             state["errors"] = [
                                 "unified_semantic_worker 缺少 prepare_unified_handoff 契约"
                             ]
@@ -282,18 +293,18 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
                             state, wiki_errors, "wiki_revision_budget_exhausted",
                         )
                         if not prepared:
-                            state["status"] = "failed"
+                            _advance(state, "failed", "unified_handoff_prepare_failed")
                             state["errors"] = [prepare_msg or "统一语义 Worker handoff 准备失败"]
                             _save(state)
                             return state
-                        state["status"] = "agent_required"
+                        _advance(state, "agent_required", "wiki_revision_budget_exhausted")
                         state["pre_handoff_status"] = "write_wiki"
                         state["agent_required"] = True
                         state["errors"] = wiki_errors
                         _save(state)
                         return state
                     wiki_path = Path(state.get("extract_dir", "")) / "wiki.md"
-                    state["status"] = "agent_required"
+                    _advance(state, "agent_required", "wiki_manual_revision_required")
                     state["pre_handoff_status"] = "write_wiki"
                     state["agent_required"] = True
                     state["_awaiting_agent_wiki"] = True
@@ -311,7 +322,7 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
                     state["compiler_errors"] = list(wiki_errors)
                 _save(state)
                 continue
-            state["status"] = "write_slots"
+            _advance(state, "write_slots", "wiki_validated")
             _save(state)
         # 第二阶段：写语义槽
         if state.get("slots_retry", 0) == 0:
@@ -325,7 +336,7 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
             return state
         if state.get("agent_required"):
             state["pre_handoff_status"] = "write_slots"
-            state["status"] = "agent_required"
+            _advance(state, "agent_required", "semantic_agent_handoff")
             _save(state)
             return state
         if not success:
@@ -336,7 +347,7 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
                 state["slots_content"] = ""
                 _save(state)
                 continue
-            state["status"] = "failed"
+            _advance(state, "failed", "semantic_generation_failed")
             _save(state)
             return state
         progress("完成", flush=True)
@@ -375,7 +386,7 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
                 _save(state)
                 return state
             if state.get("agent_required"):
-                state["status"] = "agent_required"
+                _advance(state, "agent_required", "semantic_repair_handoff")
                 _save(state)
                 return state
             if repaired:
@@ -386,7 +397,8 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
         _save(state)
         if not sem_hard and not slot_warnings:
             state["errors"] = []
-            state["status"] = "finalize"
+            _advance(state, "finalize", "semantics_validated")
+            _save(state)
             break
         # 结构错误早停
         if sem_hard:
@@ -401,10 +413,10 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
                 if spec.get("unified_semantic_worker"):
                     state["wiki_content"] = ""
                     state["compiler_errors"] = list(sem_hard)
-                    state["status"] = "write_wiki"
+                    _advance(state, "write_wiki", "unified_semantic_revision")
                     progress("  ↳ 语义槽硬错误，回到统一语义 Worker 定向重写", flush=True)
                 else:
-                    state["status"] = "write_slots"
+                    _advance(state, "write_slots", "semantic_revision")
                     progress("  ↳ 语义槽硬错误，启动一次受限定向重写", flush=True)
                 _save(state)
                 continue
@@ -416,7 +428,7 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
             if recovered:
                 progress("  ↳ bounded semantic recovery 通过复验", flush=True)
                 state["errors"] = []
-                state["status"] = "finalize"
+                _advance(state, "finalize", "semantic_recovery_validated")
                 _save(state)
                 break
             progress(f"  ↳ 语义槽结构错误 {len(sem_hard)} 个，停止重复生成并交接修复", flush=True)
@@ -438,12 +450,12 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
         progress("\n[落位] 原子复制 raw/wiki 到最终目录...", flush=True, end=" ")
         success, msg = steps["finalize"](state)
         if not success:
-            state["status"] = "failed"
+            _advance(state, "failed", "finalize_failed")
             state["errors"] = [msg]
             _save(state)
             return state
         progress("完成", flush=True)
-        state["status"] = "update_graph"
+        _advance(state, "update_graph", "artifacts_finalized")
         _save(state)
 
     # 3.7 update_graph
@@ -451,7 +463,7 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
         progress("[3.7] 写图边（graph_ingest）...", flush=True, end=" ")
         success, msg = steps["update_graph"](state)
         if not success:
-            state["status"] = "failed"
+            _advance(state, "failed", "graph_update_failed")
             if spec.get("rollback_fn"):
                 rolled = spec["rollback_fn"](state)
                 state["resume_from"] = "finalize"
@@ -461,12 +473,13 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
                 state["reingest"] = True
                 state["errors"] = [msg]
             else:
+                state["resume_from"] = "graph_ready"
                 state["errors"] = [msg]
             _save(state)
             return state
         report = state.get("graph_report", {})
         progress(f"完成（{report.get('edges_added', '?')}条边）", flush=True)
-        state["status"] = "validate_graph"
+        _advance(state, "validate_graph", "graph_updated")
         _save(state)
 
     # 3.8 validate_graph
@@ -477,11 +490,11 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
             progress(f"{len(graph_errors)}个错误", flush=True)
             if spec.get("rollback_fn"):
                 rolled = spec["rollback_fn"](state)
-                state["status"] = "failed"
+                _advance(state, "failed", "graph_validation_failed_with_rollback")
                 state["resume_from"] = "finalize"
                 state["errors"] = graph_errors + [f"已回滚落位: {', '.join(rolled)}"]
             else:
-                state["status"] = "failed"
+                _advance(state, "failed", "graph_validation_failed")
                 state["errors"] = graph_errors
                 if spec.get("retry_graph_with_clean"):
                     state["resume_from"] = "graph_ready"
@@ -489,17 +502,37 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
             _save(state)
             return state
         progress("PASS", flush=True)
-        state["status"] = "finalize_tail"
+        _advance(
+            state,
+            "post_commit_projection" if steps.get("post_commit_projection") else "finalize_tail",
+            "graph_validated",
+        )
         _save(state)
 
-    # 3.9 finalize_tail
+    # 3.9 optional same-transaction post-commit projection
+    if state["status"] == "post_commit_projection":
+        progress("[3.9] 同步项目投影...", flush=True, end=" ")
+        projection_ok, projection_msg = steps["post_commit_projection"](state)
+        if not projection_ok:
+            progress(f"失败: {projection_msg}", flush=True)
+            _advance(state, "failed", "post_commit_projection_failed")
+            state["resume_from"] = "post_commit_projection"
+            state["errors"] = [projection_msg]
+            _save(state)
+            return state
+        progress("完成", flush=True)
+        state["errors"] = []
+        _advance(state, "finalize_tail", "post_commit_projection_completed")
+        _save(state)
+
+    # 3.10 finalize_tail
     if state["status"] == "finalize_tail":
-        progress("[3.9] 收尾（log/index/派生同步）...", flush=True, end=" ")
+        progress("[3.10] 收尾（log/index/派生同步）...", flush=True, end=" ")
         tail_ok, tail_msg = steps["finalize_tail"](state)
         if not tail_ok:
             if spec.get("finalize_tail_failure") == "hard":
                 progress(f"失败: {tail_msg}", flush=True)
-                state["status"] = "failed"
+                _advance(state, "failed", "finalize_tail_failed")
                 state["errors"] = [tail_msg]
                 _save(state)
                 return state
@@ -510,11 +543,11 @@ def run_pipeline(state: dict, spec: dict, progress) -> dict:
         completion_errors = ic.validate_completion(state, REPO)
         if completion_errors:
             progress(f"完成校验失败: {len(completion_errors)}个错误", flush=True)
-            state["status"] = "failed"
+            _advance(state, "failed", "completion_validation_failed")
             state["errors"] = completion_errors
             _save(state)
             return state
-        state["status"] = "completed"
+        _advance(state, "completed", "completion_validated")
         state["cleanup_pending"] = spec.get("cleanup_after") in {"validate_graph", "finalize_tail"}
         _save(state)
         if state["cleanup_pending"]:

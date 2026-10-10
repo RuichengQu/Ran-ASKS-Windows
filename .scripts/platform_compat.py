@@ -73,6 +73,27 @@ def exclusive_lock(handle):
 # 2. 子进程
 # --------------------------------------------------------------------------
 
+# os.O_NOFOLLOW 是 POSIX 专有的。Windows 上取 0（无此位），打开行为不变；
+# 防符号链接逃逸因此只能靠调用方显式的 is_symlink() 检查 —— 调用方本来就有。
+O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+
+
+def fsync_directory(path) -> None:
+    """把目录项刷到盘上，保证 os.replace 之后的重命名可持久。
+
+    Windows 打不开目录来 fsync（os.open 会抛 PermissionError），只能跳过。
+    代价要说清楚：Windows 上「文件已原子替换」仍然成立，但「重命名已落盘」
+    在掉电时没有保证。这是平台能力差异，不是可以靠写法绕开的。
+    """
+    if IS_WINDOWS:
+        return
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def utf8_env(extra: dict | None = None) -> dict:
     """返回强制子进程以 UTF-8 读写标准流的环境变量副本。"""
     env = os.environ.copy()

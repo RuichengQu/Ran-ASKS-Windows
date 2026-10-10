@@ -593,6 +593,33 @@ def test_ingest_dispatch_parameter_contract():
     assert "不能派发论文模板" in bad.stderr
 
 
+def test_paper_update_dispatch_keeps_local_changes_out_of_full_compilation():
+    for backend in ("agent", "api"):
+        env = dict(os.environ, INGEST_BACKEND=backend)
+        command = [
+            "python3", ".scripts/route.py", "--task", "ingest",
+            "--subproject", "academic", "--mode", "update",
+            "--content", "paper", "--source-kind", "ordinary",
+        ]
+        warmup = subprocess.run(
+            [*command, "--context-warmup", "--format", "json"],
+            cwd=REPO, capture_output=True, text=True, check=True, env=env,
+        )
+        payload = json.loads(warmup.stdout)
+        assert "--mode update" in payload["entrypoint"]
+        assert "--context-warmup" not in payload["entrypoint"]
+        assert "wg.py ingest" not in payload["entrypoint"]
+        assert "局部" in payload["focus"]
+        assert payload["backend"] == backend
+        assert len(warmup.stdout) < 1800
+        routed = subprocess.run(command, cwd=REPO, capture_output=True,
+                                text=True, check=True, env=env)
+        assert "增量" in routed.stderr
+        assert "re_ingest.py --raw" in routed.stderr
+        assert "ingest_paper.py --raw" not in routed.stderr
+        assert "更新模式 — 执行步骤" in routed.stdout
+
+
 def test_ingest_context_warmup_is_compact_complete_and_profiled():
     env = os.environ.copy()
     env["INGEST_BACKEND"] = "agent"
@@ -713,7 +740,7 @@ def test_task_specific_execution_guidance_is_dispatched():
 
 def test_state_capability_tool_dispatch_is_explicit():
     listing = run(sys.executable, ".scripts/route.py", "--list").stdout
-    assert "持续状态:" in listing
+    assert "工作状态:" in listing
     assert "research: 研究工作 route=research" in listing
     assert "可路由任务:" in listing
     assert "按需能力:" in listing
@@ -723,7 +750,7 @@ def test_state_capability_tool_dispatch_is_explicit():
     assert "task/state" not in listing
 
     research = run(sys.executable, ".scripts/route.py", "--task", "research").stdout
-    assert "research 是持续状态，write 是按需能力" in research
+    assert "research 是工作状态，write 是按需能力" in research
     assert "--capability write --capability-profile academic" in research
 
     academic_write = run(
@@ -924,10 +951,14 @@ def test_ingest_route_guardrails():
          "--content", "paper", "--stage", "1"),
         cwd=REPO, capture_output=True, text=True, env=api_env,
     )
-    # API 后端路由断言：ingest_paper.py --raw 代码驱动流水线（已替代旧 api_ingest.py 证据卡路径）
-    assert "ingest_paper.py --raw" in api_routed.stderr
-    assert "INGEST_BACKEND=api" in api_routed.stderr
-    assert "代码驱动" in api_routed.stderr
+    # API 与 Agent 共用输入分流；新文件和已归档 Raw 的整篇编译入口各自明确。
+    assert api_routed.returncode == 0
+    assert "wg.py ingest <file>" in api_routed.stderr
+    assert "re_ingest.py --raw" in api_routed.stderr
+    assert "ingest_paper.py --raw" not in api_routed.stderr
+    assert "[ingest 后端]" in api_routed.stderr
+    assert "LLM=API" in api_routed.stderr
+    assert "API 由对应 adapter 执行" in api_routed.stderr
     batch_routed = run(
         sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
         "--mode", "batch", "--content", "paper",
@@ -1145,6 +1176,7 @@ if __name__ == "__main__":
     test_non_agent_backend_notices_every_stage()
     test_ingest_dispatch_parameter_contract()
     test_ingest_context_warmup_is_compact_complete_and_profiled()
+    test_paper_update_dispatch_keeps_local_changes_out_of_full_compilation()
     test_task_specific_execution_guidance_is_dispatched()
     test_state_capability_tool_dispatch_is_explicit()
     test_query_stage_dispatch()

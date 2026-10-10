@@ -7,6 +7,153 @@ manifests and checksums.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-10
+
+### Version decision / 版本判断
+
+- MINOR: Add backward-compatible preview oral-examination plans, explicit lifecycle, discussion-diagnostic dialogue and complete-transcript assessment
+- MINOR（中文）：新增向后兼容的 preview 智能口试方案、显式生命周期、讨论诊断式互动与完整对话评估
+
+### Highlights
+
+- Added a preview intelligent oral-examination state with reusable, evidence-backed
+  preparation plans, explicit start/pause/resume/end commands, isolated private
+  records, complete transcripts, and separate Agent/API controllers.
+- Made discussion-diagnostic dialogue the default for new plans: students may
+  ask questions, examiners may correct or guide self-correction, and final
+  assessment distinguishes independent understanding from learning after help.
+  Confirmed legacy plans retain their original rules.
+- Added a standalone `/oral help` guide and strengthened source-bound meeting
+  identity corrections, unresolved-role handling, and transaction-footnote binding.
+  API sharing remains explicitly authorized per call; model-quality acceptance
+  still requires real trials and teacher review.
+
+### 主要更新
+
+- 新增 preview 智能口试状态：支持有知识库依据的可复用准备方案、显式开始／暂停／
+  恢复／结束指令、私有隔离记录与完整对话，Agent 与 API 分别持有控制循环。
+- 新方案默认采用讨论诊断式，允许学生提问、考官纠正和引导自纠；结束后基于完整
+  对话区分独立理解与帮助后的学习变化，已确认的旧方案保留原规则。
+- 新增独立 `/oral help` 使用帮助，并强化会议身份纠正的来源依据、未确认角色处理
+  与事务脚注绑定。API 外发仍需逐次授权；模型质量仍需真实试用与教师验收。
+
+## [0.14.0] - 2026-10-10
+
+### Version decision / 版本判断
+
+- MINOR: Add backward-compatible opt-in PDF extraction recovery, evidence-scoped Frontier answer history, and post-split Hub maintenance reconciliation
+- MINOR（中文）：新增向后兼容的显式授权 PDF 提取恢复、按证据范围记录的 Frontier 回答历史与 Hub 分裂后维护对账
+
+### Highlights
+
+- Added an opt-in official PaddleOCR document-parsing fallback for public PDFs,
+  with per-run upload authorization, resumable jobs, bounded network transfers,
+  and retained extraction provenance; private material cannot use this backend.
+- Added evidence-scoped Frontier answer history and refresh comparison, with
+  source-first retrieval and exact Raw excerpts. Reference lists and ordinary
+  expectations no longer masquerade as author-proposed future research.
+- Closed post-split Hub maintenance handoffs through read-only membership and
+  Scope-history reconciliation, preserving unrelated review actions and warnings.
+- Hardened ingestion and navigation around source-bound paper evidence,
+  incompatible graph-node identities, temporal provenance, and failure recovery.
+
+### 主要更新
+
+- 新增面向公开 PDF、显式启用的 PaddleOCR 官网文档解析回退，要求逐次上传授权，
+  支持任务恢复、有界网络传输和提取来源记录；private 材料禁止使用该后端。
+- 新增按证据范围记录的 Frontier 回答历史与刷新比较，优先读取问题来源并使用
+  精确 Raw 摘录；过滤参考文献和普通预期，减少将它们误判为作者未来研究的情况。
+- 通过只读核验成员迁移与 Scope 历史，闭合 Hub 分裂后的维护交接，同时保留其他
+  待审动作和独立质量告警。
+- 强化摄入与导航中的论文来源证据、不兼容图节点身份、时间来源及失败恢复边界。
+
+## [0.13.0] - 2026-10-07
+
+### Version decision / 版本判断
+
+- MINOR: Add backward-compatible evidence-bound Agent paper workspaces and persistent concept-identity governance
+- MINOR（中文）：新增向后兼容的证据绑定 Agent 论文工作区与持久概念身份治理
+
+### Highlights
+
+- Strengthened Agent-mode paper ingestion with a single versioned
+  `BIBLIOGRAPHIC`/`WIKI`/`SLOTS` workspace, source-line evidence for every
+  non-empty bibliographic field, adaptive paper reading, explicit semantic
+  predicate roles, and transaction-bound validation and commit handoff.
+- Added fail-closed inbox-classification evidence checks and persistent
+  concept-identity distinctions that are applied before embedding-based
+  resolution, preventing reviewed names from being merged again.
+
+### 主要更新
+
+- 强化 Agent 模式论文摄入：使用单一版本化的
+  `BIBLIOGRAPHIC`／`WIKI`／`SLOTS` 工作区，要求每个非空书目字段绑定来源行证据，
+  支持自适应论文阅读、显式语义谓词角色，以及与原事务绑定的校验和提交接力。
+- 新增失败关闭的 inbox 分类引文检查，并持久保存概念身份区分，在 embedding
+  身份解析前优先应用，避免已人工确认不同的名称再次被合并。
+
+## [0.12.0] - 2026-10-04
+
+### Version decision / 版本判断
+
+- MINOR: Add reproducible installation, offline first-run diagnostics and demo, unified tests, explicit threat modeling, and immutable version tags
+- MINOR（中文）：新增可复现安装、离线首次运行诊断与演示、统一测试、显式威胁模型和不可变版本标签
+
+### Highlights
+
+- Added a reproducible `uv`-locked Python package with the `ran-asks` command,
+  offline first-run diagnostics, a synthetic evidence-trace demo, and unified
+  profiled test suites.
+- Added explicit prompt-injection and data-plane threat boundaries, evaluated
+  provider profile examples, and frozen CI installation from the committed
+  lockfile.
+- Added declarative ingest transition enforcement, hash-bound final verification
+  receipts with read-only status/next/verify commands, and an offline synthetic
+  weak-model protocol governance exam.
+- From `v0.12.0`, every published public-tree version receives an immutable
+  annotated Git tag; pushing publishes the branch and tag atomically, while a
+  GitHub Release remains a separate explicitly authorized action.
+
+### 主要更新
+
+- 新增由 `uv` 锁定的可复现 Python 包与 `ran-asks` 命令，并提供离线首次运行诊断、
+  合成证据回溯演示和统一的分层测试入口。
+- 新增显式的提示注入与数据平面威胁边界、经评估的服务商配置示例，以及基于已提交
+  锁文件的冻结 CI 安装。
+- 新增声明式摄入状态转换校验、带哈希绑定的最终复验回执与只读 status/next/verify
+  命令，并加入离线合成的弱模型协议治理试卷。
+- 自 `v0.12.0` 起，每个已发布的公开树版本都获得不可变 annotated Git 标签；推送时
+  原子发布分支与标签，而 GitHub Release 仍是需要单独明确授权的动作。
+
+## [0.11.0] - 2026-10-03
+
+### Version decision / 版本判断
+
+- MINOR: Add backward-compatible knowledge graph visualization, governed slide-library reuse, expanded presentation generation modes, and stronger evidence-bound meeting ingestion and maintenance recovery.
+- MINOR（中文）：新增向后兼容的知识图可视化、受管幻灯片模板复用、扩展演示文稿生成模式，并强化证据绑定的会议摄入与维护恢复。
+
+### Highlights
+
+- Added bounded, source-aware knowledge graph visualization through
+  `wg.py graph-visualize`, with topic, neighborhood, and relation filters plus
+  local provenance output.
+- Added governed reusable slide-template management through
+  `wg.py slide-library`, distinguishing direct reuse from parameterized
+  adaptation while preserving source and version receipts.
+- Expanded native presentation production modes and strengthened
+  evidence-bound meeting compilation, final-decision handling,
+  student-guidance projection, people-page provenance, and recoverable
+  maintenance publication.
+
+### 主要更新
+
+- 新增通过 `wg.py graph-visualize` 使用的有界、来源感知知识图可视化，支持主题、
+  邻域和关系筛选，并输出本地 provenance。
+- 新增通过 `wg.py slide-library` 使用的受管幻灯片模板管理，区分直接复用与参数化
+  适配，同时保留来源和版本回执。
+- 扩展原生演示文稿生产模式，并强化证据绑定的会议编译、最终决议处理、学生指导
+  投影、人物页 provenance 与可恢复的维护发布。
+
 ## [0.10.0] - 2026-09-26
 
 ### Version decision / 版本判断
@@ -287,10 +434,18 @@ manifests and checksums.
 - Initial public Ran-ASKS release with the source-available engineering
   template and frozen paper artifact `1.0.0`.
 
-[Unreleased]: https://github.com/ranshiju/Ran-ASKS/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/ranshiju/Ran-ASKS/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/ranshiju/Ran-ASKS/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/ranshiju/Ran-ASKS/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/ranshiju/Ran-ASKS/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/ranshiju/Ran-ASKS/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.2.0
+
+[0.12.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.12.0
+
+[0.13.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.13.0
+
+[0.14.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.14.0
+
+[Unreleased]: https://github.com/ranshiju/Ran-ASKS/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.15.0

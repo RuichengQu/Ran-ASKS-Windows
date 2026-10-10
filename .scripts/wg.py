@@ -31,6 +31,9 @@ workspace_state.py / research_memory.py / query_actions.py / source_locator.py�
   wg.py ingest <file> --subproject admin [--allow-remote-ocr]
   wg.py ingest --resume <transaction-id>
   wg.py task inspect <transaction-id>
+  wg.py task status <transaction-id>
+  wg.py task next <transaction-id>
+  wg.py task verify <transaction-id>
   wg.py task advance <transaction-id>
   wg.py task run <transaction-id> --task-command check|commit|resume|refresh|read
   wg.py abbr <term>
@@ -350,6 +353,37 @@ def cmd_task(args):
             f"task.{args.task_action}", None, status="error",
             error=f"事务不存在: {args.transaction_id}",
         )
+    if args.task_action == "status":
+        return envelope("task.status", inbox_state.operation_view(state, REPO))
+    if args.task_action == "verify":
+        receipt = inbox_state.verify_receipt(state, REPO)
+        if receipt["status"] == "PASS":
+            return envelope("task.verify", receipt)
+        return envelope(
+            "task.verify", receipt,
+            status="empty" if receipt["status"] == "INCOMPLETE" else "error",
+            ok=False,
+            error=str(receipt.get("error") or "事务尚未形成可验证的最终回执"),
+        )
+    if args.task_action == "next":
+        operation = inbox_state.operation_view(state, REPO)
+        result = {
+            "schema": "ingest-next-action-v1",
+            "transaction_id": operation["transaction_id"],
+            "workflow_status": operation["workflow_status"],
+            "internal_status": operation["internal_status"],
+            "next_action": operation["next_action"],
+            "allowed_actions": operation["allowed_actions"],
+            "artifact_refs": operation["artifact_refs"],
+        }
+        if isinstance(state.get("agent_task"), dict):
+            try:
+                control = agent_task.control_view(state, REPO)
+            except ValueError as exc:
+                return envelope("task.next", result, status="error", error=str(exc))
+            result["next_action"] = control["next_action"]
+            result["missing_outputs"] = control["missing_outputs"]
+        return envelope("task.next", result)
     try:
         view = agent_task.control_view(state, REPO)
     except ValueError as exc:
@@ -435,6 +469,13 @@ def cmd_remember(args):
                     sources=[], status="ok")
 
 
+def cmd_oral(args):
+    import oral_exam
+    parsed = oral_exam.build_parser().parse_args(args.oral_args)
+    result = oral_exam.run(parsed)
+    return envelope("oral", result, status="ok" if result.get("ok") else "error", ok=result.get("ok", True))
+
+
 def cmd_workspace(args):
     """Generic workspace-state thin wrapper; the target script owns its schema."""
     command = [sys.executable, str(SCRIPTS / "workspace_state.py"), *args.workspace_args]
@@ -459,6 +500,31 @@ def cmd_workspace(args):
     return envelope("workspace", {"command": args.workspace_args, "output": result},
                     sources=[], status="ok" if ok else "error", ok=ok,
                     error="" if ok else "workspace doctor reported errors")
+
+
+def cmd_library_or_graph(args):
+    """Expose deterministic functions through the standard WG result envelope."""
+    if args.cmd == 'slide-library':
+        script, forwarded = 'slide_library.py', args.library_args
+    else:
+        script, forwarded = 'graph_visualize.py', []
+        for field in ('output','graph','node','query','radius','max_nodes','max_edges','predicates','types','dpi'):
+            value = getattr(args, field, None)
+            if value is not None:
+                forwarded.extend(['--'+field.replace('_','-'), str(value)])
+        forwarded.extend('--'+field for field in ('html','sim','open') if getattr(args,field,False))
+    rc,out,err = run_script([sys.executable,str(SCRIPTS/script),*forwarded])
+    try:
+        result = json.loads(out)
+    except json.JSONDecodeError:
+        return envelope(args.cmd, None, status='error', error=(err or out or 'No JSON result').strip()[:500])
+    failed = rc != 0 or (isinstance(result,dict) and result.get('status') == 'error')
+    sources = []
+    if isinstance(result,dict):
+        sources = list(result.get('sources', []))
+        sources.extend(result[k] for k in ('source','manifest') if isinstance(result.get(k),str))
+    return envelope(args.cmd,result,sources=sources,status='error' if failed else 'ok',ok=not failed,
+                    error=(result.get('error') or err.strip())[:500] if failed and isinstance(result,dict) else '')
 
 
 def cmd_cv(args):
@@ -617,8 +683,11 @@ def build_parser():
                    help="显式授权单张图片上传 GLM OCR API")
     p.set_defaults(func=cmd_ingest)
 
-    p = sub.add_parser("task", help="跨 Agent 的受管任务 inspect/advance/action 入口")
-    p.add_argument("task_action", choices=("inspect", "advance", "run"))
+    p = sub.add_parser("task", help="摄入事务只读状态/校验与跨 Agent 受管推进入口")
+    p.add_argument(
+        "task_action",
+        choices=("inspect", "status", "next", "verify", "advance", "run"),
+    )
     p.add_argument("transaction_id")
     p.add_argument("--task-command", default="read",
                    choices=("read", "check", "commit", "resume", "refresh"),
@@ -637,6 +706,10 @@ def build_parser():
     p.add_argument("workspace_args", nargs=argparse.REMAINDER,
                    help="传给 workspace_state.py 的子命令与参数")
     p.set_defaults(func=cmd_workspace)
+
+    p = sub.add_parser("oral", help="智能口试：准备方案、显式状态、完整记录和受管 Agent/API 回合")
+    p.add_argument("oral_args", nargs=argparse.REMAINDER)
+    p.set_defaults(func=cmd_oral)
 
     p = sub.add_parser("cv", help="简历状态、校验、日期版本生成与差异比较")
     p.add_argument("cv_args", nargs=argparse.REMAINDER,
@@ -684,7 +757,15 @@ def build_parser():
     fp.add_argument("--no-answer", action="store_true")
     fp.set_defaults(func=cmd_frontier)
 
-    p = sub.add_parser("functions", help="统一功能、状态和调用策略目录")
+    p = sub.add_parser('slide-library', help='PPT模板管理与复用')
+    p.add_argument('library_args', nargs=argparse.REMAINDER)
+    p.set_defaults(func=cmd_library_or_graph)
+    import graph_visualize
+    p = sub.add_parser('graph-visualize', parents=[graph_visualize.parser(add_help=False)],
+                       help='按主题或节点生成有向知识图及来源清单')
+    p.set_defaults(func=cmd_library_or_graph)
+
+    p = sub.add_parser("functions", help="统一功能、工作状态和调用策略目录")
     functions_sub = p.add_subparsers(dest="functions_cmd", required=True)
 
     fp = functions_sub.add_parser("list", help="列出功能")
@@ -697,11 +778,11 @@ def build_parser():
     fp.add_argument("function_id")
     fp.set_defaults(func=cmd_functions)
 
-    fp = functions_sub.add_parser("resolve", help="按调用者、后端和状态解析可用入口")
+    fp = functions_sub.add_parser("resolve", help="按调用者、后端和工作状态解析可用入口")
     fp.add_argument("function_id")
     fp.add_argument("--caller", required=True, choices=sorted(fr.VALID_CALLERS))
     fp.add_argument("--backend", required=True, choices=sorted(fr.VALID_BACKENDS))
-    fp.add_argument("--state", default="")
+    fp.add_argument("--state", default="", help="工作状态类型 ID")
     fp.set_defaults(func=cmd_functions)
 
     fp = functions_sub.add_parser("validate", help="校验功能注册表")
