@@ -400,12 +400,19 @@ class ScopeGuard:
 
     # ---------- 学生消息判定 ----------
 
-    def classify(self, text: str) -> ScopeVerdict:
-        """学生这句话在不在范围内。只查别名表，不调模型。
+    def classify(self, text: str, strict: bool = False) -> ScopeVerdict:
+        """这句话在不在范围内。只查别名表，不调模型。
 
-        判定偏宽松：只有当句子命中了范围外的具体术语、且没命中任何范围内术语，
+        默认宽松：只有当句子命中了范围外的术语、且没命中任何范围内术语，
         才判出界。宁可放过，也不要把学生一句正常的提问挡掉 ——
         真正的硬约束在 pre_execute，这里只是一层早期提示。
+
+        **strict=True：命中任何一个范围外术语就判出界。**
+        宽松只适用于「学生说了什么」；校验「我们自己生成了什么」必须从严。
+        实测教训：系统给学生出的题是
+        「复数的乘方和开方在傅里叶变换中用来处理周期性信号……」，
+        宽松判定因为同时命中「复数」而放行，学生却读到了没学过的傅里叶变换。
+        同一个方法两种用法，差别就在这个参数。
         """
         if not text or not text.strip():
             return ScopeVerdict(inside=True, verdict="unknown", reason="空消息")
@@ -415,6 +422,9 @@ class ScopeGuard:
                      key=len, reverse=True)
         # 范围内的长词包住了范围外的短词时，不算出界
         out = [o for o in out if not any(o in h for h in hit)]
+        if out and strict:
+            return ScopeVerdict(inside=False, verdict="out", hit=hit[:5], outside=out[:5],
+                                reason=f"严格模式：命中范围外术语 {out[:3]}")
         if hit:
             return ScopeVerdict(inside=True, verdict="in", hit=hit[:5], outside=out[:5],
                                 reason=f"命中范围内术语: {hit[:3]}")

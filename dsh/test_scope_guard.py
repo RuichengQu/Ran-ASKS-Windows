@@ -294,6 +294,22 @@ def test_classify_does_not_flag_a_long_in_scope_term():
     assert g.classify("复数的模怎么算？").inside
 
 
+def test_strict_classify_rejects_any_out_of_scope_term():
+    """宽松用于判「学生说了什么」，从严用于校验「我们自己生成了什么」。
+
+    实测：系统出的题同时含「复数」和「留数」，宽松判定会放行，
+    学生就读到了没学过的词。
+    """
+    g = ch1_guard(make_graph())
+    mixed = "复数的定义和留数定理有什么关系"
+    assert g.classify(mixed).verdict == "in"
+    v = g.classify(mixed, strict=True)
+    assert v.verdict == "out" and not v.inside
+    assert "留数" in str(v.outside)
+    # 干净的句子两种模式都在范围内
+    assert g.classify("复数的实部", strict=True).verdict == "in"
+
+
 def test_classify_reports_unknown_separately():
     """什么术语都没命中 → unknown，不是 in。放行，但不假装判定成立。"""
     g = ch1_guard(make_graph())
