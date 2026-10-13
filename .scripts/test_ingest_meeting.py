@@ -484,6 +484,42 @@ def test_agent_task_roundtrip_consumes_same_protocol():
         shutil.rmtree(work)
 
 
+def test_agent_task_template_matches_shared_parser_and_validator():
+    work = _workspace()
+    try:
+        state = _state(work)
+        with patch.object(meeting, "ingest_mode", return_value="agent"), \
+                patch.object(meeting, "run_api_meeting_compiler", side_effect=AssertionError("Agent task must not call API")):
+            ok, error = meeting.step_write_wiki(state)
+        assert not ok and error == "Agent task prepared"
+        protocol = state["agent_task"]["protocol"]
+        proposal, error, diagnostic = meeting.parse_proposal_detailed(protocol["template"])
+        assert proposal is not None, (error, diagnostic)
+        assert proposal["meta"] == {
+            "doc_date": state["date"],
+            "title": state["meeting_id"].split("-", 1)[-1], "doc_type": "meeting",
+        }
+        meeting_ir = proposal["meeting_ir"]
+        assert set(protocol["meeting_ir"]["fields"]) == set(meeting_ir)
+        assert meeting_ir["protocol_version"] == PROTOCOL_VERSION
+        assert protocol["meeting_ir"]["protocol_version"] == PROTOCOL_VERSION
+        assert set(protocol["meeting_ir"]["sections"]) == set(meeting_ir) - {"protocol_version"}
+        assert meeting.validate_meeting_ir(meeting_ir) == []
+        assert protocol["meeting_ir"]["template"] == meeting_ir
+        assert "## Navigation" in proposal["wiki_markdown"]
+        assert "## Content" in proposal["wiki_markdown"]
+        frontmatter = meeting.yaml.safe_load(proposal["wiki_markdown"].split("---", 2)[1])
+        assert frontmatter == protocol["wiki"]["frontmatter"]
+        missing_version = dict(meeting_ir)
+        missing_version.pop("protocol_version")
+        assert meeting.validate_meeting_ir(missing_version)
+        wrong_version = {**meeting_ir, "protocol_version": "unsupported"}
+        assert meeting.validate_meeting_ir(wrong_version)
+        assert meeting.validate_meeting_ir({**meeting_ir, "unknown": []})
+    finally:
+        shutil.rmtree(work)
+
+
 def test_exhausted_revision_handoff_uses_full_protocol_without_inline_source():
     work = _workspace()
     try:
@@ -1004,6 +1040,7 @@ def main():
     test_mmdd_compiler_output_marks_inferred_date_and_rebases_id()
     test_rejected_compiler_records_attempt_and_protocol_error()
     test_agent_task_roundtrip_consumes_same_protocol()
+    test_agent_task_template_matches_shared_parser_and_validator()
     test_exhausted_revision_handoff_uses_full_protocol_without_inline_source()
     test_prompt_requires_one_coherent_protocol()
     test_person_updates_are_projected_into_cited_meeting_navigation()

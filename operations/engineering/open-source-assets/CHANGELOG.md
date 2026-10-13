@@ -7,6 +7,39 @@ manifests and checksums.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-13
+
+### Version decision / 版本判断
+
+- MINOR: Add backward-compatible preview scientific-code discovery, fixed local checks and calibrated raster digitization with evidence-preserving ingestion improvements
+- MINOR（中文）：新增向后兼容的 preview 科研代码发现、固定本地检查与经标定的图片数据提取，并改进证据保持摄入
+
+### Highlights
+
+- Added preview scientific-code discovery and explicitly selected fixed-recipe
+  local checks, with generic TT-matrix sources, test definitions and a synthetic
+  public catalog. Local Raw citations and executed project records remain private;
+  read-only discovery never executes code or certifies a paper reproduction.
+- Added preview offline raster curve/scatter digitization with explicit panel
+  calibration, bounded pixel processing, CSV/overlay provenance and mandatory
+  result review. Extracted estimates are not original experimental samples.
+- Strengthened evidence-bound ingestion, API candidate representation and precise
+  recovery diagnostics while preserving independent Agent/API control loops.
+  Construction now explicitly prioritizes quality and efficiency, with plans for
+  complex changes and bounded engineering-document locators. Offline input-size
+  comparisons do not establish provider billing or live-model quality gains.
+
+### 主要更新
+
+- 新增 preview 科研代码检索与显式选择的固定配方本地检查，公开通用 TT-matrix
+  源码、测试定义和合成目录；本地 Raw 引用与项目实际运行记录不发布。只读检索
+  不执行代码，也不认证论文复现。
+- 新增 preview 离线图片曲线／散点提取：显式标定、有限像素处理、CSV／回绘与
+  来源记录共同输出，结果仍须复核，不冒充原始实验采样点。
+- 强化证据绑定摄入、API 候选表示和局部恢复诊断，保持 Agent/API 控制循环独立；
+  建设明确以质量与效率为准，复杂变更先计划，工程指南精确读取保持有界。
+  离线输入长度对照不代表实际账单或线上模型质量收益已获验证。
+
 ## [0.15.0] - 2026-10-10
 
 ### Version decision / 版本判断
@@ -447,5 +480,7 @@ manifests and checksums.
 
 [0.14.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.14.0
 
-[Unreleased]: https://github.com/ranshiju/Ran-ASKS/compare/v0.15.0...HEAD
 [0.15.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.15.0
+
+[Unreleased]: https://github.com/ranshiju/Ran-ASKS/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.16.0

@@ -185,6 +185,24 @@ python3 .scripts/wg.py cv status --workspace cv-demo
 使用受约束布局生成确定性交付副本，并继承来源敏感性规则。演示文稿摄入与演示文稿
 制作仍是契约明确、彼此独立的功能。
 
+## 科研代码与图片数据工作流（preview）
+
+`wg.py code-library` 基于证据绑定工作目录，有界、只读地检索科研代码、方法和检查定义。
+公开的 [TT 示例](computing/code-library/README.md) 只含通用源码、测试与合成目录，不含
+本地 Raw 引用或项目实际运行记录；查询不执行检索到的代码。`wg.py code-run` 只在已配置
+研究项目中执行宿主明确选择的固定本地配方，保留输入、源码快照、结果与失败证据。
+通过本地检查不代表论文复现，详见[代码检索](operations/CODE_LIBRARY.md)与
+[显式运行](operations/CODE_RUN.md)。
+
+`wg.py extract-data` 离线处理显式标定的图片曲线／散点，不调用模型；保留图片绑定、
+有界 panel 处理、CSV、回绘及元数据。结果始终为 `needs_review`，是像素估计而非原始
+实验观测，详见[数据提取](operations/EXTRACT_DATA.md)。
+
+论文摄入复用经证据检查的模板族，API 候选表示仅压缩重复元数据；完整值、证据和
+校验门保持不变，Agent 直接取证控制循环保持独立。输入长度减少不等于实际 token、
+账单或线上质量改善已被验证。复杂建设先计划，方案以质量与效率为准，不以最小机制
+本身判定最优。
+
 ## 持久接力、隔离私有域与幻灯片复用
 
 Agent 模式准备好的摄入事务现在可以用同一个 transaction ID 跨宿主会话接续。

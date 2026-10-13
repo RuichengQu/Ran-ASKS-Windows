@@ -71,6 +71,12 @@ def test_intent_plan_defaults_to_hybrid_recall():
     plan = module.intent_to_plan({"query": "A 与 B 的关系", "intent": "relation"})
     assert plan[0]["action"] == "hybrid_recall"
     assert plan[0]["input"]["intent"] == "relation"
+    assert plan[0]["input"]["include_deprecated"] is False
+    history = module.intent_to_plan({"query": "旧版本", "include_deprecated": True, "need_graph": True})
+    assert history[0]["input"]["include_deprecated"] is True
+    assert history[1]["input"]["include_deprecated"] is True
+    parsed = module._build_step({"action": "wiki_recall", "query": "旧版本", "include_deprecated": "false"})
+    assert parsed["input"]["include_deprecated"] == "false"
 
 
 def test_hybrid_recall_fuses_wiki_and_graph_candidates():
@@ -89,14 +95,14 @@ def test_hybrid_recall_fuses_wiki_and_graph_candidates():
         conn.commit()
         original_connect = actions.gl.connect
         original_semantic = actions.ns.semantic_search
-        original_wiki = actions.wiki_recall
+        original_wiki = actions._wiki_recall_data
         original_capsule = actions._section_capsule
         actions.gl.connect = lambda *args, **kwargs: conn
         actions.ns.semantic_search = lambda *args, **kwargs: {
             "candidates": [{"node_id": "concept-a"}]
         }
-        actions.wiki_recall = lambda *args, **kwargs: (
-            json.dumps({"candidates": [{"path": "academic/wiki/papers/a", "title": "A"}]}), 1
+        actions._wiki_recall_data = lambda *args, **kwargs: (
+            {"candidates": [{"path": "academic/wiki/papers/a", "title": "A"}]}, {}
         )
         actions._section_capsule = lambda page, *terms: {
             "semantic_address": f"{page}#content", "raw_citations": ["raw.md#L1"]
@@ -106,7 +112,7 @@ def test_hybrid_recall_fuses_wiki_and_graph_candidates():
         finally:
             actions.gl.connect = original_connect
             actions.ns.semantic_search = original_semantic
-            actions.wiki_recall = original_wiki
+            actions._wiki_recall_data = original_wiki
             actions._section_capsule = original_capsule
             conn.close()
     result = json.loads(text)
@@ -259,11 +265,11 @@ def test_math_alias_reaches_graph_exact_channel():
     )
     conn.commit()
     old_connect = actions._connect
-    old_wiki_recall = actions.wiki_recall
+    old_wiki_recall = actions._wiki_recall_data
     old_semantic_search = actions.ns.semantic_search
     old_capsule = actions._section_capsule
     actions._connect = lambda: conn
-    actions.wiki_recall = lambda *_args: ('{"candidates": []}', 0)
+    actions._wiki_recall_data = lambda *_args: ({"candidates": []}, {page: {"status": "current"}})
     actions.ns.semantic_search = lambda *_args, **_kwargs: {"candidates": []}
     actions._section_capsule = lambda *_args: {}
     try:
@@ -272,7 +278,7 @@ def test_math_alias_reaches_graph_exact_channel():
         )
     finally:
         actions._connect = old_connect
-        actions.wiki_recall = old_wiki_recall
+        actions._wiki_recall_data = old_wiki_recall
         actions.ns.semantic_search = old_semantic_search
         actions._section_capsule = old_capsule
     result = json.loads(text)

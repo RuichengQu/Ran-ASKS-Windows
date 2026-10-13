@@ -47,6 +47,9 @@ python3 .scripts/playbook_dispatch.py '指令关键词'
 
 ## 建设任务
 
+- **质量与效率优先**：最小方案不等于最优方案；最优方案是取得高质量、高效率实际效果的方案。质量与可靠性是约束，效率结合处理时间、资源成本、返工与维护成本验证；复杂度以必要性和净收益判断，不因代码少或机制少就认定更优。
+- **复杂建设先计划**：涉及多组件、边界变化、多阶段依赖或高风险的建设，先制定计划再实施。计划明确目标与验收标准、影响边界与 Agent/API/shared 归属、阶段与依赖、风险及回归验证；执行中依据证据更新，不额外引入逐步审批或状态机。
+
 1. 运行 `python3 .scripts/engineering_graph.py impact <target> --verify` 建立影响卡。
 2. 优先读取 impact 推荐的 graph contract、capability 和 code-guidance 精确 locator；推荐不足时用 `engineering_locator.py list <path> --prefix <locator-prefix>` 或 `rg` 定位符号，再精确读取。不要先枚举大型 YAML 全表。
 3. 新增组件或改变边界时先更新 `operations/engineering/graph.yaml`，再实现；Agent/API/shared 归属必须明确。

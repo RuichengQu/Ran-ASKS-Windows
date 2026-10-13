@@ -1,0 +1,26 @@
+{
+  "schema": "retrieval-probes-v1",
+  "provenance": "人工构造的公共导航功能探针；目标经页面身份与现有导航边检查固定，不是历史问答或科学答案 gold。novikov-2012 是现有路径标识，不据此推断发表年份。",
+  "cases": [
+    {"id":"wiki-tt","channel":"wiki","query":"Tensorizing Neural Networks","expected":["academic/wiki/papers/novikov-2012-tensorizing-neural-networks"]},
+    {"id":"wiki-white","channel":"wiki","query":"Density Matrix Formulation","expected":["academic/wiki/papers/white-1992-dmrg-formulation"]},
+    {"id":"wiki-mps","channel":"wiki","query":"matrix product states","expected":["academic/wiki/papers/schollwock-2011-dmrg-mps"]},
+    {"id":"wiki-tpu","channel":"wiki","query":"Tensor Processing Units","expected":["academic/wiki/papers/ganahl-2023-dmrg-tpu"]},
+    {"id":"wiki-raptor","channel":"wiki","query":"RAPTOR","expected":["academic/wiki/papers/sarthi-2024-raptor"]},
+    {"id":"wiki-graphrag","channel":"wiki","query":"GraphRAG","expected":["academic/wiki/papers/edge-2024-graphrag"]},
+    {"id":"wiki-cjk-short","channel":"wiki","query":"纠缠","expected":["academic/wiki/conferences/0721-谐振子纠缠演化与TN方法"]},
+    {"id":"wiki-cjk-mps","channel":"wiki","query":"时间矩阵乘积态","expected":["academic/wiki/papers/2018-091彭程"]},
+    {"id":"search-tt","channel":"search","query":"Tensorizing Neural Networks","expected":["academic/wiki/papers/novikov-2012-tensorizing-neural-networks"]},
+    {"id":"search-white","channel":"search","query":"Density Matrix Formulation","expected":["academic/wiki/papers/white-1992-dmrg-formulation"]},
+    {"id":"search-mps","channel":"search","query":"matrix product states","expected":["academic/wiki/papers/schollwock-2011-dmrg-mps"]},
+    {"id":"search-tpu","channel":"search","query":"Tensor Processing Units","expected":["academic/wiki/papers/ganahl-2023-dmrg-tpu"]},
+    {"id":"search-raptor","channel":"search","query":"RAPTOR","expected":["academic/wiki/papers/sarthi-2024-raptor"]},
+    {"id":"search-graphrag","channel":"search","query":"GraphRAG","expected":["academic/wiki/papers/edge-2024-graphrag"]},
+    {"id":"search-cjk-short","channel":"search","query":"纠缠","expected":["academic/wiki/conferences/0721-谐振子纠缠演化与TN方法"]},
+    {"id":"search-cjk-mps","channel":"search","query":"时间矩阵乘积态","expected":["academic/wiki/papers/2018-091彭程"]},
+    {"id":"neighbors-tt","channel":"neighbors","query":"academic/wiki/papers/novikov-2012-tensorizing-neural-networks","depth":1,"top_k":20,"expected":["academic/raw/references/novikov-2012-tensorizing-neural-networks/paper"]},
+    {"id":"neighbors-mps","channel":"neighbors","query":"academic/wiki/papers/schollwock-2011-dmrg-mps","depth":2,"top_k":20,"expected":["academic/raw/references/schollwock-2011-dmrg-mps/paper"]},
+    {"id":"neighbors-white","channel":"neighbors","query":"academic/wiki/papers/white-1992-dmrg-formulation","depth":1,"top_k":20,"expected":["academic/raw/references/white-1992-dmrg-formulation/paper"]},
+    {"id":"neighbors-tpu","channel":"neighbors","query":"academic/wiki/papers/ganahl-2023-dmrg-tpu","depth":2,"top_k":20,"expected":["academic/raw/references/ganahl-2023-dmrg-tpu/paper"]}
+  ]
+}

@@ -139,7 +139,8 @@ def collect_sources_from_edges(obj: dict) -> list[str]:
 
 
 def cmd_lookup(args):
-    res = query_graph_json("search", [args.term])
+    opts = ["--include-deprecated"] if getattr(args, "include_deprecated", False) else []
+    res = query_graph_json("search", [args.term], opts)
     if "_error" in res:
         return envelope("lookup", None, status="error", error=res["_error"])
     hits = res.get("nodes") or res.get("results") or []
@@ -149,7 +150,12 @@ def cmd_lookup(args):
 
 
 def cmd_neighbors(args):
-    res = query_graph_json("neighbors", [args.page], ["--depth", str(args.depth)])
+    opts = ["--depth", str(args.depth)]
+    for name in ("max_nodes", "max_edges", "max_scanned_rows", "top_k"):
+        value = getattr(args, name, None)
+        if value is not None:
+            opts += ["--" + name.replace("_", "-"), str(value)]
+    res = query_graph_json("neighbors", [args.page], opts)
     if "_error" in res:
         return envelope("neighbors", None, status="error", error=res["_error"])
     srcs = collect_sources_from_edges(res)
@@ -173,7 +179,8 @@ def cmd_hub_of(args):
 
 
 def cmd_abbr(args):
-    res = query_graph_json("search", [args.term])
+    opts = ["--include-deprecated"] if getattr(args, "include_deprecated", False) else []
+    res = query_graph_json("search", [args.term], opts)
     if "_error" in res:
         return envelope("abbr", None, status="error", error=res["_error"])
     nodes = res.get("nodes", [])
@@ -203,7 +210,8 @@ def cmd_read_section(args):
 
 
 def cmd_hybrid_recall(args):
-    text, _tokens = qa.hybrid_recall(args.query, args.intent, args.domain, str(args.topk))
+    text, _tokens = qa.hybrid_recall(args.query, args.intent, args.domain, str(args.topk),
+                                    include_deprecated=args.include_deprecated)
     if text.startswith("[ERROR"):
         return envelope("hybrid-recall", None, status="error", error=text)
     return envelope("hybrid-recall", json.loads(text), status="ok")
@@ -622,15 +630,53 @@ def cmd_functions(args):
     )
 
 
+def cmd_code_run(args):
+    code, output, error = run_script([sys.executable, str(SCRIPTS / "code_run.py"), *args.run_args])
+    try:
+        result = json.loads(output)
+    except json.JSONDecodeError:
+        return envelope("code-run", None, status="error", error=(error or output).strip()[:500])
+    failed = code != 0 or not result.get("ok", False)
+    return envelope("code-run", result, sources=[], status="error" if failed else "ok", ok=not failed,
+                    error=result.get("error", error.strip())[:500] if failed else "")
+
+
+def cmd_code_library(args):
+    code, output, error = run_script([sys.executable, str(SCRIPTS / "code_library.py"), *args.library_args])
+    try:
+        result = json.loads(output)
+    except json.JSONDecodeError:
+        return envelope("code-library", None, status="error", error=(error or output).strip()[:500])
+    failed = code != 0 or not result.get("ok", False)
+    return envelope("code-library", result, sources=result.get("sources", []),
+                    status="error" if failed else "ok", ok=not failed,
+                    error=result.get("error", error.strip())[:500] if failed else "")
+
+
+def cmd_extract_data(args):
+    code, output, error = run_script([sys.executable, str(SCRIPTS / "extract_data.py"), *args.extract_args])
+    try:
+        result = json.loads(output)
+    except json.JSONDecodeError:
+        return envelope("extract-data", None, status="error", error=(error or output).strip()[:500])
+    failed = code != 0 or result.get("status") == "error"
+    return envelope("extract-data", result, sources=[result["source_path"]] if result.get("source_path") else [],
+                    status="error" if failed else "ok", ok=not failed,
+                    error=result.get("error", error.strip())[:500] if failed else "")
+
+
 def build_parser():
     ap = argparse.ArgumentParser(prog="wg.py", description="WikiGraph 能力面")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("lookup", help="关键词查节点（导航层）")
+    p.add_argument("--include-deprecated", action="store_true", help="显式历史查询时包含废弃页")
     p.add_argument("term"); p.set_defaults(func=cmd_lookup)
 
     p = sub.add_parser("neighbors", help="节点关联召回 BFS")
     p.add_argument("page"); p.add_argument("--depth", type=int, default=2)
+    for name in ("max-nodes", "max-edges", "max-scanned-rows", "top-k"):
+        p.add_argument("--" + name, type=int, default=None)
     p.set_defaults(func=cmd_neighbors)
 
     p = sub.add_parser("relations", help="节点关系边（可按谓词）")
@@ -641,6 +687,7 @@ def build_parser():
     p.add_argument("page"); p.set_defaults(func=cmd_hub_of)
 
     p = sub.add_parser("abbr", help="缩写解析（导航层）")
+    p.add_argument("--include-deprecated", action="store_true", help="显式历史查询时包含废弃页")
     p.add_argument("term"); p.set_defaults(func=cmd_abbr)
 
     p = sub.add_parser("read-section", help="按 heading slug 读 wiki 页及该节 Raw 引用")
@@ -658,6 +705,7 @@ def build_parser():
                    choices=("fact", "relation", "explanation", "exploration", "lineage"))
     p.add_argument("--domain", default="", choices=("", "academic", "admin", "teaching", "business", "private"))
     p.add_argument("--topk", type=int, default=8)
+    p.add_argument("--include-deprecated", action="store_true", help="仅显式历史版本查询时包含废弃页")
     p.set_defaults(func=cmd_hybrid_recall)
 
     p = sub.add_parser("read-raw", help="按 locator 读 raw 片段溯源核验")
@@ -759,6 +807,15 @@ def build_parser():
     p = sub.add_parser('slide-library', help='PPT模板管理与复用')
     p.add_argument('library_args', nargs=argparse.REMAINDER)
     p.set_defaults(func=cmd_library_or_graph)
+    p = sub.add_parser("extract-data", help="离线图片曲线/散点数据提取：准备、校准检查与数字化")
+    p.add_argument("extract_args", nargs=argparse.REMAINDER)
+    p.set_defaults(func=cmd_extract_data)
+    p = sub.add_parser("code-library", help="科研代码能力元图：只读检索、关系上下文与精确证据读取")
+    p.add_argument("library_args", nargs=argparse.REMAINDER)
+    p.set_defaults(func=cmd_code_library)
+    p = sub.add_parser("code-run", help="显式固定 CPU 检查与只读运行回执；不是通用执行器")
+    p.add_argument("run_args", nargs=argparse.REMAINDER)
+    p.set_defaults(func=cmd_code_run)
     import graph_visualize
     p = sub.add_parser('graph-visualize', parents=[graph_visualize.parser(add_help=False)],
                        help='按主题或节点生成有向知识图及来源清单')

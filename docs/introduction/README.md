@@ -220,6 +220,22 @@ Markdown 与追加的 PDF 页面包含同一更新；既有论文实验与冻结
 真实模型与教师验收仍必要；会议角色和身份纠正也强化来源约束。这是向后兼容的
 新增能力，Markdown 与追加的 PDF 页面包含同一更新，冻结论文产物保持不变。
 
+The 2026-10-13 `v0.16.0` update adds preview evidence-bound scientific-code
+discovery, explicitly selected fixed-recipe local checks and calibrated offline
+raster digitization. The public scientific-code catalog is synthetic, excludes
+local Raw/run records, and does not claim paper reproduction. Ingestion retains
+independent Agent/API controllers while improving API input representation and
+source checks. Engineering decisions prioritize quality and efficiency, with
+plans for complex changes. Input-size reductions do not establish billed-cost
+or live-model quality gains. The Markdown and appended Word-exported PDF pages
+contain the same update; frozen paper experiments and artifacts are unchanged.
+
+2026年10月13日的 `v0.16.0` 更新新增 preview 科研代码发现、显式固定配方本地检查及
+经标定的离线图片数据提取。公开目录为合成示例，不含本地 Raw 或实际运行记录，也不
+宣称论文复现。摄入改进 API 输入表示与来源检查，保持两种后端控制循环独立；建设以
+质量与效率为准，复杂变更先计划。输入长度减少不代表实际费用或线上质量改善已经
+验证。Markdown 与 Word 导出的追加 PDF 页面同步，冻结论文实验与产物保持不变。
+
 | 中文说明涉及的内容 | Ran-ASKS 边界 | 论文数据产物 | 状态 |
 | --- | --- | --- | --- |
 | 核心方法与56篇论文的时间序列展示 | `v0.2.0` | `1.0.0` | arXiv:2608.29612 v1 的冻结边界 |

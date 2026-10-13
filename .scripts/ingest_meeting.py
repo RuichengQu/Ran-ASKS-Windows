@@ -41,6 +41,7 @@ from meeting_compiler_contract import (
     PROTOCOL_VERSION as MEETING_COMPILER_PROTOCOL,
     apply_transcript_replacements,
     meeting_ir_record_contract,
+    meeting_ir_template,
     parse_proposal_detailed,
     task_context_hash,
     validate_meeting_ir,
@@ -522,6 +523,29 @@ def prepare_meeting_agent_task(state: dict, source_text: str, entity_candidates:
             "name": "student_guidance_candidates", "path": guidance_path,
             "role": "exact_existing_student_record_catalog", "read": "full",
         })
+    ir_template = meeting_ir_template()
+    title = state["meeting_id"].split("-", 1)[-1]
+    frontmatter = {
+        "title": title, "type": "conference-summary",
+        "sources": [sources_path], "source_type": "speech-recognition",
+        "date": state.get("date"), "confidence": "low", "status": "current",
+        "created": datetime.now().date().isoformat(),
+        "updated": datetime.now().date().isoformat(),
+    }
+    output_template = "\n".join([
+        "<<<META>>>",
+        f"doc_date: {state.get('date') or ''}",
+        f"title: {title}",
+        "doc_type: meeting", "<<</META>>>", PREPROCESS_DELIMITER,
+        json.dumps({
+            "protocol_version": MEETING_COMPILER_PROTOCOL,
+            "transcript_replacements": [], "entity_resolutions": [],
+        }, ensure_ascii=False),
+        "<<<WIKI>>>", "---",
+        yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False).rstrip(),
+        "---", f"# {title}", "", "## Navigation", "", "## Content", "",
+        MEETING_IR_DELIMITER, json.dumps(ir_template, ensure_ascii=False), "",
+    ])
     task = agent_task.prepare(
         state,
         kind="ingest_meeting",
@@ -534,6 +558,8 @@ def prepare_meeting_agent_task(state: dict, source_text: str, entity_candidates:
         }],
         protocol={
             "name": MEETING_COMPILER_PROTOCOL,
+            "template": output_template,
+            "template_usage": "Fill Wiki and evidence-bound IR from the declared inputs; update the inferred META title when supported; leave record arrays empty only when the source has no supported records.",
             "order": ["META", "PREPROCESS", "WIKI", "MEETING_IR"],
             "delimiters": {
                 "meta": ["<<<META>>>", "<<</META>>>"],
@@ -549,18 +575,16 @@ def prepare_meeting_agent_task(state: dict, source_text: str, entity_candidates:
             "meta": {"fields": ["doc_date", "title", "doc_type"], "doc_type": "meeting"},
             "wiki": {
                 "required_sections": ["Navigation", "Content"],
-                "frontmatter": {
-                    "title": "same as META.title", "type": "conference-summary",
-                    "sources": [sources_path], "source_type": "speech-recognition",
-                    "date": state.get("date"), "confidence": "low", "status": "current",
-                    "created": datetime.now().date().isoformat(),
-                    "updated": datetime.now().date().isoformat(),
-                },
+                "frontmatter": frontmatter,
+                "title_binding": "same as META.title; template title is the current inferred title",
                 "content": "research question, key reported observations, limitations and unresolved issues; program projects structured lists",
                 "source_binding": "program binds final Raw path after META; cite only this transaction source or existing verified sources",
             },
             "meeting_ir": {
-                "sections": ["attendees", "topics", "reports", "decisions", "tasks", "relations", "person_updates"],
+                "protocol_version": MEETING_COMPILER_PROTOCOL,
+                "fields": list(ir_template),
+                "sections": [field for field in ir_template if field != "protocol_version"],
+                "template": ir_template,
                 "evidence": "every item references evidence_catalog IDs",
                 "records": meeting_ir_record_contract(),
                 "topic_predicates": ["讨论", "涉及", "规划"],

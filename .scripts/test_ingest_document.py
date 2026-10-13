@@ -413,6 +413,71 @@ def test_admin_wrapper_compat():
 
 
 
+def test_document_agent_api_share_evidence_and_status_rules():
+    for subproject in ("academic", "admin", "teaching", "business"):
+        document_type = "editorial" if subproject == "academic" else None
+        state = {
+            "transaction_id": "test-document-contract-" + subproject,
+            "admin_id": "test-document-contract",
+            "subproject": subproject,
+            "document_type": document_type,
+        }
+        task = module.prepare_document_agent_task(
+            state, module.REPO / "AGENTS.md",
+            module.REPO / "temp" / "test-document-contract.txt",
+        )
+        wiki = task["protocol"]["wiki"]
+        assert set(wiki["status"]["allowed"]) == module.STATUS_ENUM_BY_DOMAIN[subproject]
+        assert "草稿用 draft" in wiki["status"]["selection"]
+        assert "拟修订" in wiki["status"]["selection"]
+        assert wiki["evidence_handle"] == wiki["evidence"]["handle"] == "<RAW#Lx>"
+        instruction = wiki["evidence"]["instruction"]
+        assert "末尾直接复制" in instruction
+        assert "物理行号" in instruction
+        assert "不要写 `## Sources` 或脚注定义" in instruction
+        for builder in (module.build_doc_wiki_prompt, module.build_doc_wiki_slots_prompt):
+            prompt = builder("拟修订落实原则", "test-id", "", subproject,
+                             document_type=document_type)
+            assert instruction in prompt
+            assert wiki["status"]["selection"] in prompt
+            assert "|".join(wiki["status"]["allowed"]) in prompt
+
+
+def test_document_evidence_requires_inline_handles_without_relaxing_validation():
+    inline = (
+        "---\ntitle: 拟修订原则\ntype: policy\nstatus: draft\n---\n\n"
+        "# 拟修订原则\n\n## Navigation\n\n草案。 <RAW#L1>\n\n"
+        "## Content\n\n拟修订原则。 <RAW#L1>\n"
+    )
+    footnote_only = inline.replace("<RAW#L1>", "[^source]") + (
+        "\n## Sources\n\n[^source]: <RAW#L1>\n"
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        source_path = Path(directory) / "source.md"
+        source_path.write_text("拟修订落实原则\n", encoding="utf-8")
+        for draft, valid in ((inline, True), (footnote_only, False),
+                             (inline.replace("<RAW#L1>", "<RAW#L99>"), False)):
+            normalized, _repairs = module.normalize_document_wiki(
+                draft, correct_sources="admin/raw/policies/source.md", source_date="",
+                doc_text=source_path.read_text(encoding="utf-8"), created_at="2026-10-12",
+            )
+            (Path(directory) / "wiki.md").write_text(normalized, encoding="utf-8")
+            state = {
+                "subproject": "admin", "wiki_content": normalized,
+                "source_filename": "source.docx", "locator_source_filename": "source.md",
+                "extract_dir": directory, "raw_locator": "admin/raw/policies/source.md",
+            }
+            errors = module.step_validate_wiki(state)
+            assert bool(errors) != valid, errors
+            frontmatter = module.yaml.safe_load(re.match(r"^---\n(.*?)\n---", normalized, re.S).group(1))
+            assert frontmatter["status"] == "draft"
+            if valid:
+                assert "<RAW#" not in normalized
+                assert "[^r1]: admin/raw/policies/source.md#L1" in normalized
+            else:
+                assert any("RAW handle" in error for error in errors), errors
+
+
 def test_agent_mode_wiki_roundtrip():
     """agent 模式往返: _awaiting_agent_wiki + wiki.md 已写入 -> 跳过 LLM 读取文件。
 
@@ -622,6 +687,52 @@ def test_source_date_uses_bounded_nearest_directory_after_explicit_evidence():
     assert module.generate_admin_id("20260901 新闻稿.docx", "新闻稿", "2026-09-06").startswith("20260906-")
 
 
+def test_source_date_ignores_embedded_dates_and_preserves_month_precision():
+    for document_type in (None, "academic-reference"):
+        for text in (
+            "科研项目\n2021-11-01到2024-11-30\n",
+            "2020年9月1日至今已签订实习实践基地。",
+            "会议时间：2021年9月24日\n",
+            "项目启动：2021-11-01\n",
+        ):
+            assert module.extract_admin_date("报告.docx", text, document_type) == "", text
+        for cover in ("2025年3月  日", "2025年 3 月", "  2025 年 03 月   日  "):
+            text = f"调研报告\n{cover}\n项目起讫\n2021-11-01到2024-11-30\n"
+            assert module.extract_admin_date("报告.docx", text, document_type) == "2025-03"
+        for text in ("2025年13月 日", "2025年0月 日", "2025年3月321日", "2025-03-321"):
+            assert module.extract_admin_date("报告.docx", text, document_type) == "", text
+        assert module.extract_admin_date("通知.docx", "研究生院\n2026年10月8日\n", document_type) == "2026-10-08"
+        assert module.extract_admin_date("通知.docx", "2026/10/8\n", document_type) == "2026-10-08"
+    assert module.extract_admin_date("报告.docx", "2025年3月 日", "conference-summary") == ""
+    assert module.generate_admin_id("报告.docx", "调研报告", "2025-03") == "202503-调研报告"
+
+
+def test_preprocess_preserves_cover_month_for_both_backends():
+    from unittest.mock import patch
+
+    with tempfile.TemporaryDirectory() as temporary:
+        repo = Path(temporary)
+        source = repo / "inbox/报告.docx"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"document")
+        text = "调研报告\n2025年3月  日\n2020年9月1日至今开展实习。\n2021-11-01到2024-11-30\n"
+        with patch.object(module, "REPO", repo), patch.object(module, "extract_doc_text", return_value=text):
+            for backend in ("agent", "api"):
+                with patch.dict("os.environ", {"INGEST_BACKEND": backend}):
+                    state = {
+                        "source": str(source.relative_to(repo)),
+                        "source_filename": source.name,
+                        "extract_dir": f"temp/extract-{backend}",
+                    }
+                    ok, message = module.step_preprocess(state)
+                    assert ok, message
+                    assert state["date_str"] == "2025-03"
+                    wiki = "---\ntitle: 调研报告\ntype: reference\ndate: 2020-09-01\n---\n"
+                    compiled = module.apply_source_date_frontmatter(wiki, state["date_str"])
+                    assert "date: 2025-03" in compiled
+                    assert "date: 2020-09-01" not in compiled
+
+
 def test_preprocess_preserves_source_path_date_for_both_backends():
     import tempfile
     from unittest.mock import patch
@@ -815,7 +926,7 @@ def test_conference_summary_date_prefers_source_label_over_event_date():
         "会议资料汇总.md", "会议时间：2021年9月24日\n", "conference-summary") == ""
     assert module.extract_admin_date(
         "会议资料汇总.md", "会议时间：2021年9月24日\n", "academic-reference"
-    ) == "2021-09-24"
+    ) == ""
 
 
 def test_normalize_document_wiki_compiles_mechanical_contract():
@@ -1111,6 +1222,7 @@ def test_rollback_removes_manifest_companion_restores_graph_and_marks_receipt():
 
 
 def main():
+    test_companion_repair_transaction_and_guards()
     test_tabular_principles_shared_by_agent_api_and_route()
     test_spreadsheet_extraction_preserves_rows_and_structure()
     test_spreadsheet_preprocess_keeps_original_and_companion()
@@ -1135,6 +1247,8 @@ def main():
     test_teaching_prerequisites_are_verified_deterministic_edges()
     test_parse_semantic_text_business()
     test_admin_wrapper_compat()
+    test_document_agent_api_share_evidence_and_status_rules()
+    test_document_evidence_requires_inline_handles_without_relaxing_validation()
     test_agent_mode_wiki_roundtrip()
     test_agent_mode_slots_roundtrip()
     test_short_api_document_combines_wiki_and_slots_in_one_call()
@@ -1142,6 +1256,8 @@ def main():
     test_unknown_source_date_is_not_replaced_with_ingestion_date()
     test_source_date_accepts_filename_formats_and_validates_calendar()
     test_source_date_uses_bounded_nearest_directory_after_explicit_evidence()
+    test_source_date_ignores_embedded_dates_and_preserves_month_precision()
+    test_preprocess_preserves_cover_month_for_both_backends()
     test_preprocess_preserves_source_path_date_for_both_backends()
     test_unknown_date_is_compiled_when_model_omits_field()
     test_labeled_source_dates_reject_truncated_digits()
@@ -1649,6 +1765,76 @@ def test_spreadsheet_preprocess_keeps_original_and_companion():
         assert context["companion"]["schema"] == "raw-companion-v1"
         assert context["companion"]["locator_scheme"] == "table-row"
         assert source.read_bytes() == before
+
+
+def test_companion_repair_transaction_and_guards():
+    from unittest.mock import patch
+    import inbox_finalize
+    import xlwt
+    for failure in (None, "source", "wiki", "companion", "sidecar", "semantics", "metadata", "heading", "locator", "validator"):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory).resolve()
+            source = repo / "admin/raw/profile/table.xls"
+            wiki = repo / "admin/wiki/profile/page.md"
+            source.parent.mkdir(parents=True)
+            wiki.parent.mkdir(parents=True)
+            book = xlwt.Workbook()
+            book.add_sheet("Sheet1").write(0, 0, "原始事实")
+            book.save(str(source))
+            original = source.read_bytes()
+            original_wiki = ("---\ntitle: Demo\ntype: profile\nsources:\n"
+                             "  - admin/raw/profile/table.xls\nupdated: 2026-01-01\n---\n"
+                             "# Demo\n\n## Facts\n原始事实\n")
+            wiki.write_text(original_wiki, encoding="utf-8")
+            log = repo / "admin/wiki/log.md"
+            log.write_text("existing log", encoding="utf-8")
+            with patch.object(module, "REPO", repo), patch.object(module.inbox_state, "REPO", repo), \
+                    patch.object(module, "ingest_mode", return_value="agent"), \
+                    patch.object(inbox_finalize, "run_ingest_check",
+                                 side_effect=ValueError("invalid wiki") if failure == "validator" else None):
+                prepared = module.prepare_companion_repair(source, wiki, "admin")
+                state = module.inbox_state.load(prepared["transaction_id"])
+                extract = repo / state["extract_dir"]
+                draft = extract / "wiki.md"
+                locator = "L999" if failure == "locator" else "L1"
+                draft.write_text(original_wiki.replace("原始事实\n", "原始事实[^raw]\n")
+                                 + f"\n[^raw]: admin/raw/profile/table.md#{locator}\n", encoding="utf-8")
+                if failure == "source":
+                    source.write_bytes(original + b"changed")
+                elif failure == "wiki":
+                    wiki.write_text(original_wiki + "changed", encoding="utf-8")
+                elif failure == "companion":
+                    (extract / "table.md").write_text("invented", encoding="utf-8")
+                elif failure == "sidecar":
+                    (extract / "table.xls.source.json").write_text("{}", encoding="utf-8")
+                elif failure == "semantics":
+                    draft.write_text(draft.read_text().replace("原始事实", "虚构事实"), encoding="utf-8")
+                elif failure == "metadata":
+                    draft.write_text(draft.read_text().replace("title: Demo", "title: Demo[^raw]"), encoding="utf-8")
+                elif failure == "heading":
+                    draft.write_text(draft.read_text().replace("## Facts", "## Facts[^raw]"), encoding="utf-8")
+                before_wiki = wiki.read_bytes()
+                try:
+                    result = module.resume_companion_repair(state)
+                except ValueError:
+                    assert failure is not None, failure
+                    assert not (source.parent / "table.md").exists()
+                    assert wiki.read_bytes() == before_wiki
+                    assert log.read_text() == "existing log"
+                else:
+                    assert failure is None
+                    assert result["committed"] and source.read_bytes() == original
+                    assert module.sl.companion_binding_status(source, source.parent / "table.md")["status"] == "valid"
+                    assert "[^raw]" in wiki.read_text()
+                    before_log = log.read_bytes()
+                    assert module.resume_companion_repair(state) == result
+                    assert log.read_bytes() == before_log
+                    try:
+                        module.prepare_companion_repair(source, wiki, "admin")
+                    except ValueError as exc:
+                        assert "missing" in str(exc)
+                    else:
+                        raise AssertionError("existing companion overwritten")
 
 
 if __name__ == "__main__":

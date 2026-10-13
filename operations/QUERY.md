@@ -92,6 +92,10 @@ private 是标准 query 的存储范围，不是另一套问答方法。共用 `
 
 **deprecated 过滤**:所有层检索结果默认过滤 `status: deprecated` 页面(遗忘策略落地后的对接口)。例外:用户明确询问历史版本/演进过程时,可读取 deprecated 页面,并配合 `superseded_by` 跳转现行版。
 
+共享 `wiki_recall`、`admin_recall`、`hybrid_recall` 在候选排名/top-k 前排除图或已读取 Wiki frontmatter 标为 deprecated 的页面，覆盖图回退与联合召回的所有候选通道。独立 `graph_search`/`query_graph search`/`wg lookup`/`wg abbr` 和 `semantic_search` 也在排名/top-k前按图生命周期过滤废弃页，不增加Wiki全库扫描。用户明确问历史版本时显式传 `include_deprecated: true`，CLI 使用 `--include-deprecated`；`intent: lineage` 不隐式启用。字符串 `false` 不会被当作真值，非法参数拒绝执行。
+
+**发现候选与导航上下文分开**：`node`、`neighbors`、`relations`、`hub_of` 保留历史节点、关系及通往现行邻页的路径，不通过删除历史端点过滤导航图。`material_role=historical_navigation`、`default_page_candidate=false` 和 `version_context.historical_page_paths` 标明旧页不能作为默认材料候选；`eligible_page_paths` 只表示可进一步下钻，不证明材料现行有效。Agent/API `node_resolve` 的身份 resolved 同样不等于页面现行，须检查 version_context。`path_exists` 仅报告连通性；显式 `temporal --at` 按时态事实有效期查询，不按当前节点状态屏蔽旧事实。Wiki召回另报磁盘 page_status 和 superseded_by；图层状态与Wiki生命周期须经受管写入同步，最终事实仍检查Wiki版本并沿精确Raw locator核验。
+
 **token 预算提示(程序预估+语义判断)**:编排层 `query_orchestrate.py` 实计每次读取 token 并累计。当 `token_used > token_budget × 0.7`(budget_warned)时,程序在返回结果里附 `budget_hint`:
 - 读 `Content` 时提示:后续候选页建议先读 `Navigation`(~100 tok)判相关再决定是否读 Content,或用锚点 `[[page#slug]]` 读子段
 - “某 section 是否必须全文读”由语义执行主体判断，程序供给预算状态
@@ -276,6 +280,11 @@ private 是标准 query 的存储范围，不是另一套问答方法。共用 `
 
 > **程序不裁决开放语义,但核验客观事实、约束执行过程、要求 LLM 对证据不足作显式说明**。
 > 边界:程序管"能不能这样查、证据实际什么状态",不管"你最终怎样理解证据";LLM 可自由理解,但不能虚构证据、无限绕圈、把未知说成已核验。
+
+## 科研代码证据（宿主 Agent）
+
+公共代码/算法/复现 query：宿主用 `wg.py code-library search/context/read`，详细契约按需加载 code-library 能力。
+只读、stale 拒读；目录/测试定义不是事实或运行证据，科学主张回 Raw。private/API 首版未开放。
 
 ## 最小证据与披露
 

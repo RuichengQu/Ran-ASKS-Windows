@@ -80,11 +80,25 @@ def main() -> int:
         test_query_tools_do_not_gain_write_capability,
         test_dry_run_arguments_reach_shared_generator,
         test_batch_uses_explicit_output_root,
+        test_private_output_is_not_enabled_in_dsh,
     ]
     for test in tests:
         test()
     print(f"OK: {len(tests)} comic DSH tool checks passed")
     return 0
+
+
+def test_private_output_is_not_enabled_in_dsh() -> None:
+    for tool in build_comic_tools()[1:]:
+        with mock.patch("dsh.comic_tools.generate_asset") as single, mock.patch("dsh.comic_tools.generate_batch") as batch:
+            try:
+                tool.execute_fn({"output_root": "private/outputs", "prompt": "synthetic"})
+            except RuntimeError as exc:
+                assert "host Agent CLI" in str(exc)
+            else:
+                raise AssertionError("private generation must not run through DSH")
+            single.assert_not_called()
+            batch.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -141,6 +141,76 @@ class ComicGenerationTest(unittest.TestCase):
         with self.assertRaises(cg.ComicGenerationError):
             cg.load_storyboard("demo", generated, self.repo)
 
+    def test_private_generation_keeps_all_records_private(self):
+        outputs = self.repo / "private" / "outputs"
+        outputs.mkdir(parents=True)
+        before = {p.relative_to(self.repo) for p in self.repo.rglob("*")}
+        payload = {"data": [{"b64_json": base64.b64encode(PNG_1X1).decode("ascii")}]}
+        kwargs = self.kwargs(project=None, explicit_output_root=outputs, prompt="synthetic private prompt")
+        with mock.patch.object(cg, "call_image_api", return_value=(payload, "req-private")) as api:
+            with self.assertRaisesRegex(cg.ComicGenerationError, "allow-remote"):
+                cg.generate_asset(**kwargs)
+            api.assert_not_called()
+            result = cg.generate_asset(**kwargs, allow_remote=True)
+        after = {p.relative_to(self.repo) for p in self.repo.rglob("*")}
+        self.assertTrue(after - before)
+        self.assertTrue(all(p.is_relative_to("private/outputs") for p in after - before))
+        directory = Path(result["output_path"]).parent
+        self.assertIn("synthetic private prompt", (directory / "prompts.jsonl").read_text())
+        self.assertEqual(len(list((directory / "receipts").glob("*.json"))), 1)
+
+    def test_private_output_rejects_aliases_and_protected_paths(self):
+        outputs = self.repo / "private" / "outputs"
+        outputs.mkdir(parents=True)
+        for area in ("raw", "wiki", "nested"):
+            forbidden = self.repo / "private" / area / "outputs"
+            forbidden.mkdir(parents=True)
+            with self.assertRaises(cg.ComicGenerationError):
+                cg.allowed_output_root(forbidden, self.repo)
+        alias = self.repo / "outputs"
+        alias.symlink_to(outputs, target_is_directory=True)
+        with self.assertRaises(cg.ComicGenerationError):
+            cg.allowed_output_root(alias, self.repo)
+        outputs.rmdir()
+        outputs.symlink_to(self.repo / "teaching/outputs", target_is_directory=True)
+        with self.assertRaises(cg.ComicGenerationError):
+            cg.allowed_output_root(outputs, self.repo)
+
+    def test_private_artifact_symlinks_fail_before_network(self):
+        outputs = self.repo / "private" / "outputs"
+        directory = outputs / "article-01" / "images"
+        directory.mkdir(parents=True)
+        public = self.repo / "teaching" / "outputs"
+        for name in ("receipts", "prompts.jsonl", "manifest.json", "cover.png"):
+            alias = directory / name
+            alias.symlink_to(public / name)
+            with mock.patch.object(cg, "call_image_api") as api:
+                with self.assertRaises(cg.ComicGenerationError):
+                    cg.generate_asset(**self.kwargs(project=None, explicit_output_root=outputs), allow_remote=True)
+                api.assert_not_called()
+            alias.unlink()
+        article = outputs / "article-01"
+        directory.rmdir()
+        article.rmdir()
+        article.symlink_to(public, target_is_directory=True)
+        with self.assertRaises(cg.ComicGenerationError):
+            cg.output_directory(None, "article-01", self.repo, outputs)
+
+    def test_prompt_file_cannot_cross_output_scope(self):
+        private = self.repo / "private" / "outputs"
+        private.mkdir(parents=True)
+        prompt = private / "prompt.txt"
+        prompt.write_text("synthetic private prompt", encoding="utf-8")
+        destination = cg.output_directory(None, "avatar", self.repo, private)
+        self.assertEqual(cg.read_prompt_file(prompt, destination, self.repo), "synthetic private prompt")
+        public_destination = cg.output_directory("demo", "article-01", self.repo)
+        with self.assertRaises(cg.ComicGenerationError):
+            cg.read_prompt_file(prompt, public_destination, self.repo)
+        alias = self.project / "outputs" / "prompt.txt"
+        alias.symlink_to(prompt)
+        with self.assertRaises(cg.ComicGenerationError):
+            cg.read_prompt_file(alias, public_destination, self.repo)
+
     def test_endpoint_does_not_duplicate_v1(self):
         self.assertEqual(
             cg.endpoint_url("https://provider.example/v1", "/v1/images/generations"),

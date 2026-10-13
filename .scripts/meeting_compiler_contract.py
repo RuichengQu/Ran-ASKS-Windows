@@ -43,6 +43,14 @@ def meeting_ir_record_contract() -> dict:
         for section, fields in MEETING_IR_RECORD_FIELDS.items()
     }
 
+
+def meeting_ir_template() -> dict:
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        **{section: [] for section in MEETING_IR_RECORD_FIELDS},
+    }
+
+
 TYPED_MEETING_PREDICATES = {"参会", "汇报", "决策", "待办", "讨论", "规划"}
 TOPIC_PREDICATES = {"讨论", "涉及", "规划"}
 FREE_RELATION_PREDICATES = {"涉及", "紧密相关于", "指导", "师从", "受指导于"}
@@ -163,10 +171,7 @@ def _validate_meeting_ir(value, evidence_ids: set[str] | None = None, *,
     errors: list[str] = []
     if not isinstance(value, dict):
         return ["MEETING_IR must be an object"]
-    current_required = {
-        "protocol_version", "attendees", "topics", "reports", "decisions", "tasks",
-        "relations", "person_updates",
-    }
+    current_required = {"protocol_version", *MEETING_IR_RECORD_FIELDS}
     legacy_required = current_required - {"person_updates"}
     required = (
         legacy_required

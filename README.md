@@ -1,5 +1,5 @@
 # Ran-ASKS: Agent-Driven Scientific Knowledge System
-> Current main version: v0.15.0
+> Current main version: v0.16.0
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -195,6 +195,31 @@ maintains persistent revisions, separates draft approval from locking, applies
 constrained layouts, and produces deterministic delivery copies while carrying
 forward source-sensitivity rules. Presentation ingestion and presentation
 authoring remain distinct functions with explicit contracts.
+
+## Scientific-code and image-data workflows (preview)
+
+`wg.py code-library` performs bounded, read-only discovery of scientific code,
+methods and check definitions through an evidence-bound working catalog. The
+public [TT example](computing/code-library/README.md) is synthetic: it includes
+generic source and tests, not local Raw citations or executed project records.
+Queries do not run retrieved code. `wg.py code-run` executes only an explicitly
+selected fixed local recipe in a configured research project and retains inputs,
+source snapshots, results and failure evidence. A passed local check does not
+certify a paper reproduction. See [code discovery](operations/CODE_LIBRARY.md)
+and [explicit execution](operations/CODE_RUN.md).
+
+`wg.py extract-data` supports explicitly calibrated raster curve/scatter
+digitization without model calls. It preserves image bindings, bounded panel
+processing, CSV data, overlays and metadata. Results remain `needs_review` and
+are estimates from image pixels, not original experimental observations. See
+[data extraction](operations/EXTRACT_DATA.md).
+
+Paper ingestion also reuses evidence-checked format families and compacts only
+redundant API candidate metadata. Full values, locators and validation gates
+remain intact; Agent direct-evidence control stays independent. Input-size
+reductions are not measured provider-token, billing or live-quality improvements.
+Complex engineering changes start with a plan; quality and efficiency, rather
+than the smallest mechanism alone, guide design decisions.
 
 ## Persistent handoff, isolated private work, and reusable slides
 

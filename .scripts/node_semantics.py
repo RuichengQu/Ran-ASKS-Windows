@@ -198,13 +198,16 @@ def _cosine(query_vector, candidate_vector) -> float:
 
 
 def _row_dict(row) -> dict:
-    return {
+    item = {
         "node_id": row["path"],
         "title": row["title"] or row["path"],
         "description": row["description"] or "",
         "type": row["type"] or "",
         "entity_subtype": row["entity_subtype"] or "",
     }
+    if "status" in row.keys():
+        item["status"] = row["status"]
+    return item
 
 
 def _node_by_path(conn, path: str):
@@ -636,6 +639,7 @@ def semantic_search(
     scope: str = "node",
     top_k: int = 8,
     semantic_floor: float | None = None,
+    include_deprecated: bool = False,
 ) -> dict:
     """按含义召回节点或 Hub；结果只表示相关性，不能用于身份合并。"""
     query = str(query or "").strip()
@@ -644,13 +648,16 @@ def semantic_search(
     if scope not in {"node", "hub"}:
         return {"decision": "invalid", "reason": f"unsupported_scope:{scope}", "candidates": []}
     top_k = max(1, min(int(top_k), MAX_TOP_K))
+    if type(include_deprecated) is not bool:
+        raise ValueError("include_deprecated 必须是布尔值")
+    lifecycle_clause = "" if include_deprecated else " AND NOT (COALESCE(status,'')='deprecated' AND (type='page' OR path LIKE '%/wiki/%'))"
     if scope == "hub":
         rows = [_row_dict(row) for row in conn.execute(
-            "SELECT path,title,description,type,entity_subtype FROM nodes WHERE type='hub'"
+            "SELECT path,title,description,type,entity_subtype,status FROM nodes WHERE type='hub'" + lifecycle_clause
         )]
     else:
         rows = [_row_dict(row) for row in conn.execute(
-            "SELECT path,title,description,type,entity_subtype FROM nodes WHERE type!='raw'"
+            "SELECT path,title,description,type,entity_subtype,status FROM nodes WHERE type!='raw'" + lifecycle_clause
         )]
     # 概念性 query 本身就是 semantic text，不重复包装为“名称+上下文”。
     ranked, mode = _rank_with_embeddings(query, "", rows)
@@ -675,6 +682,7 @@ def semantic_search(
         "count": len(candidates),
         "candidates": candidates,
         "identity_claim": False,
+        "include_deprecated": include_deprecated,
         "next": "resolve_node before treating a candidate as the same entity",
     }
 
@@ -695,6 +703,7 @@ def main():
     search.add_argument("query")
     search.add_argument("--scope", choices=["node", "hub"], default="node")
     search.add_argument("--top-k", type=int, default=8)
+    search.add_argument("--include-deprecated", action="store_true", help="仅显式历史查询时包含废弃页")
     distinct = sub.add_parser("review-distinct")
     distinct.add_argument("left")
     distinct.add_argument("right")
@@ -708,7 +717,7 @@ def main():
         if args.command == "resolve":
             _json_print(resolve_node(conn, args.name, args.context, top_k=args.top_k))
         elif args.command == "search":
-            _json_print(semantic_search(conn, args.query, args.scope, args.top_k))
+            _json_print(semantic_search(conn, args.query, args.scope, args.top_k, include_deprecated=args.include_deprecated))
         else:
             recorded = record_identity_distinction(
                 conn, args.left, args.right, source=args.source, reason=args.reason,

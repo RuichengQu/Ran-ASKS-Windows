@@ -178,18 +178,30 @@ def _has_raw_line_handles(text: str) -> bool:
     return re.search(r"(?m)^<[^>\n]+#L\d+>[ \t]", text) is not None
 
 
-def _clip_context_section(content: str, cap: int) -> str:
+def _clip_context_section(content: str, cap: int, *, preserve_lines: bool = False) -> str:
     """超长 section 保留头部为主、尾部兜底，避免单段吞掉预算。"""
     content = content.strip()
     if len(content) <= cap:
         return content
-    if not _has_raw_line_handles(content):
-        head = content[: int(cap * 0.8)]
-        tail = content[-int(cap * 0.2):]
-        return f"{head}\n\n[...中段省略...]\n\n{tail}"
-    head = _head_fragment(content, int(cap * 0.8))
-    tail = _tail_fragment(content, int(cap * 0.2))
-    parts = [head, "[...中段省略...]", tail]
+    marker = "[...中段省略...]"
+    available = max(0, cap - len(marker) - 4)
+    head_cap = int(available * 0.8)
+    if not preserve_lines and not _has_raw_line_handles(content):
+        tail_cap = available - head_cap
+        parts = [content[:head_cap], marker, content[-tail_cap:] if tail_cap else ""]
+        return "\n\n".join(part for part in parts if part) if cap >= len(marker) else ""
+    head = _head_fragment(content, head_cap)
+    if len(content.splitlines()[0]) > head_cap:
+        head = ""
+    tail = _tail_fragment(content, available - head_cap)
+    last_line = content.splitlines()[-1]
+    if not tail and len(last_line) <= available:
+        tail = last_line
+        head_cap = available - len(tail)
+        head = _head_fragment(content, head_cap)
+        if len(content.splitlines()[0]) > head_cap:
+            head = ""
+    parts = [head, marker, tail] if cap >= len(marker) else []
     return "\n\n".join(part for part in parts if part)
 
 
@@ -197,11 +209,16 @@ def _assemble_reduced_context(profile: dict, sections: list[tuple[str, str]]) ->
     """把已选 section 组装成受预算约束的定向摘要。"""
     budget = profile["reduced_context_max_chars"]
     parts: list[str] = []
-    for title, content in sections:
-        cap = min(profile["section_char_cap"], max(1_500, budget))
-        part = f"--- [{title}] ---\n{_clip_context_section(content, cap)}"
+    for index, (title, content) in enumerate(sections):
+        header = f"--- [{title}] ---\n"
+        separator_size = 2 if parts else 0
+        available = budget - len(header) - separator_size
+        if available <= 0:
+            break
+        cap = min(profile["section_char_cap"], available // (len(sections) - index))
+        part = header + _clip_context_section(content, cap, preserve_lines=profile.get("extractor") == "read_paper")
         parts.append(part)
-        budget -= len(part)
+        budget -= len(part) + separator_size
         if budget <= 0:
             break
     return "\n\n".join(parts)
@@ -264,8 +281,47 @@ def _extract_markdown_sections(text: str, requested: tuple[str, ...]) -> list[tu
     return selected
 
 
+def _paper_reference_start(lines: list[str]) -> int | None:
+    for index, line in enumerate(lines):
+        plain = re.sub(r"^<[^>\n]+#L\d+>[ \t]+", "", line).strip()
+        if re.fullmatch(r"(?:#{1,6}\s+)?(?:references|bibliography|参考文献)\s*:?", plain, re.I):
+            return index
+        if re.match(r"^\[1\]\s+\S", plain) and re.search(r"\b(?:18|19|20)\d{2}\b|doi\b|arxiv\b", plain, re.I):
+            following = [item.strip() for item in lines[index + 1:index + 16] if item.strip()]
+            if any(re.match(r"^\[2\]\s+\S", item) for item in following) and any(
+                    re.match(r"^\[3\]\s+\S", item) for item in following):
+                return index
+    return None
+
+
+def _paper_body_windows(text: str, selected: list[tuple[str, str]]) -> tuple[list[tuple[str, str]], int | None]:
+    lines = text.splitlines()
+    reference_start = _paper_reference_start(lines)
+    body = lines[:reference_start] if reference_start is not None else lines
+    end_matter = next((index for index, line in enumerate(body) if re.match(
+        r"^(?:#{1,6}\s+)?(?:acknowledg(?:e)?ments|data availability)\b", line.strip(), re.I)), None)
+    if end_matter is not None:
+        body = body[:end_matter]
+    selected_lines = {line.strip() for _title, content in selected for line in content.splitlines() if line.strip()}
+    remaining = [line for line in body if line.strip() not in selected_lines]
+    total = sum(len(line) + 1 for line in remaining)
+    windows: list[list[str]] = [[], [], []]
+    consumed = 0
+    for line in remaining:
+        window_index = min(2, consumed * 3 // max(1, total))
+        windows[window_index].append(line)
+        consumed += len(line) + 1
+    result = []
+    for label, window in zip(("前部", "中部", "后部"), windows):
+        content = "\n".join(window).strip()
+        if content:
+            result.append((f"fallback: 正文{label}窗口（非章节判定）", content))
+    return result, reference_start + 1 if reference_start is not None else None
+
+
 def build_source_context(kind: str, text: str, *, source_path: Path | str | None = None,
-                         force_reduced: bool = False) -> str:
+                         force_reduced: bool = False, diagnostics: dict | None = None,
+                         raw_source: str | None = None) -> str:
     """统一构造喂给 LLM 的原文上下文。
 
     - 普通文本未超过类型阈值时保留全文，避免无谓改写。
@@ -274,28 +330,72 @@ def build_source_context(kind: str, text: str, *, source_path: Path | str | None
       会议纪要用头部尾部截取。
     """
     profile = context_profile(kind)
+    details = {
+        "source_character_count": len(text), "mode": "full",
+        "requested_sections": list(profile["sections"]),
+        "hit_sections": [], "missing_sections": [],
+    }
+
+    def finish(context: str) -> str:
+        if diagnostics is not None:
+            diagnostics.update(details, context_character_count=len(context))
+        return context
+
+    def annotate_sections(sections: list[tuple[str, str]]) -> list[tuple[str, str]]:
+        if raw_source is None:
+            return sections
+        import wiki_locator
+        section_lines = [content.splitlines() for _title, content in sections]
+        counts = [len(lines) for lines in section_lines]
+        annotated = wiki_locator.annotate_context_lines(
+            "\n".join(line for lines in section_lines for line in lines), text, raw_source).splitlines()
+        result = []
+        offset = 0
+        for (title, _content), count in zip(sections, counts):
+            result.append((title, "\n".join(annotated[offset:offset + count])))
+            offset += count
+        return result
+
     if len(text) <= profile["full_text_max_chars"] and (
             not force_reduced or kind == "paper"):
-        return text
+        if raw_source is not None:
+            import wiki_locator
+            return finish(wiki_locator.annotate_raw_lines(text, raw_source))
+        return finish(text)
 
-    if kind == "paper" and source_path is not None:
-        try:
-            import read_paper
-            paper_path = Path(source_path)
-            hits, _misses, _total = read_paper.extract_sections(
-                paper_path, list(profile["sections"]))
-            if hits:
-                sections = [(title, content) for _req, title, content in hits]
-                return _assemble_reduced_context(profile, sections)
-        except Exception:
-            pass
+    if kind == "paper":
+        hits = []
+        misses = list(profile["sections"])
+        if source_path is not None:
+            try:
+                import read_paper
+                hits, misses, _total = read_paper.extract_sections(
+                    Path(source_path), list(profile["sections"]))
+            except (OSError, ValueError):
+                details["extraction_status"] = "unavailable"
+        sections = []
+        for _req, title, content in hits:
+            section_lines = content.splitlines()
+            reference_start = _paper_reference_start(section_lines)
+            sections.append((title, "\n".join(section_lines[:reference_start])
+                             if reference_start is not None else content))
+        details.update(hit_sections=[requested for requested, _title, _content in hits],
+                       missing_sections=misses, mode="sections")
+        if misses or not hits:
+            windows, reference_start = _paper_body_windows(text, sections)
+            sections.extend(windows)
+            details.update(mode="sections+body_windows" if hits else "body_windows",
+                           reference_start_line=reference_start)
+        return finish(_assemble_reduced_context(profile, annotate_sections(sections)))
 
     if kind == "document":
         sections = _extract_markdown_sections(text, profile["sections"])
         if sections:
-            return _assemble_reduced_context(profile, sections)
+            details["mode"] = "sections"
+            return finish(_assemble_reduced_context(profile, sections))
 
-    return _fallback_head_tail_context(profile, text)
+    details["mode"] = "head_tail"
+    return finish(_fallback_head_tail_context(profile, text))
 
 
 

@@ -47,6 +47,9 @@ GRAPH_DB = Path(__file__).resolve().parent.parent / "cross-domain" / "graph.db"
 CONF_ORDER = {"可追溯": 0, "推断": 1, "存疑": 2, None: 3}
 # status 排序:current 优先于 deprecated
 STATUS_ORDER = {"current": 0, "active": 0, "deprecated": 1, "dormant": 2, "archived": 3}
+NEIGHBOR_DEFAULTS = {"max_nodes": 100, "max_edges": 300, "max_scanned_rows": 1000}
+NEIGHBOR_CEILINGS = {"max_nodes": 1000, "max_edges": 3000, "max_scanned_rows": 10000}
+MAX_NEIGHBOR_DEPTH = 5
 
 
 def connect(db_path):
@@ -54,6 +57,46 @@ def connect(db_path):
         print(f"错误: 图数据库不存在 {db_path}。请通过受管摄入、同步或备份恢复该数据库", file=sys.stderr)
         sys.exit(1)
     return gl.connect(str(db_path), read_only=True)
+
+
+def history_enabled(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in {"true", "false"}:
+        return value.strip().lower() == "true"
+    raise ValueError("include_deprecated 必须是布尔值或 true/false 字符串")
+
+
+def node_version(info):
+    page = info.get("type") == "page" or "/wiki/" in info.get("path", "")
+    historical = page and info.get("status") == "deprecated"
+    return {"material_role": "historical_navigation" if historical else "page_navigation" if page else "graph_navigation",
+            "default_page_candidate": page and not historical}
+
+
+def version_context(nodes):
+    entries = {item["path"]: item for item in nodes}
+    eligible, historical = [], []
+    for path, info in sorted(entries.items()):
+        role = node_version(info)
+        if role["default_page_candidate"]:
+            eligible.append(path)
+        elif role["material_role"] == "historical_navigation":
+            historical.append(path)
+    return {"result_role": "graph_navigation", "status_source": "graph",
+            "eligible_page_paths": eligible, "historical_page_paths": historical,
+            "next": "read Wiki lifecycle/superseded_by and exact Raw evidence; eligibility is not verified current validity"}
+
+
+def query_version_context(conn, paths):
+    entries = []
+    ordered = sorted(set(paths))
+    for offset in range(0, len(ordered), 250):
+        batch = ordered[offset:offset + 250]
+        placeholders = ",".join("?" for _ in batch)
+        entries.extend(dict(row) for row in conn.execute(
+            f"SELECT path,type,status FROM nodes WHERE path IN ({placeholders})", batch))
+    return version_context(entries)
 
 
 def node_info(conn, path):
@@ -81,6 +124,7 @@ def node_info(conn, path):
         "source_type": row["source_type"],
         "date": row["date"],
         "status": row["status"],
+        **node_version(dict(row)),
         "aliases": aliases,
         "description": row["description"] or "",
         "glosses": glosses,
@@ -145,74 +189,150 @@ def _filter_similar_edges(similar_rows, max_cap=5):
     return kept if kept else similar_rows[:1]
 
 
+def _node_infos(conn, paths):
+    """Fetch full legacy node details in bounded batches, without per-node queries."""
+    result = []
+    ordered = sorted(paths)
+    for offset in range(0, len(ordered), 250):
+        batch = ordered[offset:offset + 250]
+        placeholders = ",".join("?" for _ in batch)
+        nodes = {}
+        for row in conn.execute(f"SELECT * FROM nodes WHERE path IN ({placeholders}) ORDER BY path", batch):
+            nodes[row["path"]] = {
+                key: row[key] for key in ("path", "title", "type", "entity_subtype", "source_type", "date", "status")
+            }
+            nodes[row["path"]].update({
+                "description": row["description"] or "", "has_raw_source": bool(row["has_raw_source"]),
+                "aliases": [], "glosses": [], "description_reviews": [],
+                **node_version(dict(row)),
+            })
+        for row in conn.execute(f"SELECT node_path,alias FROM aliases WHERE node_path IN ({placeholders}) ORDER BY rowid", batch):
+            nodes[row["node_path"]]["aliases"].append(row["alias"])
+        for row in conn.execute(
+            f"SELECT node_path,origin_page,source,description,is_primary FROM node_glosses WHERE node_path IN ({placeholders}) "
+            "ORDER BY node_path,is_primary DESC,recorded_at,origin_page,source", batch,
+        ):
+            values = dict(row)
+            nodes[values.pop("node_path")]["glosses"].append(values)
+        for row in conn.execute(
+            f"SELECT node_path,origin_page,source,status,reason,proposed_description,recorded_at "
+            f"FROM node_description_reviews WHERE node_path IN ({placeholders}) ORDER BY node_path,id", batch,
+        ):
+            values = dict(row)
+            nodes[values.pop("node_path")]["description_reviews"].append(values)
+        result.extend(nodes.values())
+    return result
+
+
 def neighbors_bfs(conn, start, depth=2, top_k=None, include_hub=False, similar_topk=5,
-                  profile="", families=None):
-    """关联召回 BFS。返回 (节点集, 边集)。
-    BFS 沿知识边正反向遍历；Hub 节点默认按 type 过滤。
-    ADR-003: 相似边优先级最低(知识边先扩散);每节点相似边由 _filter_similar_edges
-    动态截断(按 score 分布算阈值,非定死 K),防止过度扩散。相似边全量存图,仅导航时过滤。
-    """
-    if not node_exists(conn, start):
+                  profile="", families=None, max_nodes=100, max_edges=300,
+                  max_scanned_rows=1000):
+    """Read-only, deterministic association BFS with explicit partial-result disclosure."""
+    budget = {"max_nodes": max_nodes, "max_edges": max_edges, "max_scanned_rows": max_scanned_rows}
+    for key, value in budget.items():
+        if type(value) is not int or not 1 <= value <= NEIGHBOR_CEILINGS[key]:
+            return {"error": f"{key} 必须为 1–{NEIGHBOR_CEILINGS[key]} 的整数"}
+    if type(depth) is not int or not 0 <= depth <= MAX_NEIGHBOR_DEPTH:
+        return {"error": f"depth 必须为 0–{MAX_NEIGHBOR_DEPTH} 的整数"}
+    if top_k is not None and (type(top_k) is not int or top_k < 1):
+        return {"error": "top_k 必须为正整数"}
+    start_info = conn.execute("SELECT path,type,status FROM nodes WHERE path=?", (start,)).fetchone()
+    if start_info is None:
         return {"error": f"节点不存在: {start}"}
     visited = {start}
     frontier = {start}
-    edges = []
+    edges = {}
+    edge_depths = {}
+    statuses = {}
+    reasons = []
+    remaining_frontier = set()
+    work = {"queried_nodes": 0, "scanned_rows": 0, "fetched_rows": 0}
     contract = gl.load_graph_contract()
     allowed_families = gl.traversal_families(profile, families, contract)
-    type_cache = {}
-    for d in range(depth):
+    for hop in range(depth):
         next_frontier = set()
-        for node in frontier:
-            # ADR-003: 知识边(非相似)优先全取;相似边每节点仅取 top-K(按 score 降序)
+        ordered_frontier = sorted(frontier)
+        for position, node in enumerate(ordered_frontier):
+            remaining = max_scanned_rows - work["scanned_rows"]
+            rows = conn.execute(
+                "SELECT e.*,s.type AS subject_type,o.type AS object_type,o.status AS object_status "
+                "FROM edges e JOIN nodes s ON s.path=e.subject JOIN nodes o ON o.path=e.object "
+                "WHERE e.subject=? OR e.object=? "
+                "ORDER BY CASE WHEN e.predicate='相似' THEN 1 ELSE 0 END,"
+                "CASE e.confidence WHEN '可追溯' THEN 0 WHEN '推断' THEN 1 WHEN '存疑' THEN 2 ELSE 3 END,"
+                "CASE o.status WHEN 'current' THEN 0 WHEN 'active' THEN 0 WHEN 'deprecated' THEN 1 "
+                "WHEN 'dormant' THEN 2 WHEN 'archived' THEN 3 ELSE 9 END,"
+                "e.score DESC,e.subject,e.predicate,e.object,e.id LIMIT ?",
+                (node, node, remaining + 1),
+            ).fetchall()
+            work["queried_nodes"] += 1
+            work["fetched_rows"] += len(rows)
+            scan_cut = len(rows) > remaining
+            work["scanned_rows"] += min(len(rows), remaining)
             knowledge_rows = []
             similar_rows = []
-            for r in conn.execute(
-                "SELECT * FROM edges WHERE subject=? OR object=?", (node, node)
-            ):
-                record, family = _edge_record_with_family(conn, r, contract, type_cache)
+            excluded_hubs = set()
+            for row in rows[:remaining]:
+                family = gl.predicate_family(row["predicate"], row["subject_type"], row["object_type"], contract)
                 if allowed_families and family not in allowed_families:
                     continue
-                if r["predicate"] == "相似":
+                other_type = row["object_type"] if row["subject"] == node else row["subject_type"]
+                if not include_hub and other_type == "hub":
+                    excluded_hubs.add(row["id"])
+                statuses[row["object"]] = row["object_status"]
+                record = edge_record({key: value for key, value in dict(row).items()
+                                      if key not in {"subject_type", "object_type", "object_status"}}, family)
+                if row["predicate"] == "相似":
                     similar_rows.append(record)
                 else:
                     knowledge_rows.append(record)
-            # ADR-003: 相似边动态截断(按 score 分布算阈值,非固定 K)
             similar_rows = _filter_similar_edges(similar_rows, similar_topk)
-            for r in knowledge_rows + similar_rows:
-                if not include_hub:
-                    other = r["object"] if r["subject"] == node else r["subject"]
-                    other_type = _node_type(conn, other, type_cache)
-                    if other_type == "hub":
-                        continue
-                edges.append(r)
-                other = r["object"] if r["subject"] == node else r["subject"]
+            for record in knowledge_rows + similar_rows:
+                if record["id"] in excluded_hubs:
+                    continue
+                key = (record["subject"], record["predicate"], record["object"])
+                if key in edges:
+                    continue
+                other = record["object"] if record["subject"] == node else record["subject"]
+                if len(edges) >= max_edges:
+                    reasons.append("max_edges")
+                    break
+                if other not in visited and len(visited) - 1 >= max_nodes:
+                    reasons.append("max_nodes")
+                    break
+                edges[key] = record
+                edge_depths[key] = hop + 1
                 if other not in visited:
+                    visited.add(other)
                     next_frontier.add(other)
-        visited |= next_frontier
+            if scan_cut:
+                reasons.append("max_scanned_rows")
+            if reasons:
+                remaining_frontier = {node, *ordered_frontier[position + 1:]} | next_frontier
+                break
+        if reasons:
+            break
         frontier = next_frontier
-    # 边去重 + confidence/status 排序(相似边排最后)
-    seen = set()
-    unique_edges = []
-    for e in edges:
-        key = (e["subject"], e["predicate"], e["object"])
-        if key not in seen:
-            seen.add(key)
-            unique_edges.append(e)
-    unique_edges.sort(key=lambda e: (
-        1 if e["predicate"] == "相似" else 0,  # 相似边排最后
-        CONF_ORDER.get(e["confidence"], 3),
-        STATUS_ORDER.get(get_node_status(conn, e["object"]), 9),
+    traversal_truncated = bool(reasons)
+    unique_edges = sorted(edges.values(), key=lambda edge: (
+        1 if edge["predicate"] == "相似" else 0,
+        CONF_ORDER.get(edge["confidence"], 3),
+        STATUS_ORDER.get(statuses.get(edge["object"]), 9),
+        edge_depths[(edge["subject"], edge["predicate"], edge["object"])],
+        edge["subject"], edge["predicate"], edge["object"],
     ))
-    if top_k:
+    if top_k is not None and len(unique_edges) > top_k:
         unique_edges = unique_edges[:top_k]
-    # 节点信息(去掉起点)
-    nodes = []
-    for n in visited - {start}:
-        ni = node_info(conn, n)
-        if ni:
-            nodes.append(ni)
+        reasons.append("output_top_k")
+    node_paths = {endpoint for edge in unique_edges for endpoint in (edge["subject"], edge["object"])} - {start}
+    nodes = _node_infos(conn, node_paths)
+    work.update({"discovered_nodes": len(visited) - 1, "retained_edges": len(edges)})
     return {"start": start, "depth": depth, "profile": profile or None,
-            "families": sorted(allowed_families), "nodes": nodes, "edges": unique_edges}
+            "families": sorted(allowed_families), "nodes": nodes, "edges": unique_edges,
+            "version_context": version_context([dict(start_info), *nodes]),
+            "truncated": bool(reasons), "traversal_truncated": traversal_truncated,
+            "truncation_reasons": sorted(set(reasons)), "budget": budget, "work": work,
+            "remaining_frontier": sorted(remaining_frontier)}
 
 
 def relations(conn, node, predicate=None, top_k=None, profile="", families=None):
@@ -242,7 +362,8 @@ def relations(conn, node, predicate=None, top_k=None, profile="", families=None)
     if top_k:
         edges = edges[:top_k]
     return {"node": node, "predicate_filter": predicate, "profile": profile or None,
-            "families": sorted(allowed_families), "edges": edges}
+            "families": sorted(allowed_families), "edges": edges,
+            "version_context": query_version_context(conn, {node, *(endpoint for edge in edges for endpoint in (edge["subject"], edge["object"]))})}
 
 
 def temporal_at(conn, at_date, subject=None, obj=None, predicate=None, top_k=None):
@@ -306,10 +427,10 @@ def hub_of(conn, page):
         if ni:
             ni["predicate"] = r["predicate"]
             hubs.append(ni)
-    return {"page": page, "hubs": hubs}
+    return {"page": page, "hubs": hubs, "version_context": query_version_context(conn, [page, *(item["path"] for item in hubs)])}
 
 
-def search_nodes(conn, keyword, granularity=None, top_k=None):
+def search_nodes(conn, keyword, granularity=None, top_k=None, include_deprecated=False):
     """按字面关键词查节点；完整匹配、前缀、子串在截断前排序。
 
     granularity: 按颗粒度过滤(对应查询意图)。
@@ -318,6 +439,7 @@ def search_nodes(conn, keyword, granularity=None, top_k=None):
       - None : 不过滤(默认,返回所有颗粒度)
     """
     limit = 50 if top_k is None else max(1, min(int(top_k), 50))
+    include_deprecated = history_enabled(include_deprecated)
     literal = keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     kw = f"%{literal}%"
     prefix = f"{literal}%"
@@ -334,6 +456,8 @@ def search_nodes(conn, keyword, granularity=None, top_k=None):
         "OR a.alias LIKE ? ESCAPE '\\') "
     )
     params = [keyword, keyword, keyword, prefix, prefix, prefix, kw, kw, kw]
+    if not include_deprecated:
+        query += "AND NOT (COALESCE(n.status,'')='deprecated' AND (n.type='page' OR n.path LIKE '%/wiki/%')) "
     if granularity:
         query += "AND n.entity_subtype = ? "
         params.append(granularity)
@@ -345,10 +469,12 @@ def search_nodes(conn, keyword, granularity=None, top_k=None):
         results.append({
             "path": r["path"], "title": r["title"], "type": r["type"],
             "status": r["status"], "granularity": r["entity_subtype"] or "unspecified",
+            **node_version(dict(r)),
         })
     return {
         "keyword": keyword, "granularity": granularity, "count": len(results),
         "limit": limit, "truncated": len(rows) > limit, "nodes": results,
+        "include_deprecated": include_deprecated, "version_context": version_context(results),
     }
 
 
@@ -412,6 +538,10 @@ def fmt_text(result, cmd):
     if cmd == "neighbors":
         lines = [f"关联召回(BFS depth={result['depth']}) 起点: {result['start']}",
                  f"命中节点 {len(result['nodes'])} 个,边 {len(result['edges'])} 条:"]
+        if result.get("truncated"):
+            lines.append("部分结果（" + ", ".join(result["truncation_reasons"]) + "）；未返回不代表不存在，请定位具体节点或显式提高预算。")
+        if len(result["edges"]) > 20:
+            lines.append("文本当前展示前 20 条边；完整受限结果请使用 --json。")
         for e in result["edges"][:20]:
             sr = " [SR]" if e["is_sr"] else ""
             cf = e["confidence"] or "-"
@@ -463,6 +593,9 @@ def main():
     ap.add_argument("cmd", choices=["node", "neighbors", "relations", "hub_of", "search", "path_exists", "temporal"])
     ap.add_argument("args", nargs="*", help="命令参数")
     ap.add_argument("--depth", type=int, default=2)
+    for name, default in NEIGHBOR_DEFAULTS.items():
+        ap.add_argument("--" + name.replace("_", "-"), type=int, default=default,
+                        help=f"neighbors 预算，默认 {default}，硬上限 {NEIGHBOR_CEILINGS[name]}")
     ap.add_argument("--predicate", default=None)
     ap.add_argument("--subject", default=None, help="temporal 命令专用：过滤 subject")
     ap.add_argument("--object", default=None, help="temporal 命令专用：过滤 object")
@@ -471,6 +604,7 @@ def main():
     ap.add_argument("--similar-topk", type=int, default=5,
                     help="每节点相似边上限(动态K;0=排除,-1=全部,默认5)")
     ap.add_argument("--include-hub", action="store_true")
+    ap.add_argument("--include-deprecated", action="store_true", help="search 显式历史查询时包含废弃页；导航遍历始终保留历史路径")
     ap.add_argument("--profile", default="", choices=["", "fact", "relation", "explanation", "exploration", "lineage"],
                     help="按查询意图选择谓词族 traversal profile")
     ap.add_argument("--families", default="",
@@ -493,14 +627,15 @@ def main():
             result = {"error": f"节点不存在: {args.args[0]}"}
     elif args.cmd == "neighbors":
         result = neighbors_bfs(conn, args.args[0], args.depth, args.top_k, args.include_hub,
-                               args.similar_topk, args.profile, args.families)
+                               args.similar_topk, args.profile, args.families,
+                               args.max_nodes, args.max_edges, args.max_scanned_rows)
     elif args.cmd == "relations":
         result = relations(conn, args.args[0], args.predicate, args.top_k,
                            args.profile, args.families)
     elif args.cmd == "hub_of":
         result = hub_of(conn, args.args[0])
     elif args.cmd == "search":
-        result = search_nodes(conn, args.args[0], args.granularity, args.top_k)
+        result = search_nodes(conn, args.args[0], args.granularity, args.top_k, args.include_deprecated)
     elif args.cmd == "path_exists":
         result = path_exists(conn, args.args[0], args.args[1])
     elif args.cmd == "temporal":

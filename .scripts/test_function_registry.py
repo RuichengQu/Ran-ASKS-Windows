@@ -8,6 +8,7 @@ import sys
 import tempfile
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 
 REPO = Path(__file__).resolve().parent.parent
@@ -24,7 +25,7 @@ def test_registry_and_runtime_have_exact_coverage():
     data = registry.load_registry()
     assert registry.validate_registry(data) == []
     assert registry.validate_runtime(data) == []
-    assert len(data["functions"]) == 27
+    assert len(data["functions"]) == 30
     assert set(data["states"]) == {"workspace", "research", "frontier", "oral_exam"}
     assert len(registry.observed_dsh_tools()) == 38
     assert registry.observed_dsh_tool_names() == registry.observed_dsh_tools()
@@ -38,6 +39,21 @@ def test_dsh_tools_receive_canonical_policy_metadata():
     assert next(tool for tool in tools if tool.name == "read_raw").function_id == "knowledge.query"
     assert next(tool for tool in tools if tool.name == "hub_route").function_id == "knowledge.hub"
     assert next(tool for tool in tools if tool.name == "comic_generate").function_id == "artifact.comic"
+
+
+def test_recall_tools_expose_and_forward_explicit_history_flag():
+    import dsh.tools as query_tools
+    tools = {tool.name: tool for tool in query_tools.build_tools()}
+    for name in ("wiki_recall", "admin_recall", "graph_search", "semantic_search"):
+        tool = tools[name]
+        assert tool.input_schema["properties"]["include_deprecated"]["type"] == "boolean"
+        assert tool.input_schema["properties"]["include_deprecated"]["default"] is False
+        for inputs, expected in (({"query": "old", "term": "old"}, False),
+                                 ({"query": "old", "term": "old", "include_deprecated": True}, True)):
+            with patch.object(query_tools, "_qa_call", return_value="{}") as call:
+                tool.execute_fn(inputs)
+            assert call.call_args.args[0] == name
+            assert call.call_args.args[1]["include_deprecated"] is expected
 
 
 def test_runtime_coverage_does_not_import_optional_dsh_providers():
@@ -117,13 +133,23 @@ def test_fixed_pipelines_remain_code_owned():
 
 def test_library_and_visualization_are_functions_with_discoverable_entries():
     data = registry.load_registry()
-    for key, entry in [('artifact.slide_library','slide-library'),('knowledge.visualize','graph-visualize')]:
+    for key, entry in [('artifact.slide_library','slide-library'),('knowledge.visualize','graph-visualize'),
+                       ('science.code_library','code-library'),('science.code_run','code-run')]:
         record = data['functions'][key]
         assert record['kind'] == 'function'
         assert record['maturity'] == 'preview'
         assert record['bindings']['wg'] == [entry]
         assert record['bindings']['route_capabilities'] == {entry:['general']}
         assert 'raw' not in record['effects'] and 'graph' not in record['effects']
+        if key.startswith('science.code_'):
+            assert 'dsh' not in record['bindings']
+            registry.resolve(key, caller='main_agent', backend='agent')
+            try:
+                registry.resolve(key, caller='api_controller', backend='api')
+            except registry.RegistryError:
+                pass
+            else:
+                raise AssertionError(f'expected Agent-only function: {key}')
     assert set(data['states']) == {'workspace','research','frontier','oral_exam'}
     proc = subprocess.run([sys.executable,str(SCRIPTS/'wg.py'),'slide-library','show',
                            '--template','temp/nonexistent-template-test-only'],

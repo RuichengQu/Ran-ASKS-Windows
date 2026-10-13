@@ -112,8 +112,8 @@ def normalize_raw_footnote_locator(value: str) -> str:
     return locator
 
 
-def normalize_raw_footnotes(text: str) -> str:
-    """Canonicalize only footnote definitions; leave prose and IDs unchanged."""
+def normalize_raw_footnotes(text: str, *, reuse_inline: bool = False) -> str:
+    """Canonicalize definitions and optionally reuse exact inline Raw citations."""
     def replace(match):
         value = match.group("locator")
         normalized = normalize_raw_footnote_locator(value)
@@ -121,7 +121,41 @@ def normalize_raw_footnotes(text: str) -> str:
             return match.group(0)
         return f"[^{match.group('id')}]: {normalized}"
 
-    return re.sub(FOOTNOTE_DEF_RE.pattern, replace, text, flags=re.M)
+    normalized = re.sub(FOOTNOTE_DEF_RE.pattern, replace, text, flags=re.M)
+    if not reuse_inline:
+        return normalized
+    lines = normalized.splitlines(keepends=True)
+    definitions, duplicates = _footnote_definitions(lines)
+    if duplicates:
+        return normalized
+    citations = {}
+    for footnote_id, locator in definitions.items():
+        raw_path, fragment = raw_locator.split_locator(locator)
+        if "/raw/" in f"/{raw_path}" and re.fullmatch(r"L[1-9]\d*(?:-L[1-9]\d*)?", fragment):
+            citations.setdefault(locator, footnote_id)
+    if not citations:
+        return normalized
+    addresses = "|".join(re.escape(locator) for locator in sorted(citations, key=len, reverse=True))
+    inline_pattern = re.compile(r"(?<![\w/`\[\(<\"'])" + f"(?:{addresses})" + r"(?![\w/#-]|\.[\w])")
+    frontmatter_end = _frontmatter_end([line.rstrip("\r\n") for line in lines])
+    fence_marker = ""
+    for index, line in enumerate(lines):
+        if index < frontmatter_end:
+            continue
+        fence = re.match(r"^[ \t]{0,3}(`{3,}|~{3,})", line)
+        if fence:
+            marker = fence.group(1)
+            if not fence_marker:
+                fence_marker = marker
+            elif (marker[0] == fence_marker[0] and len(marker) >= len(fence_marker)
+                  and not line[fence.end():].strip()):
+                fence_marker = ""
+            continue
+        if (fence_marker or FOOTNOTE_DEF_RE.fullmatch(line.strip())
+                or HEADING_RE.fullmatch(line.strip()) or "`" in line or "[[" in line or "](" in line):
+            continue
+        lines[index] = inline_pattern.sub(lambda match: f"[^{citations[match.group(0)]}]", line)
+    return "".join(lines)
 
 
 def _footnote_definitions(lines: list[str]) -> tuple[dict[str, str], list[str]]:

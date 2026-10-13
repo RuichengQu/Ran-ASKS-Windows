@@ -2143,6 +2143,7 @@ def test_resume_reconciles_parent_batch_before_maintenance():
     import sys
     from types import ModuleType
     import ingest_common as ic
+    from ingest_inbox import _map_paper_batch_results
 
     calls = []
     fake = ModuleType("ingest_inbox")
@@ -2191,10 +2192,10 @@ def test_resume_reconciles_parent_batch_before_maintenance():
             report_path = report_dir / "20260906-120000.json"
             report_path.write_text(json.dumps({
                 "session_id": "agent-batch",
-                "files": [
-                    {"file": "one.pdf", "status": "prepared", "transaction_id": "txn-1"},
-                    {"file": "two.pdf", "status": "prepared", "transaction_id": "txn-2"},
-                ],
+                "files": _map_paper_batch_results({"items": [
+                    {"source": "inbox/one.pdf", "status": "graph_ready", "transaction_id": "txn-1"},
+                    {"source": "inbox/two.pdf", "status": "agent_required", "transaction_id": "txn-2"},
+                ]}),
                 "maintenance": {"status": "skipped"},
             }), encoding="utf-8")
 

@@ -1023,6 +1023,54 @@ def test_audited_prompt_currency_regressions():
     assert "graph_build.py" not in query_graph
 
 
+def test_build_principles_quality_efficiency_and_planning():
+    build = run("python3", ".scripts/route.py", "--task", "build").stdout
+    agents = (REPO / "AGENTS.md").read_text(encoding="utf-8")
+    conventions = (REPO / "operations/shared-conventions.md").read_text(encoding="utf-8")
+    assert "最小方案不等于最优方案" in build
+    assert "高质量、高效率" in build
+    assert "对复杂建设先制定计划，再实施" in build
+    assert "目标与验收标准、影响边界与后端归属、阶段与依赖、风险及回归验证" in build
+    assert "质量与效率优先" in agents
+    assert "复杂建设先计划" in agents
+    assert "最小方案不等于最优方案" in conventions
+    assert "复杂建设先计划" in conventions
+    assert "质量与可靠性是约束" in conventions
+    assert "优先实际效果、最小机制" not in build
+    assert "最小机制(不重复造轮子 + 奥卡姆)" not in conventions
+    assert len(build) < 1800, len(build)
+
+
+def test_paper_guidance_locators_are_bounded_and_complete():
+    import engineering_locator
+
+    prefix = "md:wikiran-代码调用指南/2-摄入工作流原料-wiki-图/"
+    main_locator = prefix + "21c-代码驱动论文摄入scriptsingestpaperpy"
+    bibliography_locator = prefix + "21c1-论文书目取证与候选目录"
+    primary = engineering_locator.read_engineering_locator(
+        "operations/engineering/code-guidance.md#" + main_locator,
+    )
+    bibliography = engineering_locator.read_engineering_locator(
+        "operations/engineering/code-guidance.md#" + bibliography_locator,
+    )
+    assert primary["ok"], primary
+    assert bibliography["ok"], bibliography
+    assert primary["content_chars"] <= engineering_locator.DEFAULT_MAX_CHARS
+    assert bibliography["content_chars"] <= engineering_locator.DEFAULT_MAX_CHARS
+    assert bibliography_locator in primary["content"]
+    assert "--agent-workspace" in primary["content"]
+    assert "双后端恢复" in primary["content"]
+    for required in (
+        "书目协议诊断", "近端 venue", "Agent task 不接收候选目录",
+        "模板族与 API 输入表示", "完整逐人作者仅在 PDF", "书目快速路径与幂等缓存",
+        "论文 META 归属", "锁定书目回填", "书目候选边界与观测",
+    ):
+        assert required in bibliography["content"], required
+    assert (REPO / "operations/engineering/code-guidance.md").read_bytes() == (
+        REPO / "operations/engineering/open-source-assets/code-guidance.md"
+    ).read_bytes()
+
+
 def test_use_task_execution_discipline():
     discipline = "执行纪律（使用任务）"
     supplement = "摄入执行补充"
@@ -1189,6 +1237,8 @@ if __name__ == "__main__":
     test_ingest_route_guardrails()
     test_ingest_minimal_domain_dispatch()
     test_audited_prompt_currency_regressions()
+    test_build_principles_quality_efficiency_and_planning()
+    test_paper_guidance_locators_are_bounded_and_complete()
     test_use_task_execution_discipline()
     test_trace_rules()
     print("prompt audit regression: PASS")
