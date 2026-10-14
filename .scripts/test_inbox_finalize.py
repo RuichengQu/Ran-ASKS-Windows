@@ -366,7 +366,81 @@ def test_existing_raw_container_rolls_back_partial_nested_landing():
         directory.cleanup()
 
 
+def test_guarded_existing_wiki_update_and_rollback():
+    from unittest.mock import patch
+    for failure in (None, "validation", "receipt"):
+        directory, root, extract = workspace()
+        try:
+            raw = root / "admin/raw/profile"
+            wiki = root / "admin/wiki/profile/demo.md"
+            raw.mkdir(parents=True)
+            wiki.parent.mkdir(parents=True)
+            source = raw / "demo.xls"
+            source.write_bytes(b"original")
+            wiki.write_bytes(b"old wiki")
+            log = root / "admin/wiki/log.md"
+            log.write_bytes(b"old log")
+            (extract / "demo.md").write_text("extracted", encoding="utf-8")
+            (extract / "wiki.md").write_text("new wiki", encoding="utf-8")
+            manifest_v2(extract, [("demo.md", "raw")])
+            original_write_text = Path.write_text
+
+            def write_text(path, *args, **kwargs):
+                if failure == "receipt" and path.parent.name == "inbox-receipts":
+                    raise OSError("receipt write failed")
+                return original_write_text(path, *args, **kwargs)
+
+            with patch.object(module, "run_ingest_check", side_effect=ValueError("invalid") if failure == "validation" else None), \
+                    patch.object(Path, "write_text", write_text):
+                try:
+                    module.finalize(root, "repair", raw, wiki, extract, extract / "manifest.json", False, True,
+                                    expected_wiki_sha256=module.sha256_file(wiki),
+                                    raw_guards=((source, module.sha256_file(source)),),
+                                    update_log=(log, "\nrepair log"))
+                except (ValueError, OSError):
+                    assert failure is not None
+                else:
+                    assert failure is None
+            assert source.read_bytes() == b"original"
+            assert wiki.read_bytes() == (b"old wiki" if failure else b"new wiki")
+            assert log.read_bytes() == (b"old log" if failure else b"old log\nrepair log")
+            assert (raw / "demo.md").exists() == (failure is None)
+            if failure:
+                assert not list((root / "temp/inbox-receipts").glob("*.json"))
+        finally:
+            directory.cleanup()
+
+
+def test_guarded_update_rejects_stale_input():
+    directory, root, extract = workspace()
+    try:
+        raw = root / "admin/raw/profile"
+        wiki = root / "admin/wiki/profile/demo.md"
+        raw.mkdir(parents=True)
+        wiki.parent.mkdir(parents=True)
+        source = raw / "demo.xls"
+        source.write_bytes(b"source")
+        wiki.write_bytes(b"old wiki")
+        (extract / "demo.md").write_text("text", encoding="utf-8")
+        (extract / "wiki.md").write_text("new wiki", encoding="utf-8")
+        manifest_v2(extract, [("demo.md", "raw")])
+        for wiki_hash, raw_hash in (("0" * 64, module.sha256_file(source)),
+                                    (module.sha256_file(wiki), "0" * 64)):
+            try:
+                module.finalize(root, "repair", raw, wiki, extract, extract / "manifest.json", False, True,
+                                expected_wiki_sha256=wiki_hash, raw_guards=((source, raw_hash),))
+            except ValueError as exc:
+                assert "hash changed" in str(exc)
+            else:
+                raise AssertionError("stale input accepted")
+        assert wiki.read_bytes() == b"old wiki" and not (raw / "demo.md").exists()
+    finally:
+        directory.cleanup()
+
+
 if __name__ == "__main__":
+    test_guarded_existing_wiki_update_and_rollback()
+    test_guarded_update_rejects_stale_input()
     test_manifest_only_copies_declared_entity_files_and_writes_receipt()
     test_rejects_existing_destination_without_partial_write()
     test_allows_existing_raw_container_only_with_explicit_flag()

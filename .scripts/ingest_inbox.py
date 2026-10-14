@@ -785,6 +785,10 @@ def _map_paper_batch_results(parsed: dict) -> list[dict]:
         fname = source.rsplit("/", 1)[-1]
         status = item.get("status", "")
         entry = {"file": fname, "type": "paper", "ok": False, "status": status or "unknown"}
+        for key in ("source", "transaction_id", "paper_id", "raw_dir", "wiki_path",
+                    "execution_backend", "state_ref", "runtime_status_ref", "next_action"):
+            if item.get(key) is not None:
+                entry[key] = item[key]
         if status == "completed":
             entry["ok"] = True
             for key in ("paper_id", "raw_dir", "wiki_path", "engine", "graph_report",
@@ -807,7 +811,7 @@ def _map_paper_batch_results(parsed: dict) -> list[dict]:
             if isinstance(errors, list):
                 entry["reason"] = (
                     errors[0] if errors else
-                    "API worker 自动恢复耗尽，等待宿主 Agent 修正暂存产物"
+                    "API 产物等待宿主 Agent 复核或修正"
                     if status == "agent_required" and item.get("execution_backend") == "api"
                     else status
                 )
@@ -860,7 +864,7 @@ def _result_entry(file_name: str, file_type: str, parsed: dict, content: str = "
         reason = (
             "Agent task prepared" if status == "prepared" else
             (
-                "API worker 自动恢复耗尽，等待宿主 Agent 修正暂存产物"
+                errors[0] if errors else "API 产物等待宿主 Agent 复核或修正"
                 if parsed.get("execution_backend") == "api"
                 else "等待宿主 Agent 接管暂存任务"
             ) if status == "agent_required" else
@@ -1508,6 +1512,7 @@ def compact_maintenance(envelope: dict) -> dict:
         "redistribution_count", "route_review_count", "candidates_file", "split_candidates_file",
         "redistribution_candidates_file", "next_action", "reason", "retryable",
         "route_review_file", "timeout_seconds", "affected_node_count",
+        "pending_total", "backlog_count", "split_backlog_count",
     }
     for name, summary in envelope.get("components", {}).items():
         if not isinstance(summary, dict):
@@ -1516,6 +1521,13 @@ def compact_maintenance(envelope: dict) -> dict:
             key: value for key, value in summary.items()
             if key in allowed and value is not None
         }
+        auto_built = summary.get("auto_built")
+        if name == "people" and isinstance(auto_built, dict):
+            components[name]["auto_built"] = {
+                key: auto_built[key]
+                for key in ("created", "skipped_existing", "skipped_conflict", "remaining")
+                if auto_built.get(key) is not None
+            }
     compact["components"] = components
     return compact
 

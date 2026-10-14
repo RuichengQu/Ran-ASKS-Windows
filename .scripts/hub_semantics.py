@@ -238,11 +238,16 @@ def _hub_lifecycle_boundary(operation: str, paths_fn, *, require_all: bool = Tru
     return decorate
 
 
-def _section_body(path: str | Path, heading: str) -> tuple[str, object | None]:
-    target = _page_file(path)
-    if not target.is_file():
-        return "", None
-    section = wl.get_wiki_section(target, heading)
+def _section_body(path: str | Path, heading: str, *, text: str | None = None) -> tuple[str, object | None]:
+    if text is None:
+        target = _page_file(path)
+        if not target.is_file():
+            return "", None
+        section = wl.get_wiki_section(target, heading)
+    else:
+        sections, _definitions = wl.parse_wiki_text(text)
+        wanted = wl.heading_slug(heading)
+        section = next((item for item in sections if item.slug == wanted), None)
     if section is None:
         return "", None
     lines = []
@@ -258,8 +263,8 @@ def _section_body(path: str | Path, heading: str) -> tuple[str, object | None]:
     return text, section
 
 
-def read_paper_profile(path: str | Path) -> DirectionProfile | None:
-    text, section = _section_body(path, "研究方向定位")
+def read_paper_profile(path: str | Path, *, text: str | None = None) -> DirectionProfile | None:
+    text, section = _section_body(path, "研究方向定位", text=text)
     if not text or section is None:
         return None
     target = _page_file(path)

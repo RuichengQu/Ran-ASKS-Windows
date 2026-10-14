@@ -11,10 +11,6 @@ import tempfile
 import types
 from pathlib import Path
 from unittest.mock import patch
-import sys as _sys
-from pathlib import Path as _Path
-_sys.path.insert(0, str(_Path(__file__).resolve().parent))
-import platform_compat as _pc
 
 SCRIPT = Path(__file__).with_name("ingest_inbox.py")
 spec = importlib.util.spec_from_file_location("ingest_inbox", SCRIPT)
@@ -71,9 +67,6 @@ def test_managed_external_file_staging_and_inbox_boundary():
 
 
 def test_managed_external_file_rejects_symlink_target():
-    if not _pc.symlinks_available():
-        print("  SKIP test_managed_external_file_rejects_symlink_target: " + _pc.SYMLINK_SKIP_REASON)
-        return
     with tempfile.TemporaryDirectory() as directory:
         source = Path(directory) / "source.txt"
         source.write_text("source", encoding="utf-8", newline="\n")
@@ -311,8 +304,8 @@ def test_api_run_uses_dsh_loop_without_direct_dispatch():
             inbox = root / "inbox"
             inbox.mkdir()
             (inbox / "notice.md").write_text(
-                "Routine administrative notice.\n", encoding="utf-8"
-            , newline="\n")
+                "Routine administrative notice.\n", encoding="utf-8", newline="\n"
+            )
             module.REPO = root
             module.INBOX = inbox
             module.sf.ensure_index = lambda: None
@@ -399,7 +392,7 @@ def test_api_run_resumes_unique_same_source_transaction():
             inbox = root / "inbox"
             inbox.mkdir()
             source = inbox / "notice.md"
-            source.write_text("Routine administrative notice.\n", encoding="utf-8")
+            source.write_text("Routine administrative notice.\n", encoding="utf-8", newline="\n")
             module.REPO = root
             module.INBOX = inbox
             module.inbox_state.REPO = root
@@ -657,7 +650,7 @@ def test_academic_conference_classification_uses_first_h1():
         path.write_text(
             "# 第二届量子物理与智能计算交叉研讨会资料汇总\n\n正文。\n",
             encoding="utf-8",
-        newline="\n")
+        )
         assert module.classify_academic_document(path) == "conference-summary"
 
 
@@ -945,6 +938,24 @@ def test_plan_ingest_order_versions_last():
     assert any("盖章扫描版" in note for note in notes)
 
 
+def test_map_paper_batch_preserves_identity_in_every_state():
+    statuses = ["graph_ready", "prepared", "agent_required", "partial", "failed",
+                "completed", "duplicate_found", "finalize", "validation_error"]
+    parsed = {"items": [{
+        "source": f"inbox/{status}.pdf", "status": status,
+        "transaction_id": f"txn-{status}", "paper_id": f"paper-{status}",
+        "raw_dir": f"academic/raw/references/{status}",
+        "wiki_path": f"academic/wiki/papers/{status}", "execution_backend": "api",
+        "state_ref": f"temp/inbox-state/txn-{status}.json",
+    } for status in statuses]}
+    mapped = module._map_paper_batch_results(parsed)
+    for original, result in zip(parsed["items"], mapped):
+        for key in ("source", "transaction_id", "paper_id", "raw_dir", "wiki_path",
+                    "execution_backend", "state_ref"):
+            assert result[key] == original[key]
+        assert result["ok"] == (result["status"] in {"completed", "duplicate_found"})
+
+
 def test_map_paper_batch_results():
     parsed = {
         "status": "completed",
@@ -1005,8 +1016,25 @@ def test_result_entry_names_api_host_recovery_not_legacy_handoff():
         },
     }
     entry = module._result_entry("paper.pdf", "paper", parsed)
-    assert entry["reason"] == "API worker 自动恢复耗尽，等待宿主 Agent 修正暂存产物"
+    assert entry["reason"] == "API 产物等待宿主 Agent 复核或修正"
+    batch_entry = module._map_paper_batch_results({"items": [
+        {**parsed, "source": "inbox/paper.pdf"},
+    ]})[0]
+    assert batch_entry["reason"] == entry["reason"]
+    assert "耗尽" not in entry["reason"]
     assert "legacy" not in entry["reason"]
+    parsed["errors"] = ["selections.authors.proposed[0]: 缺少 evidence；多余 locator"]
+    for entry in (
+        module._result_entry("paper.pdf", "paper", parsed),
+        module._map_paper_batch_results({"items": [
+            {**parsed, "source": "inbox/paper.pdf"},
+        ]})[0],
+    ):
+        assert entry["reason"] == parsed["errors"][0]
+        assert entry["status"] == "agent_required"
+        assert entry["transaction_id"] == "txn-api-repair"
+        assert entry["next_action"] == "repair_api_workspace_then_resume"
+        assert not entry["ok"]
 
 
 def test_auto_resolve_abbr_key_contract():
@@ -1337,6 +1365,51 @@ def test_maintenance_error_does_not_override_completed_file_status():
         module.ic.detect_people_page_candidates, module._auto_create_hubs) = originals
 
 
+def test_compact_maintenance_preserves_backlog_without_overriding_file_status():
+    for remaining, split_backlog in ((1, 4), (0, 0)):
+        maintenance = {
+            "status": "completed", "actions": [], "errors": [],
+            "components": {
+                "people": {
+                    "status": "completed", "pending_total": 2,
+                    "candidates": [{"large_candidate": "not in compact output"}],
+                    "auto_built": {
+                        "created": 2 - remaining, "skipped_existing": 0,
+                        "skipped_conflict": remaining, "remaining": remaining,
+                        "details": [{"large_detail": "not in compact output"}],
+                    },
+                },
+                "hubs": {
+                    "status": "no_action", "backlog_count": remaining,
+                    "split_backlog_count": split_backlog,
+                    "candidates": [{"large_candidate": "not in compact output"}],
+                },
+            },
+        }
+        report = {
+            "total": 1, "completed": 1, "degraded": 0, "failed": 0, "skipped": 0,
+            "files": [{"file": "meeting.txt", "status": "completed"}],
+            "maintenance": maintenance,
+        }
+        compact = module._compact_summary(
+            report, module.REPO / "cross-domain/ingest-reports/report.json",
+        )
+        assert compact["file_status"] == "completed"
+        assert compact["maintenance"]["status"] == "completed"
+        assert compact["maintenance"]["actions"] == []
+        components = compact["maintenance"]["components"]
+        assert components["people"]["pending_total"] == 2
+        assert components["people"]["auto_built"] == {
+            "created": 2 - remaining, "skipped_existing": 0,
+            "skipped_conflict": remaining, "remaining": remaining,
+        }
+        assert components["hubs"]["backlog_count"] == remaining
+        assert components["hubs"]["split_backlog_count"] == split_backlog
+        assert "candidates" not in components["people"]
+        assert "candidates" not in components["hubs"]
+        assert "details" not in components["people"]["auto_built"]
+
+
 def test_people_maintenance_validates_created_and_relinked_pages():
     completed = module.subprocess.CompletedProcess(
         args=[], returncode=0, stdout="汇总: 2 文件, ERROR=0, WARN=0\n", stderr="",
@@ -1431,7 +1504,7 @@ def test_abbreviation_decisions_close_only_matching_maintenance_action():
             review.parent.mkdir(parents=True)
             review.write_text(json.dumps({
                 "candidates": [{"token": "QA", "occurrences": [{"page": "page"}]}],
-            }), encoding="utf-8", newline="\n")
+            }), encoding="utf-8")
             receipt_path = resolver.REPO / "temp/inbox-maintenance/session.json"
             receipt_path.parent.mkdir(parents=True)
             receipt_path.write_text(json.dumps({
@@ -1497,7 +1570,7 @@ def test_abbreviation_decisions_cli_closes_linked_maintenance_receipt():
             review.parent.mkdir(parents=True)
             review.write_text(json.dumps({
                 "candidates": [{"token": "QA", "occurrences": [{"page": "page"}]}],
-            }), encoding="utf-8", newline="\n")
+            }), encoding="utf-8")
             receipt = resolver.REPO / "temp/inbox-maintenance/session.json"
             receipt.parent.mkdir(parents=True)
             receipt.write_text(json.dumps({
@@ -1517,7 +1590,7 @@ def test_abbreviation_decisions_cli_closes_linked_maintenance_receipt():
             decisions = resolver.REPO / "decisions.json"
             decisions.write_text(json.dumps({"decisions": [{
                 "token": "QA", "resolution_kind": "canonical_name",
-            }]}), encoding="utf-8", newline="\n")
+            }]}), encoding="utf-8")
 
             resolver.gl.connect = lambda: FakeConnection()
             resolver.apply_decisions = lambda _conn, _decisions, _todo: {
@@ -1586,6 +1659,11 @@ def test_initial_maintenance_publication_and_historical_reconciliation(historica
                     "split_count": 0, "redistribution_count": 0,
                 }},
             }
+            receipt["components"]["people"] = {
+                "status": "completed", "pending_total": 1,
+                "auto_built": {"created": 0, "skipped_conflict": 1, "remaining": 1},
+            }
+            receipt["components"]["hubs"].update({"backlog_count": 0, "split_backlog_count": 4})
             module._write_json_atomic(root / route_rel, reviews)
             module._write_json_atomic(root / receipt_rel, receipt)
             report = {"total": 2, **module._report_counts(files), "files": files, "maintenance": receipt}
@@ -1624,7 +1702,7 @@ def test_initial_maintenance_publication_and_historical_reconciliation(historica
                     assert inbox_state.load(transaction_id)["route_corrections"][-1]["hub"] == result["hub"]
                 else:
                     hub_semantics.record_paper_route_correction(transaction_id, result)
-                current = json.loads(report_path.read_text(encoding="utf-8"))
+                current = json.loads(report_path.read_text())
                 if interrupted:
                     assert current["maintenance"]["publication"]["status"] == "pending"
                     continue
@@ -1635,21 +1713,26 @@ def test_initial_maintenance_publication_and_historical_reconciliation(historica
                         assert inbox_state.load(member["transaction_id"])["maintenance"]["status"] == expected
             summary = module.reconcile_maintenance_report(report_path)
             assert summary["maintenance"]["status"] == "completed"
-            repaired = json.loads(report_path.read_text(encoding="utf-8"))
+            assert summary["maintenance"]["components"]["people"]["auto_built"]["remaining"] == 1
+            assert summary["maintenance"]["components"]["hubs"]["split_backlog_count"] == 4
+            repaired = json.loads(report_path.read_text())
             assert repaired["maintenance"]["components"]["hubs"]["route_review_count"] == 0
             assert repaired["degraded"] == 2
             for member in files:
                 linked = inbox_state.load(member["transaction_id"])["maintenance"]
                 assert linked["status"] == "completed"
                 assert linked["components"]["hubs"]["route_review_count"] == 0
+                assert linked["components"]["hubs"]["split_backlog_count"] == 4
+                assert linked["components"]["people"]["pending_total"] == 1
+                assert linked["components"]["people"]["auto_built"]["skipped_conflict"] == 1
                 assert linked == inbox_state.load(files[0]["transaction_id"])["maintenance"]
             assert not module._hub_route_reviews(repaired["files"])
             assert all(item["quality_warnings"] for item in repaired["files"])
             assert all(item["resolution"]["status"] == "applied"
-                       for item in json.loads((root / route_rel).read_text(encoding="utf-8")))
+                       for item in json.loads((root / route_rel).read_text()))
             module.reconcile_maintenance_report(report_path)
-            assert json.loads(report_path.read_text(encoding="utf-8")) == repaired
-            receipt = json.loads((root / receipt_rel).read_text(encoding="utf-8"))
+            assert json.loads(report_path.read_text()) == repaired
+            receipt = json.loads((root / receipt_rel).read_text())
             receipt["actions"] = [{"component": "abbreviations", "next_action": "review"}]
             receipt["status"] = "agent_required"
             module._write_json_atomic(root / receipt_rel, receipt)
@@ -1657,7 +1740,7 @@ def test_initial_maintenance_publication_and_historical_reconciliation(historica
             module._write_json_atomic(report_path, repaired)
             summary = module.reconcile_maintenance_report(report_path)
             assert summary["maintenance"]["status"] == "agent_required"
-            assert json.loads(report_path.read_text(encoding="utf-8"))["maintenance"]["actions"] == receipt["actions"]
+            assert json.loads(report_path.read_text())["maintenance"]["actions"] == receipt["actions"]
 
 
 def test_split_handoff_reconciliation(preserve_pending=False, interrupt_receipt=False):
@@ -1862,12 +1945,12 @@ def test_maintenance_publication_recovers_write_failures():
                     assert all("maintenance" not in inbox_state.load(item["transaction_id"]) for item in files)
                     assert module.publish_maintenance_report(report_path, report)
                 else:
-                    persisted = json.loads(report_path.read_text(encoding="utf-8"))
+                    persisted = json.loads(report_path.read_text())
                     expected = "pending" if scenario in {"final_report", "interruption"} else "error"
                     assert persisted["maintenance"]["publication"]["status"] == expected
                     compact = module.reconcile_maintenance_report(report_path)
                     assert compact["maintenance"]["status"] == "completed"
-                bound_receipt = json.loads((root / receipt_rel).read_text(encoding="utf-8"))
+                bound_receipt = json.loads((root / receipt_rel).read_text())
                 assert bound_receipt["status"] == receipt["status"]
                 assert bound_receipt["report_path"] == report_path.relative_to(root).as_posix()
                 assert bound_receipt["publication"]["status"] == "completed"
@@ -1876,9 +1959,9 @@ def test_maintenance_publication_recovers_write_failures():
                     assert state["status"] == "completed"
                     assert state["maintenance"]["status"] == "completed"
                     assert state["quality_warnings"] == [{"issue": "independent"}]
-                repaired = json.loads(report_path.read_text(encoding="utf-8"))
+                repaired = json.loads(report_path.read_text())
                 module.reconcile_maintenance_report(report_path)
-                assert json.loads(report_path.read_text(encoding="utf-8")) == repaired
+                assert json.loads(report_path.read_text()) == repaired
 
 
 def test_maintenance_separates_warning_history_from_unresolved_quality():
@@ -1935,6 +2018,7 @@ def main():
     test_api_classification_review_resolves_uncertain_program_decision()
     test_agent_classification_evidence_allows_pdf_line_wrapping()
     test_plan_ingest_order_versions_last()
+    test_map_paper_batch_preserves_identity_in_every_state()
     test_map_paper_batch_results()
     test_map_paper_batch_preserves_bibliographic_review_contract()
     test_auto_resolve_abbr_key_contract()
@@ -1943,6 +2027,7 @@ def main():
     test_hub_timeout_is_deferred_and_retryable()
     test_zero_success_skips_global_post_ingest_scans()
     test_maintenance_error_does_not_override_completed_file_status()
+    test_compact_maintenance_preserves_backlog_without_overriding_file_status()
     test_people_maintenance_validates_created_and_relinked_pages()
     test_people_maintenance_surfaces_validation_failure()
     test_maintenance_rejects_incomplete_completed_result_envelope()

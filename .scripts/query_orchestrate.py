@@ -478,9 +478,11 @@ def intent_to_plan(intent: dict) -> list[dict]:
         steps.append(_build_step({"action": "hybrid_recall", "query": intent.get("query", ""),
                                   "intent": intent.get("intent", "exploration"),
                                   "domain": intent.get("domain", ""), "topk": str(intent.get("topk", 8)),
+                                  "include_deprecated": intent.get("include_deprecated", False),
                                   "reason": "程序按查询意图融合 Wiki 语义与 Graph 结构召回"}))
     if intent.get("need_graph"):
         steps.append(_build_step({"action": "graph_search", "term": intent.get("graph_term", intent.get("query", "")),
+                                  "include_deprecated": intent.get("include_deprecated", False),
                                   "reason": "程序根据意图生成图扩展"}))
     return [s for s in steps if s["input"].get("query", "x") or s["input"].get("term", "x")]
 
@@ -555,6 +557,7 @@ def _build_api_prompt(session: QuerySession, last_results: list, round_num: int)
     parts.append("规则:")
     parts.append("- 第一轮 discover/read 必须先提交轻量检索策略 strategy；无固定策略的弱结构题应 drafted，直达题可 skipped 并写明 reason")
     parts.append("- discover: 优先用 hybrid_recall 按 intent 融合 Wiki/Graph；明确实体可用 graph_search/node_resolve")
+    parts.append("- Wiki/graph_search/semantic_search 默认排除废弃页；仅明确历史请求传 include_deprecated=true。身份 resolved 和图导航不代表材料现行，version_context 的历史页仅用于定位；lineage 不自动开启历史模式")
     parts.append("- read: 用 wiki_context/read_section 读语义地址，再用 read_raw 核验脚注 locator")
     parts.append("- answer: citations 必须来自已读来源；读取 companion 时优先引用程序列出的原始 Raw 文件路径")
     parts.append("- citations 为空时标记为无引用；引用未在已读来源中时标记为未核验")

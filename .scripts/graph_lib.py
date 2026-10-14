@@ -1219,19 +1219,21 @@ def node_exists(conn, path):
 
 
 def ensure_node(
-    conn, path, title, node_type, source_type="", date="", status="current",
+    conn, path, title, node_type, source_type="", date="", status=None,
     has_raw=0, entity_subtype=None, ingest_version=None, description=None,
 ):
     """UPSERT 节点(不存在则建)。"""
     validate_graph_target(path, graph_connection_path(conn))
     # 未显式提供的派生字段沿用旧值；UPSERT 不触发外键 ON DELETE 级联。
     existing = conn.execute(
-        "SELECT ingest_version,description FROM nodes WHERE path=?", (path,)
+        "SELECT ingest_version,description,status FROM nodes WHERE path=?", (path,)
     ).fetchone()
     if ingest_version is None:
         ingest_version = existing["ingest_version"] if existing else 0
     if description is None:
         description = existing["description"] if existing else ""
+    if status is None:
+        status = existing["status"] if existing else "current"
     conn.execute(
         "INSERT INTO nodes "
         "(path, title, type, entity_subtype, source_type, date, status, has_raw_source, ingest_version,description) "

@@ -285,6 +285,57 @@ functions:
       cli: [.scripts/image_ocr.py]
     protocols: [image-ocr-v1]
 
+  science.code_run:
+    title: 科研代码固定配方验证与运行记录
+    summary: 宿主显式启动有界本地 TT 梯度检查，在研究项目 outputs 保存版本绑定输入、源码快照、指标、结果与失败记录；查询不自动执行。
+    kind: function
+    audience: [user, agent]
+    control_owners: [host_agent, code]
+    allowed_callers: [main_agent, sub_agent, pipeline]
+    backends: [agent]
+    effects: [read, project]
+    maturity: preview
+    bindings:
+      route_capabilities:
+        code-run: [general]
+      wg: [code-run]
+      cli: [.scripts/code_run.py]
+    protocols: [scientific-run-v1, scientific-run-result-v1]
+
+  science.code_library:
+    title: 科研代码知识库只读查询
+    summary: 按问题、模型、方法、算法、实现和验证发现代码能力，读取版本绑定片段；工作目录不作为事实源，不自动执行代码。
+    kind: function
+    audience: [user, agent]
+    control_owners: [host_agent, code]
+    allowed_callers: [main_agent, sub_agent, pipeline]
+    backends: [agent]
+    effects: [read]
+    maturity: preview
+    bindings:
+      route_capabilities:
+        code-library: [general]
+      wg: [code-library]
+      cli: [.scripts/code_library.py]
+    protocols: [scientific-code-library-v1, scientific-code-context-v1]
+
+  artifact.extract_data:
+    title: 图片曲线与散点数据提取
+    summary: 宿主确认轴型、刻度、Panel 和系列后，离线数字化二维栅格曲线或独立圆形散点，并交付源绑定 CSV、候选质量记录及待核验叠加图。
+    kind: pipeline
+    audience: [user, agent]
+    control_owners: [host_agent, code]
+    allowed_callers: [main_agent, sub_agent, pipeline]
+    backends: [agent]
+    effects: [read, temp, project]
+    maturity: preview
+    bindings:
+      route_capabilities:
+        extract-data: [general]
+      wg: [extract-data]
+      cli: [.scripts/extract_data.py]
+    protocols: [agent-task-v1, image-data-spec-v1, image-data-result-v1, image-data-quality-v1]
+
   artifact.visual_qa:
     title: 视觉产物 QA
     summary: 检查图片、PDF 和 PPT 页面中的可见缺陷，不修改输入产物。

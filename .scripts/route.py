@@ -244,6 +244,9 @@ ROUTES = {
 # 能力是工作状态内按需加载的规范包；它不创建或切换工作状态。
 # 顶层 --task write 继续作为 general profile 的兼容入口。
 CAPABILITY_ROUTES = {
+    "code-run": {"general": [("operations/CODE_RUN.md", None)]},
+    "code-library": {"general": [("operations/CODE_LIBRARY.md", None)]},
+    "extract-data": {"general": [("operations/EXTRACT_DATA.md", None)]},
     "slide-library": {"general": [("operations/SLIDE_LIBRARY.md", None)]},
     "graph-visualize": {"general": [("operations/GRAPH_VISUALIZE.md", None)]},
     "cv": {
@@ -341,6 +344,8 @@ def split_misses(misses):
 def emit_query_profile(query, profiles, stage, output_format, subproject="", topic="auto"):
     sections = list(QUERY_STAGE_SECTIONS[stage])
     private = subproject == "private"
+    if not private and stage in {"start", "evidence"}:
+        sections.append("科研代码证据")
     topic = resolve_query_topic(query, subproject, topic)
     if private and stage == "start":
         sections.insert(0, "private 查询范围")

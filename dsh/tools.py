@@ -60,9 +60,10 @@ def build_tools() -> list[ToolDefinition]:
             name="graph_search",
             description="在知识图谱中搜索术语（覆盖缩写/别名/标题三路匹配），返回匹配节点列表",
             input_schema={"type": "object", "properties": {
-                "term": {"type": "string", "description": "搜索术语"}},
+                "term": {"type": "string", "description": "搜索术语"},
+                "include_deprecated": {"type": "boolean", "default": False, "description": "仅明确历史查询时开启"}},
                 "required": ["term"]},
-            execute_fn=lambda args: _qa_call("graph_search", {"term": args.get("term", "")}),
+            execute_fn=lambda args: _qa_call("graph_search", {"term": args.get("term", ""), "include_deprecated": args.get("include_deprecated", False)}),
         ),
         ToolDefinition(
             name="graph_neighbors",
@@ -117,11 +118,13 @@ def build_tools() -> list[ToolDefinition]:
             input_schema={"type": "object", "properties": {
                 "query": {"type": "string", "description": "概念性查询描述"},
                 "scope": {"type": "string", "enum": ["node", "hub"], "default": "node"},
-                "topk": {"type": "integer", "minimum": 1, "maximum": 20, "default": 8}},
+                "topk": {"type": "integer", "minimum": 1, "maximum": 20, "default": 8},
+                "include_deprecated": {"type": "boolean", "default": False, "description": "仅明确历史查询时开启"}},
                 "required": ["query"]},
             execute_fn=lambda args: _qa_call("semantic_search", {
                 "query": args.get("query", ""), "scope": args.get("scope", "node"),
                 "topk": str(args.get("topk", 8)),
+                "include_deprecated": args.get("include_deprecated", False),
             }),
         ),
         ToolDefinition(
@@ -172,10 +175,13 @@ def build_tools() -> list[ToolDefinition]:
             description="行政文档直接召回（标题/别名/Navigation 三路匹配 + 图回退），只返回候选 Navigation",
             input_schema={"type": "object", "properties": {
                 "query": {"type": "string", "description": "查询文本"},
-                "topk": {"type": "string", "default": "8"}},
+                "topk": {"type": "string", "default": "8"},
+                "include_deprecated": {"type": "boolean", "default": False,
+                                       "description": "仅用户明确查询历史版本时开启"}},
                 "required": ["query"]},
             execute_fn=lambda args: _qa_call("admin_recall",
-                {"query": args.get("query", ""), "topk": args.get("topk", "8")}),
+                {"query": args.get("query", ""), "topk": args.get("topk", "8"),
+                 "include_deprecated": args.get("include_deprecated", False)}),
         ),
         ToolDefinition(
             name="wiki_recall",
@@ -183,10 +189,13 @@ def build_tools() -> list[ToolDefinition]:
             input_schema={"type": "object", "properties": {
                 "query": {"type": "string"},
                 "domain": {"type": "string", "description": "academic/admin/teaching/business，空=跨域"},
-                "topk": {"type": "string", "default": "8"}},
+                "topk": {"type": "string", "default": "8"},
+                "include_deprecated": {"type": "boolean", "default": False,
+                                       "description": "仅用户明确查询历史版本时开启"}},
                 "required": ["query"]},
             execute_fn=lambda args: _qa_call("wiki_recall",
-                {"query": args.get("query", ""), "domain": args.get("domain", ""), "topk": args.get("topk", "8")}),
+                {"query": args.get("query", ""), "domain": args.get("domain", ""), "topk": args.get("topk", "8"),
+                 "include_deprecated": args.get("include_deprecated", False)}),
         ),
         ToolDefinition(
             name="recall",

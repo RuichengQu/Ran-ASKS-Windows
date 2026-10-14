@@ -128,16 +128,49 @@ def test_wiki_claim_sections_accept_substantive_cited_prose():
 
 # ============ build_parser ============
 
+def test_hybrid_wrapper_forwards_explicit_history_flag():
+    calls = []
+    original = module.qa.hybrid_recall
+    module.qa.hybrid_recall = lambda *args, **kwargs: (calls.append((args, kwargs)) or ('{"candidates": []}', 0))
+    try:
+        args = module.build_parser().parse_args(["hybrid-recall", "old", "--include-deprecated"])
+        result = capture_call(module.cmd_hybrid_recall, args)
+    finally:
+        module.qa.hybrid_recall = original
+    assert result["ok"] is True
+    assert calls[0][1]["include_deprecated"] is True
+
+
+def test_lookup_and_abbr_forward_history_and_keep_navigation_role():
+    calls = []
+    original = module.query_graph_json
+    module.query_graph_json = lambda *args, **kwargs: (calls.append(args) or {"nodes": [
+        {"path": "academic/wiki/papers/old", "material_role": "historical_navigation", "default_page_candidate": False}]})
+    try:
+        for command, handler in (("lookup", module.cmd_lookup), ("abbr", module.cmd_abbr)):
+            args = module.build_parser().parse_args([command, "old", "--include-deprecated"])
+            result = capture_call(handler, args)
+            assert result["ok"] is True
+            hits = result["result"] if command == "lookup" else result["result"]["matches"]
+            assert hits[0]["default_page_candidate"] is False
+            assert calls[-1][2] == ["--include-deprecated"]
+            assert module.build_parser().parse_args([command, "old"]).include_deprecated is False
+    finally:
+        module.query_graph_json = original
+
+
 def test_parser_has_all_subcommands():
     """横向能力全部注册。"""
     ap = module.build_parser()
+    assert ap.parse_args(["hybrid-recall", "old"]).include_deprecated is False
+    assert ap.parse_args(["hybrid-recall", "old", "--include-deprecated"]).include_deprecated is True
     subactions = {a.option_strings[0].lstrip("-") if a.option_strings else a.dest
                   for a in ap._subparsers._actions
                   if hasattr(a, "choices") and a.choices}
     # 子命令名在 choices
     for cmd in ("lookup", "neighbors", "relations", "hub-of", "read-section",
                 "read-raw", "recall", "remember", "workspace", "abbr", "frontier",
-                "ingest", "task", "cv"):
+                "ingest", "task", "cv", "code-library", "code-run"):
         assert cmd in _subcommand_names(ap), f"缺子命令 {cmd}"
 
 
@@ -350,6 +383,31 @@ def test_cv_wrapper_preserves_json_and_failure_status():
     assert result["result"]["output"]["status"] == "blocked"
 
 
+def test_code_run_wrapper_preserves_failed_validation_and_local_evidence_role():
+    calls = []
+    original = module.run_script
+    module.run_script = lambda command, **_kwargs: (
+        calls.append(command) or (1, json.dumps({
+            "schema": "scientific-run-result-v1", "ok": False, "status": "failed",
+            "validation": {"passed": False}, "scientific_status": "local_check_not_paper_reproduction",
+            "error": "", "sources": ["not-a-raw-source"],
+        }), "")
+    )
+    try:
+        args = module.build_parser().parse_args([
+            "code-run", "tt-gradient-check", "--project", "test-project", "--seed", "41",
+        ])
+        result = capture_call(module.cmd_code_run, args)
+    finally:
+        module.run_script = original
+    assert calls[0][1].endswith(".scripts/code_run.py")
+    assert calls[0][2:] == args.run_args
+    assert result["ok"] is False and result["status"] == "error"
+    assert result["sources"] == []
+    assert result["result"]["status"] == "failed"
+    assert result["result"]["validation"]["passed"] is False
+
+
 def test_ingest_wrapper_routes_external_file_and_resume_through_inbox():
     calls = []
     original = module.run_script
@@ -396,6 +454,20 @@ def test_parser_defaults():
     assert ns.section == ""
     ns = ap.parse_args(["workspace", "recall", "role/nested"])
     assert ns.workspace_args == ["recall", "role/nested"]
+
+
+def test_neighbors_budget_forwarding():
+    from unittest.mock import patch
+    args = module.build_parser().parse_args([
+        "neighbors", "somepage", "--max-nodes", "15", "--max-edges", "20",
+        "--max-scanned-rows", "60", "--top-k", "4",
+    ])
+    with patch.object(module, "query_graph_json", return_value={"nodes": [], "edges": [], "truncated": True}) as query:
+        result = capture_call(module.cmd_neighbors, args)
+    assert result["data"]["truncated"] is True
+    assert query.call_args.args == ("neighbors", ["somepage"], [
+        "--depth", "2", "--max-nodes", "15", "--max-edges", "20", "--max-scanned-rows", "60", "--top-k", "4",
+    ])
 
 
 # ============ Wiki section locator + Raw footnotes ============
@@ -456,6 +528,31 @@ def test_wiki_locator_minimal_validation():
         assert any("脚注未定义" in error for error in errors)
     finally:
         cleanup()
+
+
+def test_inline_raw_citation_reuse_preserves_prose_and_protected_markup():
+    address = "academic/raw/references/demo/paper.md#L11"
+    longer = "academic/raw/references/demo/paper.md#L136"
+    unknown = "academic/raw/references/demo/paper.md#L110"
+    text = (
+        f'---\nsources:\n  - "{address}"\n---\n'
+        f"## 研究方向定位\n\n贝尔不等式的经典界 {address}。\n"
+        f"\n## Content\n\n保留条件 {longer}，未知地址 {unknown}。\n"
+        f"\n`{address}`\n[证据]({address})\n[[{address}]]\n"
+        f"\n```text\n{address}\n~~~\n{address}\n```\n"
+        f"\n## Sources\n\n[^r1]: {address}\n[^r2]: {longer}\n"
+    )
+    expected = text.replace(f"经典界 {address}。", "经典界 [^r1]。")
+    expected = expected.replace(f"保留条件 {longer}，", "保留条件 [^r2]，")
+    assert module.wl.normalize_raw_footnotes(text) == text
+    normalized = module.wl.normalize_raw_footnotes(text, reuse_inline=True)
+    assert normalized == expected
+    assert module.wl.normalize_raw_footnotes(normalized, reuse_inline=True) == expected
+    sections, definitions = module.wl.parse_wiki_text(normalized)
+    assert sections[0].raw_citations == (address,)
+    assert definitions == {"r1": address, "r2": longer}
+    duplicate = text + f"[^r1]: {unknown}\n"
+    assert module.wl.normalize_raw_footnotes(duplicate, reuse_inline=True) == duplicate
 
 
 def test_raw_footnote_wrappers_preserve_evidence_and_query_locators():
@@ -942,6 +1039,8 @@ def main():
     test_collect_sources_empty()
     test_collect_sources_skips_missing_source()
     test_parser_has_all_subcommands()
+    test_hybrid_wrapper_forwards_explicit_history_flag()
+    test_lookup_and_abbr_forward_history_and_keep_navigation_role()
     test_task_inspect_reports_missing_outputs_without_running_action()
     test_task_status_and_next_are_read_only_for_any_ingest_transaction()
     test_task_verify_reports_pass_incomplete_and_mismatch()
@@ -953,6 +1052,7 @@ def main():
     test_parser_defaults()
     test_wiki_locator_reads_one_section_and_raw_citations()
     test_wiki_locator_minimal_validation()
+    test_inline_raw_citation_reuse_preserves_prose_and_protected_markup()
     test_raw_footnote_wrappers_preserve_evidence_and_query_locators()
     test_wiki_locator_rejects_raw_handle_and_truncated_footnote()
     test_wiki_graph_source_points_to_cited_section()

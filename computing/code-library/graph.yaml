@@ -1,0 +1,74 @@
+schema: scientific-code-library-v1
+scope: public_working_catalog
+nodes:
+  algorithm.tt_contraction:
+    kind: algorithm
+    title: TT-matrix contraction
+    summary: Generic contraction and adjoint example; no paper or experiment claim.
+    aliases:
+    - tensor train
+    - TT-matrix
+    status: available
+    evidence:
+    - doc.example
+  implementation.numpy_tt:
+    kind: implementation
+    title: NumPy TT-matrix implementation
+    summary: Single-vector contraction and adjoints without a training pipeline.
+    aliases:
+    - NumPy TT
+    - 张量列车
+    status: available
+    evidence:
+    - code.tt_matvec
+    - code.tt_vjp
+  validation.dense_reference:
+    kind: validation
+    title: Independent dense comparison definition
+    summary: Test definition only; no recorded run or reproduction result.
+    aliases:
+    - dense comparison
+    status: available
+    evidence:
+    - test.forward
+relations:
+- source: implementation.numpy_tt
+  predicate: implements
+  target: algorithm.tt_contraction
+  status: documented
+  scope: Synthetic public implementation example, not scientific validation.
+  evidence:
+  - code.tt_matvec
+  - code.tt_vjp
+- source: validation.dense_reference
+  predicate: checks
+  target: implementation.numpy_tt
+  status: documented
+  scope: Defined forward comparison; no executed-run status.
+  evidence:
+  - test.forward
+evidence:
+  doc.example:
+    kind: doc
+    title: Synthetic public example; not a run or Raw record
+    path: computing/code-library/README.md
+    locator: Implementation and check definitions
+    sha256: 7af1ba606f34c193d52bea6462d954e3ea9a55b17dd91916bc611d659b5c2758
+  code.tt_matvec:
+    kind: code
+    title: TT-matrix contraction implementation
+    path: computing/code-library/src/tensor_train.py
+    locator: py:tt_matvec
+    sha256: abdce7e43fb2fbed5401eb3528b3642c6b082fef36263a3a4c4518abeacea927
+  code.tt_vjp:
+    kind: code
+    title: TT input/core/bias adjoint implementation
+    path: computing/code-library/src/tensor_train.py
+    locator: py:tt_vjp
+    sha256: abdce7e43fb2fbed5401eb3528b3642c6b082fef36263a3a4c4518abeacea927
+  test.forward:
+    kind: test
+    title: Independent dense forward check definition
+    path: computing/code-library/tests/test_tensor_train.py
+    locator: py:TensorTrainTests.test_forward_matches_independent_dense_reference
+    sha256: 7b908c610bea10fb00f67780d199269efe10c9b13f996c7eb1d8b463fd3c7deb

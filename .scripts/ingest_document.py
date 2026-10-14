@@ -18,6 +18,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import uuid
 from datetime import datetime
 from glob import escape as glob_escape
 from itertools import chain
@@ -452,15 +453,25 @@ def extract_admin_date(filename: str, doc_text: str = "",
     directory_date = _extract_source_directory_date(source)
     if directory_date:
         return directory_date
-    if doc_text:
-        if document_type == "conference-summary":
-            return ""
-        m = re.search(r"(?<!\d)(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日(?!\d)", doc_text)
-        if m:
-            return _format_date_match(m)
-        m = re.search(r"(?<!\d)((?:19|20)\d{2})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)", doc_text)
-        if m:
-            return _format_date_match(m)
+    if doc_text and document_type != "conference-summary":
+        date_patterns = (
+            r"((?:19|20)\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日",
+            r"((?:19|20)\d{2})[-/.](\d{1,2})[-/.](\d{1,2})",
+        )
+        for line in doc_text.splitlines():
+            for pattern in date_patterns:
+                match = re.fullmatch(rf"\s*{pattern}\s*[。.]?\s*", line)
+                if match:
+                    date_str = _format_date_match(match)
+                    if date_str:
+                        return date_str
+            month_match = re.fullmatch(
+                r"\s*((?:19|20)\d{2})\s*年\s*(\d{1,2})\s*月(?:\s*日)?\s*", line)
+            if month_match:
+                try:
+                    return datetime(*(int(part) for part in month_match.groups()), 1).strftime("%Y-%m")
+                except ValueError:
+                    continue
     return ""
 
 
@@ -1056,12 +1067,39 @@ def step_preprocess(state: dict) -> tuple[bool, str]:
 
 # ===== 3.3a write_wiki =====
 
+def document_wiki_generation_rules(subproject: str) -> dict:
+    allowed = sorted(STATUS_ENUM_BY_DOMAIN.get(subproject, STATUS_ENUM_ALL))
+    status_rules = {
+        "draft": "草稿用 draft（包括拟修订且未确认生效的材料）",
+        "active": "进行中用 active",
+        "confirmed": "协议/制度已签署生效用 confirmed",
+    }
+    return {
+        "status": {
+            "allowed": allowed,
+            "selection": "按来源内容判断状态；" + "；".join(
+                rule for status, rule in status_rules.items() if status in allowed),
+        },
+        "evidence": {
+            "handle": "<RAW#Lx>",
+            "instruction": (
+                "每个事实段落、事实列表项或表格记录末尾直接复制对应 `<RAW#Lx>`，"
+                "x 为提取文本中有依据的非空原文物理行号。"
+                "不要写 `## Sources` 或脚注定义；程序会把正文 RAW handle 编译为稳定脚注。"
+                "不得自造行号或使用 `#全篇`。"
+            ),
+        },
+    }
+
+
 def build_doc_wiki_prompt(doc_text: str, doc_id: str, date_str: str,
                           subproject: str = "admin",
                           errors: list[str] | None = None,
                           document_type: str | None = None,
                           preannotated_raw_lines: bool = False) -> str:
     cfg = DOMAIN_CONFIG.get(subproject, DOMAIN_CONFIG["admin"])
+    wiki_rules = document_wiki_generation_rules(subproject)
+    status_values = "|".join(wiki_rules["status"]["allowed"])
     error_section = ""
     if errors:
         error_section = "\n\n[上次输出的问题（请修正）]\n" + "\n".join(f"- {e}" for e in errors)
@@ -1093,12 +1131,11 @@ def build_doc_wiki_prompt(doc_text: str, doc_id: str, date_str: str,
 
 [要求]
 1. 从文档内容判断页面类型（{page_types}），写入 frontmatter type 字段。
-2. frontmatter 只需准确给出 title, type, status(枚举: active|completed|confirmed|deprecated|draft|final；协议/制度已签署生效用 confirmed，进行中用 active，草稿用 draft)。sources/source_type/confidence/date/created/updated 由程序确定性回填，不得猜测。{extra_fm_note}如有关联文档加 related。{temporal_note}
+2. frontmatter 只需准确给出 title, type, status(枚举: {status_values}；{wiki_rules["status"]["selection"]})。sources/source_type/confidence/date/created/updated 由程序确定性回填，不得猜测。{extra_fm_note}如有关联文档加 related。{temporal_note}
 3. 正文结构: # 标题 → ## Navigation（2-4 句导航概述）→ ## Content（用自然标题组织连贯主题，可用短段或列表，不复制原文结构做流水账）。
 4. 简写+去冗余，忠实于原文，不编造。
-5. 上下文每个非空行前都有程序提供的 `<RAW#Lx>`。每个事实段落或事实列表项末尾直接复制对应 handle（例如 `<RAW#L27>`）；不得改写为脚注、自造行号或使用 `#全篇`。
-6. 不要写 `## Sources` 或脚注定义；程序会把 RAW handle 编译为稳定脚注。
-7. 输出完整 wiki markdown（含 frontmatter），用 <<<WIKI>>> 分隔符包裹。
+5. {wiki_rules["evidence"]["instruction"]}
+6. 输出完整 wiki markdown（含 frontmatter），用 <<<WIKI>>> 分隔符包裹。
 
 [输出格式]
 <<<WIKI>>>
@@ -1111,6 +1148,8 @@ def build_doc_wiki_slots_prompt(doc_text: str, doc_id: str, date_str: str,
                                 source_path: str | None = None) -> str:
     """受限语义 Worker prompt：一次产出 wiki 与候选语义槽。"""
     cfg = DOMAIN_CONFIG.get(subproject, DOMAIN_CONFIG["admin"])
+    wiki_rules = document_wiki_generation_rules(subproject)
+    status_values = "|".join(wiki_rules["status"]["allowed"])
     error_section = ""
     if errors:
         error_section = "\n\n[上次输出的问题（请修正）]\n" + "\n".join(f"- {e}" for e in errors)
@@ -1145,12 +1184,12 @@ def build_doc_wiki_slots_prompt(doc_text: str, doc_id: str, date_str: str,
 
 [要求]
 1. 从文档内容判断页面类型（{page_types}），写入 frontmatter type 字段。
-2. frontmatter 只需准确给出 title, type, status(枚举: active|completed|confirmed|deprecated|draft|final；协议/制度已签署生效用 confirmed，进行中用 active，草稿用 draft)。sources/source_type/confidence/date/created/updated 由程序确定性回填，不得猜测。{extra_fm_note}如有关联文档加 related。{temporal_note}
+2. frontmatter 只需准确给出 title, type, status(枚举: {status_values}；{wiki_rules["status"]["selection"]})。sources/source_type/confidence/date/created/updated 由程序确定性回填，不得猜测。{extra_fm_note}如有关联文档加 related。{temporal_note}
 3. 正文结构: # 标题 → ## Navigation（2-4 句导航概述）→ ## Content（用自然标题组织连贯主题，可用短段或列表）。
 4. 简写+去冗余，忠实于原文，不编造。
 5. 三元组客体须为规范概念名/实体名：不含逗号、卷号页码、年份或描述性短语；核心词格式统一为「中文英文(缩写)」；无公认缩写则不写括号；无对应中文则只写英文，无对应英文则只写中文。
 6. 三元组只填文档明确涉及的核心主题和导航关系，宁少勿多。
-7. 每个事实段落或事实列表项末尾直接复制上下文实际出现的 `<RAW#Lx>`；不得改写为脚注、自造行号或使用 `#全篇`。不要写 `## Sources`，程序会编译稳定脚注。
+7. {wiki_rules["evidence"]["instruction"]}
 8. 用 <<<WIKI>>> 和 <<<SLOTS>>> 两个分隔符分别包裹输出（先 wiki 后语义槽）。
 9. 负责人关系只在原文同一行明确出现“负责人”或“负责”等职责措辞时抽取；校长讲话、主讲、发言只表示发言角色，不得推断为负责人。
 
@@ -1178,6 +1217,7 @@ def prepare_document_agent_task(state: dict, doc_path: Path, output_path: Path,
     """Expose document semantics as data for the current Agent."""
     subproject = state.get("subproject", "admin")
     cfg = DOMAIN_CONFIG.get(subproject, DOMAIN_CONFIG["admin"])
+    wiki_rules = document_wiki_generation_rules(subproject)
     document_type = state.get("document_type")
     return agent_task.prepare(
         state,
@@ -1214,7 +1254,9 @@ def prepare_document_agent_task(state: dict, doc_path: Path, output_path: Path,
                 "program_owned_frontmatter": [
                     "sources", "source_type", "confidence", "date", "created", "updated",
                 ],
-                "evidence_handle": "<RAW#Lx>",
+                "status": wiki_rules["status"],
+                "evidence_handle": wiki_rules["evidence"]["handle"],
+                "evidence": wiki_rules["evidence"],
             },
             "semantics": {
                 "subject": document_subject_pronoun(subproject, document_type),
@@ -2011,6 +2053,163 @@ DOCUMENT_SPEC = {
 def run_pipeline(state: dict) -> dict:
     return ingest_pipeline.run_pipeline(state, DOCUMENT_SPEC, progress)
 
+
+def prepare_companion_repair(source: Path, wiki: Path, subproject: str) -> dict:
+    if subproject not in DOMAIN_CONFIG:
+        raise ValueError("companion repair is limited to public domains")
+    if ingest_mode() != "agent":
+        raise ValueError("companion repair requires INGEST_BACKEND=agent")
+    if source.is_symlink() or wiki.is_symlink():
+        raise ValueError("repair inputs must not be symlinks")
+    source, wiki = source.resolve(), wiki.resolve()
+    if (source.suffix.lower() not in {".xls", ".xlsx"}
+            or not source.is_file() or not wiki.is_file()
+            or not source.is_relative_to((REPO / subproject / "raw").resolve())
+            or not wiki.is_relative_to((REPO / subproject / "wiki").resolve())):
+        raise ValueError("repair requires an existing same-domain Raw Excel and Wiki")
+    source_relative = str(source.relative_to(REPO))
+    original_wiki = wiki.read_text(encoding="utf-8")
+    match = re.match(r"^---\n(.*?)\n---(?:\n|$)", original_wiki, re.S)
+    if not match:
+        raise ValueError("Wiki must have valid frontmatter")
+    frontmatter = yaml.safe_load(match.group(1))
+    if not isinstance(frontmatter, dict):
+        raise ValueError("Wiki frontmatter must be a mapping")
+    if source_relative not in (frontmatter.get("sources") or []):
+        raise ValueError("Wiki sources must declare the original Excel")
+    names = [sl.locator_companion_name(source.name), source.name + ".source.json"]
+    if any((source.parent / name).exists() or (source.parent / name).is_symlink() for name in names):
+        raise ValueError("repair only fills missing companion and sidecar; existing artifacts are not overwritten")
+    transaction_id = "companion-" + uuid.uuid4().hex
+    state = {
+        "transaction_id": transaction_id, "workflow": "companion_repair",
+        "source": source_relative, "source_filename": source.name,
+        "subproject": subproject, "source_kind": "ordinary", "semantic_backend": "agent",
+        "wiki_path": str(wiki.relative_to(REPO)), "source_sha256": sha256_file(source),
+        "wiki_sha256": sha256_file(wiki), "extract_dir": f"temp/inbox-extract/{transaction_id}",
+    }
+    success, message = step_preprocess(state)
+    if not success:
+        raise ValueError(message)
+    if sha256_file(source) != state["source_sha256"] or sha256_file(wiki) != state["wiki_sha256"]:
+        raise ValueError("repair input changed during extraction")
+    extract = REPO / state["extract_dir"]
+    (extract / "original-wiki.md").write_text(original_wiki, encoding="utf-8")
+    context_path = extract / names[1]
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    context["source"] = source_relative
+    context_path.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    state["repair_artifacts"] = [{"path": name, "bytes": (extract / name).stat().st_size,
+                                 "sha256": sha256_file(extract / name), "role": "raw"} for name in names]
+    companion_relative = str((source.parent / names[0]).relative_to(REPO))
+    agent_task.prepare(
+        state, kind="companion_citation_repair", transaction_id=transaction_id,
+        inputs=[{"name": "source_text", "path": str((extract / names[0]).relative_to(REPO)),
+                 "role": "authoritative_extracted_source", "read": "full"},
+                {"name": "original_wiki", "path": str((extract / "original-wiki.md").relative_to(REPO)),
+                 "role": "existing_wiki", "read": "full"}],
+        outputs=[{"name": "wiki", "path": str((extract / "wiki.md").relative_to(REPO)), "format": "markdown"}],
+        protocol={"name": "citation-only-companion-repair-v1", "allowed_changes": ["add_exact_raw_footnotes"],
+                  "raw_path": companion_relative, "preserve": "all existing metadata, facts, headings and citations",
+                  "updated": "program_owned", "validator": "citation-only equality, Raw locators, ingest_check"},
+        commands={"resume": f"INGEST_BACKEND=agent python3 .scripts/ingest_document.py --resume {transaction_id}"},
+    )
+    inbox_state.save(transaction_id, state)
+    return {"status": "prepared", "workflow_status": "awaiting_agent", "committed": False,
+            "transaction_id": transaction_id, "agent_task": state["agent_task"]}
+
+
+def resume_companion_repair(state: dict) -> dict:
+    import inbox_finalize
+    if state.get("semantic_backend") != "agent" or ingest_mode() != "agent":
+        raise ValueError("companion repair cannot change backend")
+    if state.get("status") == "completed":
+        source = REPO / state["source"]
+        wiki = REPO / state["wiki_path"]
+        if (sha256_file(source) != state["source_sha256"]
+                or sha256_file(wiki) != state["final_wiki_sha256"]
+                or not (REPO / state["receipt"]).is_file()
+                or sl.companion_binding_status(source, source.with_suffix(".md"))["status"] != "valid"):
+            raise ValueError("completed repair artifacts changed")
+        return {"status": "completed", "committed": True, "receipt": state["receipt"],
+                "transaction_id": state["transaction_id"], "source_sha256": state["source_sha256"]}
+    source, wiki = REPO / state["source"], REPO / state["wiki_path"]
+    extract = REPO / state["extract_dir"]
+    draft = extract / "wiki.md"
+    if sha256_file(source) != state["source_sha256"] or sha256_file(wiki) != state["wiki_sha256"]:
+        raise ValueError("original Raw or Wiki changed since prepare")
+    for artifact in state["repair_artifacts"]:
+        inbox_finalize.verify_manifest_artifact(extract / artifact["path"], artifact)
+    companion = extract / state["locator_source_filename"]
+    if companion.read_text(encoding="utf-8") != extract_spreadsheet_text(source):
+        raise ValueError("companion differs from original spreadsheet extraction")
+    context = json.loads((extract / state["source_context_filename"]).read_text(encoding="utf-8"))
+    if context.get("companion") != state["companion"]:
+        raise ValueError("companion sidecar changed")
+    binding = sl.companion_record_status(source, companion, state["companion"])
+    if binding["status"] != "valid":
+        raise ValueError("companion binding invalid: " + binding["reason"])
+    old_text = wiki.read_text(encoding="utf-8")
+    new_text = draft.read_text(encoding="utf-8")
+
+    def citation_free_lines(text):
+        parts = text.split("---", 2)
+        if len(parts) != 3 or parts[0]:
+            raise ValueError("repair draft must preserve frontmatter")
+        metadata, body = parts[1:]
+        metadata = re.sub(r"(?m)^updated:[^\n]*(?:\n|$)", "", metadata, count=1)
+        body = re.sub(r"(?m)^\[\^[^\]]+\]:[^\n]*(?:\n|$)", "", body)
+        body = re.sub(r"\[\^[^\]]+\]", "", body)
+        return [line.rstrip() for line in (metadata + "---\n" + body).splitlines() if line.strip()]
+
+    if citation_free_lines(old_text) != citation_free_lines(new_text):
+        raise ValueError("repair permits only added citations, not content or metadata changes")
+    old_sections, old_definitions = wl.parse_wiki_text(old_text)
+    new_sections, new_definitions = wl.parse_wiki_text(new_text)
+    if [item.title for item in old_sections] != [item.title for item in new_sections]:
+        raise ValueError("existing headings must be preserved")
+    if any(new_definitions.get(key) != value for key, value in old_definitions.items()):
+        raise ValueError("existing citations must be preserved")
+    for reference in re.findall(r"\[\^[^\]]+\]", old_text):
+        if new_text.count(reference) < old_text.count(reference):
+            raise ValueError("existing citation uses must be preserved")
+    target_relative = str((source.parent / companion.name).relative_to(REPO))
+    added = {key: value for key, value in new_definitions.items() if key not in old_definitions}
+    used_ids = re.findall(r"\[\^([^\]]+)\](?!:)", new_text)
+    if (not added or not any(key in used_ids for key in added)
+            or any(sl.split_locator(value)[0] != target_relative for value in added.values())):
+        raise ValueError("new citations must reference the repaired companion")
+    errors = wl.validate_wiki_page(draft, require_citations=True,
+                                  raw_overrides={target_relative: companion}, base_path=REPO)
+    if errors:
+        raise ValueError("; ".join(errors))
+    today = datetime.now().strftime("%Y-%m-%d")
+    metadata, body = new_text.split("---", 2)[1:]
+    metadata = re.sub(r"(?m)^updated:.*$", f"updated: {today}", metadata)
+    if not re.search(r"(?m)^updated:", metadata):
+        metadata += f"updated: {today}\n"
+    draft.write_text("---" + metadata + "---" + body, encoding="utf-8")
+    manifest = extract / "manifest.json"
+    manifest.write_text(json.dumps({"schema": inbox_finalize.MANIFEST_V2,
+                                   "raw_artifacts": state["repair_artifacts"], "wiki_file": "wiki.md"},
+                                  ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    log_entry = (f"\n## [{today}] update | {wiki.stem} (补齐 Excel 证据桥)\n\n"
+                 f"- 事务：`{state['transaction_id']}`；原件 SHA-256：`{state['source_sha256']}`（保留不变）。\n"
+                 f"- 新增 `{target_relative}` 与同源 sidecar；Wiki 仅补精确脚注，正文及 Graph 不变。\n")
+    state["status"] = "graph_ready"
+    inbox_state.save(state["transaction_id"], state)
+    receipt = inbox_finalize.finalize(
+        REPO, state["transaction_id"], source.parent, wiki, extract, manifest, False, True,
+        expected_wiki_sha256=state["wiki_sha256"], raw_guards=((source, state["source_sha256"]),),
+        update_log=(REPO / state["subproject"] / "wiki/log.md", log_entry),
+    )
+    state.update(status="completed", receipt=str(receipt.relative_to(REPO)),
+                 receipt_path=str(receipt.relative_to(REPO)), final_wiki_sha256=sha256_file(wiki))
+    inbox_state.save(state["transaction_id"], state)
+    return {"status": "completed", "committed": True, "receipt": state["receipt"],
+            "transaction_id": state["transaction_id"], "source_sha256": state["source_sha256"]}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--file", help="inbox/ 下的文档文件路径")
@@ -2020,6 +2219,8 @@ def main() -> None:
     parser.add_argument("--source-kind", choices=sorted(SOURCE_KINDS),
                         help="来源种类；inbox 会议速记传 meeting，缺省由文档强标记判定")
     parser.add_argument("--resume", help="恢复已有事务 ID")
+    parser.add_argument("--repair-companion", action="store_true", help="为已有 Raw Excel 补缺失 companion 与 Wiki 脚注")
+    parser.add_argument("--wiki-path", help="companion 修复的既有 Wiki 路径")
     parser.add_argument("--ocr-result", help="已有 image-ocr-v1 JSON 回执；校验源哈希后复用")
     parser.add_argument("--allow-remote-ppt", action="store_true", help="显式授权本PPT的API内容识读/失败重试；不改变语义backend")
     parser.add_argument("--allow-remote-ocr", action="store_true",
@@ -2031,11 +2232,27 @@ def main() -> None:
                         default="supplementary", help="关联类型（默认 supplementary 补充材料）")
     parser.add_argument("--verbose", action="store_true", help="进度打印到 stdout")
     args = parser.parse_args()
+    if args.repair_companion:
+        if not args.file or not args.wiki_path or args.resume:
+            parser.error("--repair-companion requires --file and --wiki-path, without --resume")
+        try:
+            result = prepare_companion_repair(REPO / args.file, REPO / args.wiki_path, args.subproject)
+        except (OSError, ValueError) as exc:
+            parser.exit(1, str(exc) + "\n")
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
     is_resume = bool(args.resume)
     if args.resume:
         state = inbox_state.load(args.resume)
         if not state:
             raise SystemExit(f"ERROR: 事务不存在: {args.resume}")
+        if state.get("workflow") == "companion_repair":
+            try:
+                result = resume_companion_repair(state)
+            except (OSError, ValueError) as exc:
+                parser.exit(1, str(exc) + "\n")
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return
         expected_backend = state.get("semantic_backend")
         actual_backend = ingest_mode()
         if expected_backend and expected_backend != actual_backend:

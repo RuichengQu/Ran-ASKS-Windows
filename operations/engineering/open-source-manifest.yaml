@@ -14,6 +14,8 @@ include:
   - preprocess.py
   # Includes local-only presentation runtime/state/renderer/delivery and isolated regression fixtures.
   - .scripts/**
+  - computing/code-library/src/tensor_train.py
+  - computing/code-library/tests/test_tensor_train.py
   - .codex/skills/manuscript-diagnosis/SKILL.md
   - .codex/skills/manuscript-diagnosis/agents/openai.yaml
   - .codex/skills/manuscript-diagnosis/scripts/diagnosis_preflight.py
@@ -49,6 +51,8 @@ exclude:
   - "**/*.pyc"
   - "**/*.db"
 public_assets:
+  computing/code-library/README.md: operations/engineering/open-source-assets/computing/code-library/README.md
+  computing/code-library/graph.yaml: operations/engineering/open-source-assets/computing/code-library/graph.yaml
   README.md: operations/engineering/open-source-assets/README.md
   README.zh-CN.md: operations/engineering/open-source-assets/README.zh-CN.md
   CHANGELOG.md: operations/engineering/open-source-assets/CHANGELOG.md

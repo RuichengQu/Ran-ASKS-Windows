@@ -44,7 +44,7 @@ nodes:
   research:
     path: operations/RESEARCH.md
     kind: spec
-    role: persistent-research-work-state
+    role: persistent-research-work-state-with-host-selected-server-preferred-compute-and-private-local-credentials
   workspace:
     path: operations/WORKSPACE.md
     kind: spec
@@ -80,7 +80,7 @@ nodes:
   inbox_finalize:
     path: .scripts/inbox_finalize.py
     kind: implementation
-    role: versioned-artifact-manifest-guarded-inbox-finalizer-with-nested-bundle-integrity
+    role: shared-versioned-artifact-manifest-finalizer-with-nested-bundle-integrity-and-hash-guarded-wiki-update-rollback
   relocate_own_ip:
     path: .scripts/relocate_own_ip.py
     kind: implementation
@@ -177,10 +177,62 @@ nodes:
     path: .scripts/test_image_ocr.py
     kind: test
     role: image-ocr-remote-consent-response-validation-and-source-bound-ingest-regression
+  extract_data:
+    path: .scripts/extract_data.py
+    kind: implementation
+    role: shared-offline-source-bound-raster-curve-and-scatter-digitization-with-candidate-quality-records-and-agent-only-specification-handoff
+  code_library:
+    path: .scripts/code_library.py
+    kind: implementation
+    role: shared-read-only-scientific-code-capability-metagraph-with-bounded-discovery-hash-bound-evidence-and-no-execution
+  code_run:
+    path: .scripts/code_run.py
+    kind: implementation
+    role: shared-fixed-recipe-bounded-local-validation-executor-and-source-artifact-bound-run-receipt-reader-not-general-sandbox
+  code_run_ops:
+    path: operations/CODE_RUN.md
+    kind: spec
+    role: host-authorized-computation-separated-from-read-only-query-local-run-provenance-and-failure-contract
+  code_run_test:
+    path: .scripts/test_code_run.py
+    kind: test
+    role: real-gradient-run-failed-validation-timeout-artifact-tampering-source-staleness-and-query-evidence-regression
+  code_library_ops:
+    path: operations/CODE_LIBRARY.md
+    kind: spec
+    role: agent-scientific-code-discovery-model-math-implementation-traceability-and-working-catalog-boundary
+  code_library_catalog:
+    path: computing/code-library/graph.yaml
+    kind: data
+    role: operational-scientific-code-capability-catalog-not-public-fact-graph
+  code_library_test:
+    path: .scripts/test_code_library.py
+    kind: test
+    role: code-catalog-schema-multi-source-discovery-stale-evidence-path-isolation-and-host-query-regression
+  tensor_train_core:
+    path: computing/code-library/src/tensor_train.py
+    kind: implementation
+    role: reusable-numpy-tt-matrix-forward-adjoint-and-parameter-counting-not-network-training
+  tensor_train_core_test:
+    path: computing/code-library/tests/test_tensor_train.py
+    kind: test
+    role: small-tt-matrix-independent-dense-reference-and-invalid-input-cpu-regression
+  code_library_readme:
+    path: computing/code-library/README.md
+    kind: spec
+    role: scientific-code-working-library-entry-and-reference-project-adaptation-notes
+  extract_data_ops:
+    path: operations/EXTRACT_DATA.md
+    kind: spec
+    role: image-data-extraction-calibration-provenance-review-and-derived-output-contract
+  extract_data_test:
+    path: .scripts/test_extract_data.py
+    kind: test
+    role: synthetic-truth-axis-transform-ambiguity-source-integrity-output-boundary-and-cli-regression
   comic_generation:
     path: .scripts/comic_generation.py
     kind: implementation
-    role: explicit-remote-api-comic-image-generation-with-controlled-output-roots-and-auditable-receipts
+    role: explicit-remote-api-image-generation-with-isolated-private-outputs-and-auditable-receipts
   comic_generation_ops:
     path: operations/COMIC_GENERATION.md
     kind: spec
@@ -292,7 +344,7 @@ nodes:
   graph_lib:
     path: .scripts/graph_lib.py
     kind: implementation
-    role: graph-schema-stable-node-id-canonical-description-source-local-node-gloss-persisted-identity-distinction-hub-scope-history-multi-alias-node-origin-lineage-and-shared-operations
+    role: graph-schema-stable-node-id-canonical-description-source-local-node-gloss-persisted-identity-distinction-hub-scope-history-multi-alias-node-origin-lineage-omitted-status-preservation-and-shared-operations
   graph_ingest:
     path: .scripts/graph_ingest.py
     kind: implementation
@@ -368,7 +420,27 @@ nodes:
   query_graph:
     path: .scripts/query_graph.py
     kind: implementation
-    role: predicate-family-aware-graph-read-interface-with-source-local-node-glosses
+    role: shared-bounded-predicate-family-aware-graph-read-interface-with-source-local-node-glosses
+  retrieval_benchmark:
+    path: .scripts/retrieval_benchmark.py
+    kind: implementation
+    role: shared-offline-read-only-retrieval-functional-probe-and-resource-baseline
+  retrieval_benchmark_test:
+    path: .scripts/test_retrieval_benchmark.py
+    kind: test
+    role: offline-retrieval-baseline-safety-and-metric-regression
+  retrieval_benchmark_ops:
+    path: operations/RETRIEVAL_BENCHMARK.md
+    kind: spec
+    role: offline-retrieval-baseline-contract-and-measurement-limits
+  retrieval_benchmark_cases:
+    path: operations/config/retrieval-benchmark.json
+    kind: config
+    role: frozen-public-curated-navigation-probes-not-historical-traffic-or-answer-gold
+  retrieval_benchmark_real_cases:
+    path: operations/config/retrieval-benchmark-real.json
+    kind: config
+    role: frozen-reviewed-public-historical-questions-with-independent-navigation-targets-not-answer-gold
   query_graph_temporal_test:
     path: .scripts/test_query_graph_temporal.py
     kind: test
@@ -388,7 +460,11 @@ nodes:
   query_actions:
     path: .scripts/query_actions.py
     kind: implementation
-    role: query-action-executor-with-hybrid-recall-semantic-address-context-and-precise-evidence-reading
+    role: shared-single-read-label-preserving-wiki-recall-hybrid-semantic-context-and-precise-evidence-reader
+  wiki_recall_test:
+    path: .scripts/test_wiki_recall.py
+    kind: test
+    role: single-read-literal-label-and-coverage-ranked-wiki-recall-scope-and-freshness-regression
   experience_recall:
     path: .scripts/experience_recall.py
     kind: implementation
@@ -961,7 +1037,7 @@ nodes:
   research_project:
     path: .scripts/research_project.py
     kind: validator
-    role: research-project-template-and-structure-validator
+    role: research-project-template-and-structure-validator-with-server-preferred-new-project-default
   trash_util:
     path: .scripts/trash_util.py
     kind: implementation
@@ -1062,7 +1138,7 @@ nodes:
   wiki_locator:
     path: .scripts/wiki_locator.py
     kind: implementation
-    role: stable-heading-slug-cjk-bigram-ranked-semantic-address-reader-and-strict-raw-footnote-integrity-bridge
+    role: stable-heading-slug-cjk-bigram-ranked-semantic-address-reader-and-strict-raw-footnote-integrity-bridge-with-opt-in-exact-inline-citation-reuse
   engineering_locator:
     path: .scripts/engineering_locator.py
     kind: implementation
@@ -1152,6 +1228,81 @@ nodes:
     kind: test
     role: symlink-relativize-regression
 edges:
+- - code_run_ops
+  - governs
+  - code_run
+- - code_library
+  - uses
+  - code_run
+- - code_run
+  - uses
+  - tensor_train_core
+- - code_run
+  - tested_by
+  - code_run_test
+- - wg
+  - uses
+  - code_run
+- - route
+  - uses
+  - code_run_ops
+- - function_registry_spec
+  - governs
+  - code_run
+- - code_library_ops
+  - governs
+  - code_library
+- - code_library
+  - uses
+  - code_library_catalog
+- - code_library
+  - uses
+  - source_locator
+- - code_library
+  - tested_by
+  - code_library_test
+- - code_library_readme
+  - documents
+  - tensor_train_core
+- - tensor_train_core
+  - tested_by
+  - tensor_train_core_test
+- - code_library_catalog
+  - indexes
+  - tensor_train_core
+- - wg
+  - uses
+  - code_library
+- - route
+  - uses
+  - code_library_ops
+- - query
+  - uses
+  - code_library_ops
+- - function_registry_spec
+  - governs
+  - code_library
+- - extract_data_ops
+  - governs
+  - extract_data
+- - extract_data
+  - uses
+  - image_ocr
+- - extract_data
+  - uses
+  - agent_task
+- - extract_data
+  - tested_by
+  - extract_data_test
+- - wg
+  - uses
+  - extract_data
+- - route
+  - uses
+  - extract_data_ops
+- - function_registry_spec
+  - governs
+  - extract_data
 - - oral_exam_ops
   - governs
   - llm_structured
@@ -1827,9 +1978,36 @@ edges:
 - - query_graph
   - tested_by
   - query_graph_temporal_test
+- - retrieval_benchmark
+  - uses
+  - query_graph
+- - retrieval_benchmark
+  - uses
+  - query_actions
+- - retrieval_benchmark
+  - uses
+  - graph_lib
+- - retrieval_benchmark
+  - reads
+  - retrieval_benchmark_cases
+- - retrieval_benchmark
+  - reads
+  - retrieval_benchmark_real_cases
+- - retrieval_benchmark_ops
+  - governs
+  - retrieval_benchmark
+- - retrieval_benchmark
+  - tested_by
+  - retrieval_benchmark_test
 - - query_actions
   - uses
   - query_graph
+- - query_actions
+  - tested_by
+  - wiki_recall_test
+- - hub_semantics
+  - tested_by
+  - wiki_recall_test
 - - query_actions
   - uses
   - wiki_locator
@@ -2704,6 +2882,59 @@ edges:
   - documents
   - dsh_function_catalog
 capabilities:
+  code-run:
+    entry: route
+    required:
+    - agents
+    - code_run_ops
+    - code_run
+    optional:
+    - wg
+    - code_library_ops
+    - tensor_train_core
+    forbidden:
+    - query_actions
+    - graph_ingest
+    - llm_structured
+    guardrails:
+    - 宿主显式选择计算后调用固定 TT 梯度检查配方；shared 执行有界 CPU 子进程，不接受论文指令、任意脚本或命令。
+    - 输出仅写现有公共研究项目 outputs/code-runs 的新目录，记录源码快照、输入、依赖、校验阈值、结果和失败；不覆盖、不自动更新代码元图。
+    - 子进程超时与输入预算不是安全沙箱；查询只读运行回执，不启动计算；本地检查不等于论文实验复现。
+  code-library:
+    entry: route
+    required:
+    - agents
+    - code_library_ops
+    - code_library
+    optional:
+    - wg
+    - code_library_catalog
+    - code_library_readme
+    - source_locator
+    forbidden:
+    - graph_ingest
+    - llm_structured
+    guardrails:
+    - Agent 控制查询与科学解释；shared 内核只校验工作目录、有限关系遍历和精确定位，不执行被检索代码，不调用模型或网络。
+    - 代码元图独立组织问题、模型、方法、算法、实现与验证；论文仅作可多源的来源引用，不作为组织中心。
+    - 工作目录不是事实源；声明关系不是科学证明；公共事实导航仍唯一来自 cross-domain/graph.db，知识发布另走受管摄入。
+    - 证据绑定内容哈希，变化后返回 stale 并拒绝旧片段读取；只读公共允许路径，首版不支持 private 或任意 manifest 路径。
+  extract-data:
+    entry: route
+    required:
+    - agents
+    - extract_data_ops
+    - extract_data
+    optional:
+    - image_ocr
+    - agent_task
+    - wg
+    forbidden:
+    - graph_ingest
+    guardrails:
+    - 宿主 Agent 负责确认 Panel、系列、刻度与轴型；shared 内核离线执行校准、像素提取和源绑定校验，不调用模型或模拟推理。
+    - 支持明确选定的二维栅格曲线与独立圆形散点标记；颜色或几何歧义记录到候选质量回执，不把数字化样本当作原始实验点。
+    - Raw/Wiki/Graph 只读；暂存写 temp，持久数据写研究项目 outputs；private 输入首版拒绝，任何输出均需局部核验。
   oral_exam:
     entry: route
     required:
@@ -2818,6 +3049,7 @@ capabilities:
     - query_orchestrate
     optional:
     - query_actions
+    - code_library_ops
     - node_semantics
     - graph_dump
     - experiences
@@ -2877,7 +3109,8 @@ capabilities:
     - WikiGraph 以 Raw 为事实层、Wiki 为面向理解且桥接 Raw 的语义层、graph.db 为发现与到达所需的关键导航边；事实结论始终可回溯 Raw。
     - Agent 模式由当前宿主 Agent 持有控制循环，程序只提供确定性代码壳、agent-task-v1 与机械校验；API 模式由程序持有控制循环，DSH、模型调用、重试和预算只存在于 API adapter。二者共享输入解析与定位、schema、validator、IR/Graph、报告与事务等确定性内核，不共享控制循环或语义执行 adapter。
     - 提示词撰写原则：以正向、直接、可执行的要求为主，说明目标、行动与验收条件；否定表述仅用于红线和必须明确的边界。
-    - 优先实际效果、最小机制、单一事实源、可重建派生物和局部且规模不变的改动。处理缺陷时，在首次编辑前明确说明并用复现、代码路径或反事实验证因果链：症状 → 最早错误状态 → 产生机制 → 责任组件；默认修复责任组件，并让回归测试覆盖该责任边界。
+    - 以高质量、高效率的实际效果选择方案，最小方案不等于最优方案；质量与可靠性是约束，效率结合处理时间、资源成本、返工与维护成本验证，复杂度以必要性和净收益判断。坚持单一事实源、可重建派生物和局部且规模不变的改动。处理缺陷时，在首次编辑前明确说明并用复现、代码路径或反事实验证因果链：症状 → 最早错误状态 → 产生机制 → 责任组件；默认修复责任组件，并让回归测试覆盖该责任边界。
+    - 对复杂建设先制定计划，再实施：明确目标与验收标准、影响边界与后端归属、阶段与依赖、风险及回归验证；执行中依据证据更新计划，不把计划变成额外审批或状态机。
     - 缺陷修复采用双层范围：修复经证据确认、对同类问题具有普遍收益的责任组件，同时修正已确认且无需新增机制的具体数据问题。不得为单一样本引入特判、额外状态、流程或模型调用；通用修复只有在跨场景收益明确且不增加不必要复杂度时实施。
     - 只有根因位于当前系统边界外，或问题确认属于兼容性、迁移或历史数据修复时，才采用局部特判、兜底或事后补偿；须限定适用范围和退出条件，并验证不会掩盖其他错误。
     - 工程图只负责定位影响，工程文档只在当前判断需要时按 locator 读取。先运行 impact <target> --verify，再从推荐 locator 获取最小充分信息，不把总提示词当工程手册。
@@ -2985,10 +3218,11 @@ capabilities:
     - comic_generation
     forbidden: []
     guardrails:
+    - 宿主为研究计算优先选择 .env 中登记的 SSH 服务器；shared 程序不自动转发，本地轻量验证须明确为例外，凭据不得进入公开产物。
     - 研究内容不入库（独立于 ingest）；记忆绑定到 projects/<name>/.research-memory/。
     - 进入研究项目先 recall 恢复上下文；研究过程自动保存记忆（decision/insight/literature_judgment/research_direction）。
     - research 是工作状态；只有实际起草、改写或润色时调用 academic write 能力，查询、实验与状态汇报不加载写作能力。
-    - 产出限于研究笔记和论文文稿；不自动摄入知识库。
+    - 产出包括研究笔记、论文文稿、源码、测试与 outputs 中的派生运行结果；不自动摄入知识库。
     - 用户显式要求 API 绘图时可调用 comic_generation；生成物只写研究项目 outputs，不进入 raw/wiki/graph.db。
   frontier:
     entry: route
@@ -3092,6 +3326,36 @@ contracts:
   checks:
   - workspace_state_authority
 verification:
+  query_actions:
+  - python3 .scripts/test_wiki_recall.py
+  - python3 .scripts/test_private_query.py
+  - python3 .scripts/test_query_orchestrate.py
+  - python3 .scripts/test_query_api_loop.py
+  - python3 .scripts/test_wg.py
+  retrieval_benchmark:
+  - python3 .scripts/test_retrieval_benchmark.py
+  - python3 .scripts/test_query_graph_temporal.py
+  - python3 .scripts/engineering_graph.py validate
+  code_run:
+  - python3 .scripts/test_code_run.py
+  - python3 computing/code-library/tests/test_tensor_train.py
+  - python3 .scripts/test_code_library.py
+  - python3 .scripts/test_function_registry.py
+  - python3 .scripts/engineering_graph.py validate
+  code_run_ops:
+  - python3 .scripts/test_code_run.py
+  code_library:
+  - python3 .scripts/test_code_library.py
+  - python3 computing/code-library/tests/test_tensor_train.py
+  - python3 .scripts/test_wg.py
+  - python3 .scripts/test_function_registry.py
+  - python3 .scripts/engineering_graph.py validate
+  code_library_ops:
+  - python3 .scripts/test_code_library.py
+  code_library_catalog:
+  - python3 .scripts/code_library.py validate
+  tensor_train_core:
+  - python3 computing/code-library/tests/test_tensor_train.py
   oral_exam:
   - python3 .scripts/test_oral_exam.py
   - python3 .scripts/test_wg.py
@@ -3229,6 +3493,13 @@ verification:
   - python3 .scripts/test_ingest_inbox_dispatch.py
   - python3 dsh/test_dsh_ingest_tools.py
   - python3 .scripts/engineering_graph.py validate
+  extract_data:
+  - python3 .scripts/test_extract_data.py
+  - python3 .scripts/test_wg.py
+  - python3 .scripts/test_function_registry.py
+  - python3 .scripts/engineering_graph.py validate
+  extract_data_ops:
+  - python3 .scripts/test_extract_data.py
   manuscript_diagnosis_skill:
   - python3 .codex/skills/manuscript-diagnosis/scripts/test_diagnosis_preflight.py
   - python3 .scripts/test_open_source_release.py
@@ -3264,6 +3535,7 @@ verification:
   graph_lib:
   - python3 .scripts/test_private_isolation.py
   - python3 .scripts/test_ingest_pipeline.py
+  - python3 .scripts/test_node_semantics.py
   node_semantics:
   - python3 .scripts/test_private_isolation.py
   - python3 .scripts/test_node_semantics.py
@@ -3389,6 +3661,44 @@ verification:
   - python3 .scripts/test_visual_qa.py
   - python3 .scripts/engineering_graph.py validate
 script_contracts:
+  retrieval_benchmark:
+    preconditions:
+    - shared 确定性工程工具；显式选择白名单 curated 或 real 固定公共用例，宿主解读指标；不调用模型、embedding、API、DSH 或 private。
+    - 固定输入 manifest 与源码、公共 Wiki、图文件指纹；人工导航目标不代表事实答案正确性。首轮及同进程重复分开报告，不宣称冷缓存或 Agent 端到端性能。
+    - real 保留日志原问句及公共日志地址、行号、时间、记录哈希；gold 经独立 Wiki 身份与来源定位审核，不由当前检索结果或历史答案生成。运行仅读冻结 manifest，不回读或执行日志。
+    writes:
+    - temp/retrieval-benchmark/<new-run-id>/report.json 与 manifest.json；不作为事实源
+    forbidden:
+    - 写入 Raw、Wiki、graph.db、执行 manifest 内容、网络连接、模型评分、自动建立索引或运行论文复现
+    verify:
+    - python3 .scripts/test_retrieval_benchmark.py
+  code_run:
+    preconditions:
+    - 宿主显式授权固定配方和现有公共 research 项目；compute.policy/backend 必须为 local；输入预算与超时有硬上限。
+    - 执行与回执检查分开；回执校验只读白名单源码与同一运行目录的有限产物，不导入实验代码或复算。
+    writes:
+    - projects/<project>/outputs/code-runs/<new-run-id> 的源码快照、输入、配置、日志、结果和 metadata.json
+    forbidden:
+    - 任意源码路径、命令、shell、网络、private、覆盖已有目录或自动更新科学/代码图
+    - 把哈希一致性或局部有限差分通过表述为独立科学证明或 MNIST 复现
+    verify:
+    - python3 .scripts/test_code_run.py
+    - python3 computing/code-library/tests/test_tensor_train.py
+    - python3 .scripts/test_code_library.py
+  code_library:
+    preconditions:
+    - 使用固定公共工作目录 computing/code-library/graph.yaml；禁止模型提供任意目录、private 路径或跨域软链接。
+    - 语义映射由宿主提出；程序只校验类型、引用、哈希和精确 locator，返回声明状态而不评价科学正确性。
+    - Raw 引用只读已定位 Markdown 片段；Python 代码仅 AST 定位，不导入、不运行；工作元图不作为 Raw 证据。
+    writes: []
+    forbidden:
+    - 新建公共事实边数据库或把代码元图当作 graph.db 的替代事实源
+    - 把测试定义、schema 通过或源码存在表述为实验复现成功
+    - 查询自动执行代码、刷新哈希、外发源码或隐式切换 API backend
+    verify:
+    - python3 .scripts/test_code_library.py
+    - python3 computing/code-library/tests/test_tensor_train.py
+    - python3 .scripts/code_library.py validate
   workspace_doctor:
     preconditions:
     - workspace 必须由显式 --workspace、RAN_ASKS_WORKSPACE 或含 AGENTS.md 与 .scripts 的当前目录确定，不能静默检查其他仓库
@@ -3717,6 +4027,7 @@ script_contracts:
     - python3 .scripts/test_open_source_release.py
   ingest_inbox:
     preconditions:
+    - API agent_required 的单项与 batch reason 优先保留具体校验诊断；无诊断时仅说明等待宿主复核或修正，不从状态名推断自动恢复耗尽
     - inbox_plan 与执行扫描共用隐藏控制项/系统元数据过滤契约；这些条目不得进入分类、batch eligibility 或摄入队列
     - 对话文件使用 --keep-source 复制后分发；纯正文使用 --stdin 原样 UTF-8 暂存；两者共用现有分类、校验、去重与事务，正常 inbox 清理语义不变
     - 对话提交只处理本次暂存文件；分类恢复命令绑定该文件，不再次读 stdin、不扫描无关 inbox 文件；仅系统副本允许清理
@@ -3726,6 +4037,7 @@ script_contracts:
     - 单文件报告须分别记录 entrypoint、semantic_backend 与实际 ocr_backend；API 模式下等待宿主 OCR/复核是 prepared 可续做状态，不得降格为普通 failed
     - 底层摄入 stdout 可同时包含进度文本、图报告嵌套 JSON 与最终工作流 JSON
     - 批量工作流必须把带 phase/items 的顶层 envelope 作为结构化终态；不得让 items 内的单文件 status 覆盖顶层 partial/completed
+    - batch item 在所有状态均保留 transaction_id、source、Raw/Wiki 地址与 backend；graph_ready 不得退化为无事务身份的普通 pending，直接 resume 必须能回到原批次并同步维护
     - dry-run 与 --run 在任何提取/API 调用前查询可重建 source_fingerprints 索引；二进制 SHA-256 精确命中直接返回 duplicate_found 与既有 raw_path
     - 非空 facts-pending.md 必须按 inbox_plan 的 user-assertions 类型出现在 dry-run；--run 调用受管 user-assertions 事务，不得误分为普通 Markdown、静默跳过或交给 Agent 手工跨层写入
     - --run 的二进制 SHA-256 精确重复只有在既有 Raw 路径仍位于 raw/ 且双方哈希复核一致后才写清理回执并移入可恢复废纸篓；近似重复和复核失败不得自动清理
@@ -3737,6 +4049,7 @@ script_contracts:
     - 单个 --file 可用 --document-type 显式选择 academic 通用文档类型；该选择覆盖基础 paper/document 初判并保留 program_file_type 与 explicit 来源审计，批量或非 academic 调用拒绝该参数
     - 全库缩写/人物/Hub 收尾只在本次至少一个文件 completed 时执行；全 classification_required/全失败/仅精确重复直接返回紧凑终态
     - 直接 paper/meeting/document resume 成功必须调用同一 maintenance 入口；DSH 在文件 completed 时仍须保留 actionable maintenance handoff
+    - maintenance 紧凑摘要保留人物 pending_total、自动建页结果计数及 Hub backlog_count/split_backlog_count；人物当前待审以 auto_built.remaining 为准，Hub backlog 是未达门槛的观察计数，待审分裂以达标候选及 actions 为准；completed 只表示维护执行完成，不表示观察候选清零；完整候选仍留在受管报告，不改变文件终态
     - 直接 resume 成功但 inbox 仍有待处理业务文件时只返回 maintenance deferred；最后一个文件完成后才运行一次全局 maintenance
     - 缩写 resolver 只读 abbreviation backlog 限定的 token/page，以 JSON 返回自动消解与类型化 Agent 候选；occurrence 按 field 绑定 subject/object 真实端点，canonical page path subject 不进入待办，待办按 page/field/端点/token/locator 去重并原子替换
     - 缩写 review 必须在后置轻量 alias 同步完成后与当前 abbreviation-todo token 求交集，已由同步移除的 stale token 不得进入要求全覆盖的 Agent 决策批次
@@ -3939,6 +4252,7 @@ script_contracts:
   open_source_release:
     preconditions:
     - private paths are an unconditional publication deny rule across includes, asset sources/targets and template directories; preflight completes before clearing or copying the destination
+    - 科研代码公开示例只发布 manifest 精确批准的通用源码与测试，以及独立公开资产中的合成工作目录；不得复制本地工作目录中的 Raw 引用、项目运行记录或数值结果；公开 code-library/code-run 依赖与 evidence 哈希须在生成树验证
     - source and destination paths must remain confined without symlink escape; verify rejects private paths even when the manifest approves them
     - 每次有实际公开变更的 GitHub 同步先由当前 Agent 评估 PATCH/MINOR/MAJOR 并说明功能与兼容性依据，不按文件数/行数推断；脚本 prepare-version 按显式级别与预期旧版本计算新版本，同次构建重试不重复排号
     - 根目录 VERSION 是当前 MAJOR.MINOR.PATCH public-tree 边界；verify 对比公开仓库的待提交或最新提交基线，拒绝同版本或版本倒退的公开更新；自 v0.12.0 起每个发布版本有同名不可变 annotated tag，GitHub Release 仍与版本排号分别授权
@@ -3985,7 +4299,7 @@ script_contracts:
     - 发布源必须是显式 source ref 解析出的 commit；当前工作树中所有 manifest 选中文件、公开资产源、VERSION、manifest 和发布脚本相对该 commit 必须无 tracked/untracked 漂移，非公开项目文件可保持未提交
     - 目标必须是独立 Git 工作树、位于源库之外、当前分支与请求分支一致且无预存变更；fetch 后本地 HEAD 必须与 remote branch 完全一致
     - 发布版本、读者文档和 changelog 已由 prepare-version 准备；语义版本级别仍由宿主 Agent 判断，编排器不自动分类
-    - push、tag 和 GitHub Release 分别授权；publish 缺省只构建、验证和提交，只有显式 --push 才推送，永不创建 tag 或 Release
+    - publish 缺省构建、验证、提交并创建与 VERSION 一致的不可变 annotated tag；只有显式 --push 才原子推送分支与标签，已有同名标签失败关闭；GitHub Release 仍须另行授权且不由 publish 创建
     writes:
     - 从临时 detached source worktree 构建临时发布树并写 RELEASE_PROVENANCE.json，记录 source commit/tree、manifest SHA-256、版本与不含 provenance 自身的 payload SHA-256
     - 临时树全部验证通过后才事务性替换目标非 .git 内容；安装失败恢复原目标树
@@ -3994,7 +4308,7 @@ script_contracts:
     - 从含 manifest 相关未提交变更的工作树发布，或把 projects/private/temp 等非公开脏文件误判为阻塞
     - 在临时树验证前清空目标，安装失败后留下半生成树，或删除/改写目标 .git
     - 在 fetch 后存在 ahead/behind、分支不符、远端 URL 未确认或目标预存变更时继续提交或推送
-    - 用 force push、自动 tag/Release、推送个人源库，或在远端 commit 未确认时报告成功
+    - 用 force push、移动已有标签、自动创建 GitHub Release、推送个人源库，或在远端分支与标签 commit 未确认时报告成功
     verify:
     - python3 .scripts/test_open_source_publish.py
     - python3 .scripts/test_open_source_release.py
@@ -4231,6 +4545,8 @@ script_contracts:
   node_semantics:
     preconditions:
     - graph.db 已初始化；nodes.path 是稳定 node_id；description 可空；aliases 是确定性名称入口
+    - shared semantic_search 默认在排名及 top-k 前排除图中 deprecated 的页面；include_deprecated 只接受布尔值，显式历史搜索可开启。hybrid 可包含旧页作为内部图定位种子，最终 Wiki 候选仍经统一准入；身份解析的身份判断不等于页面现行性。
+    - graph_lib.ensure_node 对已有节点省略 status 时保留原生命周期，新节点省略时默认为 current；显式 status 可更新。不得因普通引用复用把废弃节点恢复为 current。
     - 两个完整规范名称仅相差末尾括号缩写时可确定性视为同一名称；移除缩写后的完整名称必须相等，不能把复合标题中的局部缩写或片段提升为身份
     - identity_distinctions 只保存规范名称对的明确 distinct 裁决及来源，不是知识边；resolve_node 在 embedding 身份门前查询并优先 keep separate，避免同一对名称重复产生歧义告警
     writes:
@@ -4250,6 +4566,7 @@ script_contracts:
     - python3 .scripts/test_graph_delta.py
   hub_semantics:
     preconditions:
+    - shared read_paper_profile 的可选 text 参数复用 caller 已读取并校验范围的文本；沿用同一 Wiki section/citation 解析器，不重复访问页面、不新增缓存或改变默认文件读取契约。
     - Hub canonical 语义来自 Hub 页唯一的
     - Hub Scope 由主 Agent 基于代表性成员的 title+description/profile、必要的图结构信号及父/待合并 Hub Scope 综合定义；不得拼接全体成员文本，也不得由 API LLM 生成 canonical Scope
     - 路由候选榜可包含 legacy Hub 供诊断，但最终 route decision 只在 canonical Hub 中取最高分；legacy top-1 不得阻断达标 canonical Hub；canonical top-1 必须同时通过 floor 与 margin，近邻 tie 只返回候选、不写 Hub 边
@@ -4362,12 +4679,17 @@ script_contracts:
     - wiki_context 必须指定可解析的 page#section，Graph envelope 有 top-k 与 traversal profile 边界
     - read_raw 通过 source_locator 读取原件的精确 locator 或受管 Markdown companion；返回中显式区分可引用原件与实际读取路径
     - graph_exact 候选保留有辨识力的数学写法（如 z*、|z|、Arg z），同时不把裸单字母变量扩散为通用噪声
+    - shared wiki_recall 每次只读每个已校验范围内 Wiki 文件一次；研究方向 profile 复用本次文本并沿用 Hub section/citation 解析器，无持久缓存、索引、模型或 embedding 调用。
+    - Wiki 排序保留图中的规范标题、完整 alias 和 status；标签完整匹配优先于标签短语匹配、导航短语匹配与词项召回，再按不同词项覆盖率、标签命中数和 path 稳定排序。重复提及不放大分数；匹配按字面而非 SQL 通配符解释，候选不代表身份或事实确认。
+    - shared wiki_recall/admin_recall/hybrid_recall 默认在排名与 top-k 前排除图或 Wiki frontmatter 标为 deprecated 的页面；联合召回的所有图通道复用同次扫描的准入信息，图回退与相邻页筛选不得绕过过滤。废弃页仍可作为只读定位中间节点到达现行邻页，但不进入默认候选。图规范 status 保留，page_status 单独报告磁盘状态，superseded_by 仅作版本导航。
+    - include_deprecated 默认 false；仅用户明确询问历史版本时由宿主显式开启。接受布尔值及 true/false 字符串，拒绝其他值；lineage intent 不隐式开启。Agent execute、API 工具与 wg hybrid-recall --include-deprecated 共享此开关，不新增模型、索引、缓存或写入。
     writes: []
     forbidden:
     - 把 section capsule、embedding 分数或 Graph neighbor 直接当作事实证据
     - 把动态 Graph context 回写为 Wiki related 或静态正文
     - 图片 companion 已返回所需文本证据后继续请求原图、重新 OCR 或调用视觉能力；视觉语义例外必须由宿主在独立视觉流程中显式说明原因
     verify:
+    - python3 .scripts/test_wiki_recall.py
     - python3 .scripts/test_query_orchestrate.py
     - python3 .scripts/test_wg.py
     - python3 .scripts/test_private_query.py
@@ -4377,6 +4699,11 @@ script_contracts:
     - node 详情可返回主 description 与 node_glosses 的 Raw locator，二者用于身份导航和证据下钻，不直接充当事实答案
     - predicate family 从 operations/config/graph-schema.yaml 与端点类型派生，不写回 edges；profile 只限制遍历平面
     - shared search_nodes 按字面关键词匹配 title/alias/path，在截断前依完整匹配、前缀、子串排序，同层按 path 稳定排列；保留同名候选，不据排名认定身份。默认最多 50 条，search 的 top-k 限 1–50；返回 count 为已返回数并显式标注 truncated，文本另说明展示上限
+    - shared search_nodes 默认按图 status 在排名/top-k 前排除 deprecated 页面；显式 include_deprecated=true 保留历史发现，Agent/API graph_search、query_graph search、wg lookup/abbr 参数贯通。图查询不新增 Wiki 全库扫描，图状态与 Wiki 生命周期须经受管图写入同步。
+    - node/neighbors/relations/hub_of 是只读导航而非现行材料发现；保留废弃节点、边和中间路径，并以 material_role/default_page_candidate 及 version_context 区分历史导航和可默认下钻的页面。neighbors 使用已批量读取的属性，不增加每节点读取；关系端点生命周期批量读取。default_page_candidate 不证明材料现行有效或事实已核验。
+    - Agent/API node_resolve 保留身份判定并附 version_context，身份 resolved 不等于页面现行；显式 temporal --at 的历史有效性仍按时态表判断，不按当前节点状态丢弃旧事实；path_exists 仅报告连通性，不输出材料候选。
+    - shared neighbors 默认限制非起点节点100、唯一边300、读取边行1000、深度最多5；硬上限分别1000、3000、10000。top-k 仍仅裁剪最终边，返回节点仅包含已返回边的端点；端点属性与最终详情批量读取。
+    - 预算截断与输出裁剪分别报告，truncated、truncation_reasons、work、budget、remaining_frontier 显式公开；未返回不代表不存在。remaining_frontier 是未完成定位提示而非持久化续跑游标；scanned_rows 计返回的边行，不代表 SQLite 内部页读或CPU硬预算，允许一次 lookahead。
     writes: []
     forbidden:
     - 把图边、Hub 或 Navigation 直接当事实答案
@@ -4410,6 +4737,7 @@ script_contracts:
     - python3 .scripts/test_ingest_admin.py
   ingest_common:
     preconditions:
+    - 有界论文上下文在 section 部分命中或全部缺失时，以原文正文的分散窗口补足；在明确参考文献标题、带发表证据的连续编号参考条目或末尾非科研材料边界截断窗口，章节选段同样排除可识别参考文献；保留整行证据，尾部长行在总预算内时重新分配头尾份额，Raw handle、标题与省略标记均计入预算，不要求论文必须具有全部标准章节
     - 共享摄入器只接收事务内 staged Wiki/semantic、结构化 validator issues 与受限候选目录
     - Agent backend 生成 agent-task-v1 并等待当前宿主提交；API backend 才调用 semantic patch Worker
     - 通用文档语义槽非空但未解析出任何三元组、三元组区存在非 pipe 三字段行或仍使用旧行政主题/行政关系 section 时，必须在 finalize 前作为结构硬错误拒绝
@@ -4526,6 +4854,7 @@ script_contracts:
   meeting_compiler_contract:
     preconditions:
     - API adapter 与当前 Agent 产物共同使用 meeting-compiler-v3 delimiter、context hash、parser、preprocess schema、evidence-bound typed MEETING_IR/person_updates 与非级联 replacement 规则；v2 会议 IR 和 v1 slots 只解析在途兼容产物
+    - MEETING_IR 空模板、Agent 顶层字段清单与 validator 共用 MEETING_IR_RECORD_FIELDS；模板包含固定 protocol_version，不自动补齐非法实际产物
     - shared 的 parse_proposal_detailed 返回 proposal、兼容错误摘要与结构化诊断；JSON 位置相对去除外围空白及标准 fence 后的 PREPROCESS，保留严格解析，不吞掉尾部结束标签
     writes: []
     forbidden:
@@ -4538,20 +4867,25 @@ script_contracts:
     - python3 .scripts/engineering_graph.py validate
   ingest_paper:
     preconditions:
+    - shared 版式增强复用现有 ACM 模板族定位器，支持首页 self-citation 独立/同行 marker 与解析标签；仅在 PDF 前部布局块与 Markdown 的 DOI、完整有序作者名单一致时补充尚缺姓名候选；缺少 PDF 证据、OCR 分歧、References/正文之后、截断作者或题名冲突均不补充，不建立逐刊状态机或放宽自动锁定与原 validator
+    - API candidate catalog 的有损字段裁剪禁止触及 id/value/evidence/year-kind 与排除机构证据；只省略已在协议统一声明的重复 provider/authority 元数据，完整目录仍保存在事务，Agent 取证与 schema 不变；效率以离线跨文档输入长度和语义字段保真对照验收，不把字符数冒充模型 token/账单或已验证的线上错误率
+    - API candidate-id-v2 及旧 Agent 兼容协议共享字段级 schema 诊断；authors 候选经原文核验可完整覆盖时优先有序候选 ID，proposed 项严格使用 value/evidence，错误键不得静默转换；既有 evidence-bibliography-v1 Agent 契约保持独立
     - CLI --raw 是 shared 兼容入口，以参数列表转交 re_ingest.py --raw 并原样继承 backend、输出与退出码；复用其版本保护、统一 workspace 和 clean commit，不再创建独立 from_raw 编译任务；--force 仅在直接调用 re_ingest 时显式给出
     - inbox 学术 PDF；paper.md 生成后，Agent/API 共用 paper-agent-workspace-v1 外层产物协议，一次产出书目裁决、Wiki 与语义槽；Agent 书目段使用 evidence-bibliography-v1 直接提取并逐字段绑定 source/locator/quote，API adapter 保留 candidate-id-v2，二者编译为同一规范化 review 后再共享 validator、IR、Graph preflight 与提交
     - Agent backend 的宿主控制循环独立使用 agent-paper-reading-v2：短文直接全文读取，长文按单节命令渐进读取关键章节，再按 section miss、证据定位或跨章节依赖回读原 paper.md；该策略不改变 API adapter 的上下文裁剪与调用预算
     - Agent task 可选暴露 node_semantics 的现有 concept/Hub 查询 argv 模板；查询只读 live graph，候选仅帮助复用与导航，节点身份仍须经 resolve 与共享 validator 确认
     - Agent task 的版本化 semantic protocol 必须直接暴露与共享 validator 一致的论文主语谓词分区：论文到 concept 只用研究基础/核心方法/对比方法，论文到 proposition 只用核心创新点/局限性/未来展望，主要研究、方向标签及作者/期刊等机械元数据明确排除；不得只暴露会误导宿主 Agent 的全量已登记谓词列表
+    - paper-agent-workspace-task-v6 的 Agent handoff 直接声明语义槽独立行标题、pipe 字段格式与可解析示例、Raw 脚注示例及空书目字段的 ambiguous 状态；title/venue 按已有 shared validator 归一空白后验证连续值，PDF 普通换行不截短完整题名，缺字或跨无关布局块仍保留未决；Agent/API 的 Wiki 要求共享对象、条件和符号逐项回溯规则，不新增模型调用或把结构 PASS 当作事实正确证明
     - Agent validator issue 必须给出 stage、workspace scope、error 与局部 action；Agent 遥测记录源字符数、读取策略、check 次数、首轮/末轮校验结果、修复 scope 与最终 warning，并在原事务 telemetry.agent_ingest.check_history 保留逐轮 validator issues、warnings 与版本；常规返回省略历史明细，不记录或评价宿主推理内容
     - Agent 书目 task 由共享 schema 常量列出合法枚举，schema 错误逐字段定位；读取契约提供一次性协议与分节读取策略，commit 只返回有界验收摘要及完整 state/report 地址，不重复展开 Graph 计划和回执哈希
     - 3.1 在读取 PDF 标题前先查询源文件 SHA-256；精确命中直接 duplicate_found，不调用 MinerU/LLM；MinerU 与书目锁定后再以 normalized text/title+authors+year/DOI/arXiv 做二次去重屏障
     - agent workspace 返回明确 write_to；书目协议同时携带由同一运行时代码生成且自身通过 schema 的完整严格模板，避免 prose shape 与 validator 漂移；程序按 bibliography → wiki → semantics 顺序物化为独立暂存产物并逐层校验，resume 不重跑 MinerU 或已通过阶段
     - Agent 只经 paper_workspace_read/refresh/check/commit 四个类型化动作接管事务；公开 workflow_status 仅允许 awaiting_agent、ready_to_commit、completed、failed，内部细粒度 status 只作为 internal_status 返回
     - 单篇与 batch item 均经 inbox_state 输出 ingest-result-v1；completed 必须同时报告 committed=true 与可定位的 Raw/Wiki 产物，awaiting_agent 的本次产物是 agent-task-v1，不以进程退出码冒充事务完成
+    - Wiki 物化可显式复用已定义脚注，把正文中完全相同的裸 Raw 行 locator 转成对应脚注；只改变引用表示，不推断地址、不改事实文本，不处理代码/链接/来源定义，随后仍通过原 locator 与结构 validator
     - batch 顶层 workflow_status、terminal、committed 与 counts 只从 items 派生；prepared/partial 等旧顶层状态只保留为兼容 status，不得覆盖 item 四态或产生独立统计口径
     - 确定性 PDF metadata、首页规则与 MinerU 解析器仍在后台注册带 provenance 的 candidate provider；API 由 candidate-id-v2 锁定，Agent 不接收候选目录且以原始证据直接提取，程序仅把候选用于 fast path、去重和字段冲突诊断
-    - bibliographic-candidate-provider-v7 在 v6 的 PDF 前两页 layout block 基础上，直接从同一证据块注册 self DOI 候选并保留带冒号/副标题的完整 venue；标题下至摘要前的姓名块仍只生成 candidate_only 作者，affiliation 单列排除，日期候选绑定 published/published_online/accepted/received/revised/preprint kind，冲突仍交同一 candidate-id-v2 workspace 裁决
+    - bibliographic-candidate-provider-v8 保留 PDF 前两页 layout block 的 self DOI、完整 venue 和 candidate_only 作者，affiliation 单列排除，日期候选绑定 published/published_online/accepted/received/revised/preprint kind；ACM self-citation 作者补充须通过上述双来源一致性检查，冲突仍交同一 candidate-id-v2 workspace 裁决
     - 旧锁定 Raw 进入 re-ingest 时，title/authors/year/venue 等事实标量在裁决前保持不变，但 front_matter_blocks、layout_candidates 与 first_page_evidence 必须从原 PDF 按当前 provider 重算；候选门裁决只写事务与 Wiki/Graph，不回写 Raw
     - awaiting_output workspace 的 candidate provider 版本落后时，--resume 仅在 paper.md 哈希未变且 workspace 输出尚不存在时刷新同一事务；已有未提交输出必须经显式 --agent-refresh 归档旧输出及哈希后刷新，不得静默覆盖或新建事务
     - --agent-refresh 可显式修复旧事务在受管书目回填并重算 manifest 后未同步的 workspace bundle 基线；仅当磁盘 bundle 与顶层 state 哈希相等、source.yaml.bibliographic 与已锁定书目完全相等、workspace 仍为 awaiting_output 时更新基线并留存审计；其他任何漂移继续阻断
@@ -4580,6 +4914,9 @@ script_contracts:
     - 新论文 wiki prompt 不生成 <<<META>>>；date/type/title/authors/venue/path 均由程序与 locked bibliography 确定性编译
     - 旧事务若仍携带 <<<META>>>，只写 legacy_meta_audit；不得据此改 paper-id、Raw/Wiki 路径或 locked bibliography
     - API adapter 将有界 paper context、候选目录、页面骨架与语义契约编入一次 paper-agent-workspace-v1 调用；40k chars 内的短论文保留全文，超长论文才按 22k chars 预算定向选段；输出依次通过 bibliography/Wiki/semantics/Graph preflight validator，不因合并调用放宽任一门
+    - API candidate-id-v2 模板由共享枚举生成并通过自身 schema；输入行 handle 为尖括号 Raw 地址，输出须自行分配脚注 ID 并逐字复制已提供的行地址，不把输入 handle 当作已有脚注
+    - API Wiki 校验失败仅在原 wiki_revision 预算内调用局部补丁 Worker；程序锁定可定位的引用定义或失败章节范围，拒绝范围外、frontmatter 和无证据地址改动，未知目标直接交接宿主；引用表示修复保留 slots，事实正文改变则使旧 slots 失效并仅重抽 slots，补丁仍经原 validator
+    - API telemetry.api_ingest 记录实际输入选段字符数、命中与缺失章节、显示的 Raw 行范围、截断策略和 validator 首末结果及补丁结果；不复用 Agent 读取策略或记录推理评价，正常路径仍仅一次合并调用
     - API workspace 的局部语义恢复耗尽后仍只重开原 agent-workspace.txt 的 SLOTS 段；write_to、prompt、hash validator 与 resume 均指向该唯一可写产物，不再降级为独立 semantic.txt handoff
     - 预审前读取 PDF metadata（含 subject）与第一页发表页脚；同一证据行含 received/published 时 published year 优先；有近端 year/venue/DOI 证据时必须回填 skeleton/wiki
     - metadata.subject 中完整 journal citation 或期刊名属于近端 venue 候选；仅在可识别期刊形状时提取，不把关键词/分类主题猜成 venue；可靠 venue 候选存在却未锁定或未回填 Wiki 时硬阻断
@@ -4674,7 +5011,7 @@ script_contracts:
     - YYYYMMDD 文件名保留显式年份；仅有 MMDD 或无日期时允许用摄入年分区，但 state 与 Wiki frontmatter 必须标记 date_inferred，禁止把推断年份伪装成 raw 明示事实
     - Meeting Compiler META 的非空 title 在落位前生成最终 meeting-id 并重算 raw/wiki 路径；sources 由程序回填最终路径，重试时保持 canonical ID 稳定
     - 会议 sources 按 YAML 结构回填为唯一最终 Raw 来源，覆盖标量、行内列表与多行列表；Wiki validator 必须检查与事务 raw_dir/source_filename 精确一致，缺失或错位不得进入落位
-    - Agent task 由共享记录契约提供 META、frontmatter 与 MEETING_IR 完整字段；人物未解析时以空 canonical 端点保留原称呼、参会、汇报和待办，仅确定身份的角色进入图；正文脚注中的原事务来源随最终目录精确重绑定，不改写其他来源
+    - Agent task 由共享记录契约提供 META、frontmatter 与 MEETING_IR 完整字段及可解析输出模板；MEETING_IR 顶层字段含固定 protocol_version，与 validator 共用字段定义，不靠重试补契约；人物未解析时以空 canonical 端点保留原称呼、参会、汇报和待办，仅确定身份的角色进入图；正文脚注中的原事务来源随最终目录精确重绑定，不改写其他来源
     - replacement 只在原文精确命中并通过非级联应用校验后写 staged corrected.txt；程序从同一 MEETING_IR 确定性生成 Wiki 会议导航块与 semantic slots，二者集合一致后分别通过 validator
     - typed meeting slots 独占参会、汇报、决策、待办和会议主题关系；自由 relations 不得重复这些谓词、不得含本会议等指代端点；核心语义边必须经 Wiki section 抵达精确 Raw locator
     - 学生指导更新只允许指向 projects/学生指导/students 下已存在且由候选目录精确识别的记录；更新类别限进展、下一步、阻塞、决定、里程碑和方向变化，评价性、隐私性或无证据内容不得投影
@@ -4702,6 +5039,8 @@ script_contracts:
     - python3 .scripts/engineering_graph.py validate
   ingest_document:
     preconditions:
+    - shared 旧 Excel companion 修复复用原生提取与 manifest finalizer；仅补缺失 companion/sidecar，原件 SHA-256 保持不变；Agent 持有脚注修订控制循环，不调用 API
+    - companion 修复只允许 Wiki 新增精确脚注与 updated 日期，不改变 sources、正文事实或 Graph；源、旧 Wiki、暂存产物与日志均以哈希守卫，校验失败回滚新增 Raw、Wiki 和日志，重复 resume 不重复提交
     - shared PPTX 原生解析按 presentation 顺序输出逐页 Markdown、对象坐标、列表层级、原生表格空值与合并范围及独立备注；不以 pandoc plain 作为摄入正文
     - PPTX 复用 visual_qa 本地渲染与独立 pptx_visual API 内容识读；显式授权后调用，缺权限/配置/失败返回纯文字 pptx_api_action；保持原 semantic_backend，不将图像交给主 Agent 或切换 DSH；旧 pptx_review 回执仅保留历史兼容
     - PPTX 内容识读覆盖全部页；关键未决项阻断，非关键限制持久化；API 逐页回执绑定源、原生文字、结构与渲染哈希；形式检查与内容识读是不同模式
@@ -4719,6 +5058,7 @@ script_contracts:
     - wiki prompt 使用提取文本的 RAW#Lx 行号时，PDF 与其他无原生行定位格式必须生成同名 Markdown locator companion；原始文件仍随同落位
     - 落位前 Wiki locator 校验对原生 section-line 来源映射仍在 inbox 的原文件，对非原生来源映射事务内 Markdown companion；不得因最终 Raw 尚未落位而误报路径不存在
     - API LLM 只负责 title/type/status、语义正文与直接 RAW handle；sources/source_type/date/created/updated、空时态字段、Content 标题与 Sources 脚注表由程序确定性编译
+    - shared 通用文档 Wiki 生成规则由 ingest_document.document_wiki_generation_rules 单一维护；Agent task 与 API 单独/合并 prompt 共用域合法 status 枚举、草稿选择规则及正文直接 RAW handle 引用要求，不自行输出 Sources 或脚注定义
     - Agent/API 产出的 RAW#Lx 共享同一单遍精确编译器；共存 L13/L136 等前缀行号时必须分别生成 r13/r136，不得让短行号吞并长行号
     - API 长文档的 reduced context 必须在裁剪前绑定原始 doc.md 行号并在标题选择、头尾裁剪后保持这些 RAW handles；不得把裁剪结果重新从 L1 编号
     - Wiki 进入语义校验与 finalize 前必须拒绝残留 RAW handle、残缺 RAW 脚注片段和无法解析到 Raw 的已用脚注；Graph locator coverage 不得替代正文证据完整性校验
@@ -4733,6 +5073,7 @@ script_contracts:
     - shared 通用文档去重只接受重新核验 Raw 原件的 SHA-256 完全相同；标题或同名只作候选，指纹索引未命中时定向检查同名 Raw，包含独立子目录中的历史原件
     - 同名异文及原件/Markdown companion/来源 sidecar 任一目标冲突时，在原 Raw 类型目录下分配独立文档 ID 子目录，完整保留原文件名；分配结果存入事务供重试复用，Wiki sources 与受管 manifest 使用同一目录，finalizer 继续拒绝覆盖
     - 未知日期在模型草稿完全缺少 date 键时也须由程序补齐 null；正文完整日期的数字前后边界必须匹配，不得截断超长年月日作为合法日期
+    - 普通文档正文兜底只接受独立日期行，不将项目起讫、会议时间或正文叙述日期当成来源日期；独立中文年月行可保留 YYYY-MM 精度，空白日不补造；既有页面局部纠错保留稳定 ID，修正 Wiki 日期并经 metadata-only 同步图节点
     writes:
     - temp/inbox-extract/<txn>/ doc.md/manifest.json/语义槽与 wiki 草稿
     - 最终 raw/wiki 经 inbox_finalize 原子落位
@@ -4759,6 +5100,7 @@ script_contracts:
     - python3 .scripts/test_ingest_pipeline.py
     - python3 .scripts/test_ingest_check.py
     - python3 .scripts/test_wg.py
+    - python3 .scripts/test_inbox_finalize.py
     - python3 .scripts/engineering_graph.py validate
   query_orchestrate:
     preconditions:
@@ -5044,6 +5386,7 @@ script_contracts:
   comic_generation:
     preconditions:
     - 调用方必须二选一提供 projects/ 下已存在研究项目，或仓库内已存在且目录名为 outputs 的显式输出根；article_id、asset_id 与输出文件名必须通过有限字符校验
+    - private 绘图由宿主 Agent 直接调用 CLI/shared 内核，只允许真实 private/outputs；提示词文件来自同一输出域，禁止软链接输出与私有提示词写公共目录
     - 模型必须来自 llm-models.yaml 的 image_generation.candidates；API base/key 来自 COMIC_IMAGE_*，缺省时可引用 LLM_API_*，不得把密钥写入参数文件
     - generate/batch 的远程调用同时要求显式命令与 --allow-remote；dry-run/models 不联网
     - storyboard 只描述分镜与绘图参数，不得被当作事实证据；科学含义仍需人工审核
@@ -5051,6 +5394,7 @@ script_contracts:
     - <allowed-output-root>/<article-id>/images/ 下图片、prompts.jsonl、manifest.json 与逐次 receipt
     forbidden:
     - 修改 raw、wiki、graph.db、文章原稿、storyboard 输入或现有图片；未经 --overwrite 显式授权覆盖文件
+    - private 图片、提示词或 receipt 进入公共输出、DSH SessionLog、clean 发布或 GitHub；绘图请求只发送明确选择的提示词，不自动读取知识库上下文
     - 将 API key、Authorization header、base64 图片、远程临时 URL 或完整供应商响应写入输出记录
     - 未登记模型、非 HTTPS API endpoint、指向本机/内网的图片 URL、非图片响应或越界输出路径进入产物目录
     - API 失败、空图片或校验失败时报告成功，或自动切换模型掩盖失败
@@ -5061,6 +5405,7 @@ script_contracts:
   dsh_comic_tools:
     preconditions:
     - comic_models、comic_generate、comic_batch 只注册到显式加载该能力的 Agent ToolRegistry；不加入 query_actions 或只读 VisualAgentLoop
+    - DSH 绘图只接受公共输出；private 任务直接走宿主 Agent CLI，私有提示词不得送入 DSH 会话
     - comic_generate/comic_batch 必须传 allow_remote=true 才能触发远程调用；comic_models 与 dry_run 不联网
     writes:
     - 仅通过 comic_generation 写允许的 outputs 目录；DSH SessionLog 只保留紧凑结构化结果

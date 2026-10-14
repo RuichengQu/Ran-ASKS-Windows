@@ -1,10 +1,10 @@
-# API 漫画生成规范
+# API 绘图规范（漫画、插画与头像）
 
 > 通用 Agent 绘图工具：从受控模型目录选择远程图片生成模型，将漫画图片与可审计记录写入明确的 `outputs/`。它不是事实源，也不修改文章、知识库或图数据库。
 
 ## 使用边界
 
-- 适用于研究写作、公众号文章、教学材料、行政宣传材料及其他明确要求生成漫画配图的任务。
+- 适用于研究写作、公众号文章、教学材料、行政宣传材料及明确要求生成插画、头像的任务。
 - 语义工作由 Agent 完成：确定单图知识点、分镜、构图和事实约束。
 - 程序完成机械工作：模型白名单、路径校验、API 请求、图片验证、原子落盘和 receipt。
 - 图片中的科学结构、文字、箭头、数字和单位必须人工复核；生成成功不等于内容正确。
@@ -69,7 +69,28 @@ python3 .scripts/comic_generation.py generate \
   --allow-remote
 ```
 
-输出根必须是仓库内已经存在、且目录名为 `outputs` 的目录；`raw/`、`wiki/`、`private/`、`inbox/` 和 `.research-memory/` 下路径一律拒绝。
+输出根必须是仓库内已经存在、且目录名为 `outputs` 的目录；`raw/`、`wiki/`、`inbox/` 和 `.research-memory/` 下路径一律拒绝。私有域仅允许真实的 `private/outputs`，不能使用其他 private 子目录。输入提示词路径、输出目录、图片与记录路径均禁止软链接。
+
+### 私有头像与 Seedream 4.0
+
+私有任务由宿主 Agent 直接执行 CLI，不进入 DSH 会话。先将用户明确选定的绘图描述保存到 `private/outputs/` 内 UTF-8 文件，再调用：
+
+```bash
+python3 .scripts/comic_generation.py generate \
+  --output-root private/outputs \
+  --article-id avatar-demo \
+  --asset-id seedream-v1 \
+  --model Doubao-Seedream-4.0 \
+  --size 2048x2048 \
+  --prompt-file private/outputs/avatar-prompt.txt \
+  --allow-remote
+```
+
+`--prompt-file` 与 `--prompt` 二选一；文件必须位于当前选定的输出根内，不能把 private 文件作为公共绘图输入。`--dry-run` 可替代 `--allow-remote` 做本地预检。内联 `--prompt` 的隐私范围由调用方负责匹配输出根。
+
+只向 API 发送绘图提示词与指定的模型参数，不自动附加出生、住宅或知识库上下文。图片、完整提示词、manifest 和成功/失败 receipt 全部留在 `private/outputs`，沿用 private 的 clean/GitHub 排除规则；禁止复制到公共目录或发布。DSH 工具维持公共域边界，不接受 private 输出；不要先把私有提示词送入 DSH 再依赖执行阶段拒绝。
+
+模型名须与服务商授权目录一致；目录登记不代表账户已有调用权限。API 返回失败时保留失败 receipt 并报告错误，不自动换模型；一次出图成功也不代表成本或所有尺寸已验证，不据此自动设置默认模型。
 
 ## 批量分镜
 

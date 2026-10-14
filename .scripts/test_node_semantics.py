@@ -378,7 +378,7 @@ def test_dsh_prompt_explains_semantic_tool_arguments():
     from dsh.agent_loop import AgentLoop
     prompt = AgentLoop()._build_prompt("查找张量网络", 1, [])
     assert "node_resolve(name*, context, node_types, topk)" in prompt
-    assert "semantic_search(query*, scope, topk)" in prompt
+    assert "semantic_search(query*, scope, topk, include_deprecated)" in prompt
     assert "hub_route(page*, topk)" in prompt
     assert "hub_inspect(hub*)" in prompt
     assert "read_engineering" not in prompt
@@ -412,6 +412,66 @@ def test_query_actions_expose_structured_semantic_tools():
     assert "node_resolve" in qa.DISPATCH
     assert "semantic_search" in qa.DISPATCH
     assert "read_engineering" not in qa.DISPATCH
+
+
+def test_ensure_node_preserves_omitted_status_and_allows_explicit_transition():
+    conn = make_db()
+    add_node(conn, "page", "Page", node_type="page")
+    assert conn.execute("SELECT status FROM nodes WHERE path='page'").fetchone()["status"] == "current"
+    gl.ensure_node(conn, "page", "Page", "page", status="deprecated")
+    gl.insert_aliases(conn, "page", ["Old label"])
+    gl.ensure_node(conn, "page", "Page", "page")
+    assert conn.execute("SELECT status FROM nodes WHERE path='page'").fetchone()["status"] == "deprecated"
+    assert conn.execute("SELECT alias FROM aliases WHERE node_path='page'").fetchone()["alias"] == "Old label"
+    gl.ensure_node(conn, "page", "Page", "page", status="active")
+    assert conn.execute("SELECT status FROM nodes WHERE path='page'").fetchone()["status"] == "active"
+    conn.close()
+
+
+def test_semantic_page_filter_precedes_embedding_and_topk():
+    conn = make_db()
+    gl.ensure_node(conn, "academic/wiki/papers/a-old", "Shared", "page", status="deprecated")
+    gl.ensure_node(conn, "academic/wiki/papers/z-current", "Shared overview", "page")
+    original_rank = ns._rank_with_embeddings
+    observed = []
+
+    def rank(query, context, rows):
+        observed.append([item["node_id"] for item in rows])
+        return [{**item, "semantic_score": 1.0} for item in rows], "synthetic"
+
+    ns._rank_with_embeddings = rank
+    try:
+        result = ns.semantic_search(conn, "Shared", top_k=1)
+        assert observed[-1] == ["academic/wiki/papers/z-current"]
+        assert result["candidates"][0]["node_id"] == "academic/wiki/papers/z-current"
+        history = ns.semantic_search(conn, "Shared", top_k=1, include_deprecated=True)
+        assert "academic/wiki/papers/a-old" in observed[-1]
+        assert history["candidates"][0]["status"] == "deprecated"
+        try:
+            ns.semantic_search(conn, "Shared", include_deprecated="false")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("semantic core accepted non-boolean history flag")
+    finally:
+        ns._rank_with_embeddings = original_rank
+        conn.close()
+
+
+def test_semantic_lexical_degradation_keeps_version_filter():
+    conn = make_db()
+    gl.ensure_node(conn, "academic/wiki/papers/old", "UniqueOldLabel", "page", status="deprecated")
+    original_queries = ns._embed_queries
+    ns._embed_queries = lambda texts: None
+    try:
+        default = ns.semantic_search(conn, "UniqueOldLabel")
+        assert default["candidates"] == [] and default["include_deprecated"] is False
+        history = ns.semantic_search(conn, "UniqueOldLabel", include_deprecated=True)
+        assert history["mode"] == "lexical_degraded"
+        assert history["candidates"][0]["node_id"] == "academic/wiki/papers/old"
+    finally:
+        ns._embed_queries = original_queries
+        conn.close()
 
 
 def main():

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Regression checks for manifest-governed public release construction."""
+import json
 import os
 import subprocess
 import sys
@@ -273,6 +274,22 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         destination = Path(temporary) / "release"
         run("build", str(destination))
+        catalog_path = destination / "computing/code-library/graph.yaml"
+        assert catalog_path.is_file(), "public scientific-code catalog must be an approved synthetic asset"
+        assert catalog_path.read_bytes() == (
+            REPO / "operations/engineering/open-source-assets/computing/code-library/graph.yaml"
+        ).read_bytes()
+        import yaml
+        catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))
+        assert all(record["kind"] not in {"raw", "run"} for record in catalog["evidence"].values())
+        assert all(record["path"].startswith("computing/code-library/") for record in catalog["evidence"].values())
+        checked = subprocess.run(
+            [sys.executable, ".scripts/code_library.py", "validate"],
+            cwd=destination, text=True, capture_output=True, check=True,
+        )
+        assert json.loads(checked.stdout)["ok"]
+        assert (destination / "computing/code-library/src/tensor_train.py").is_file()
+        assert (destination / "computing/code-library/tests/test_tensor_train.py").is_file()
         subprocess.run(["git", "init", "-q"], cwd=destination, check=True)
         verified = run("verify", str(destination))
         assert "Public release verified" in verified.stdout

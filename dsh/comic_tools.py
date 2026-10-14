@@ -10,7 +10,7 @@ SCRIPTS = REPO / ".scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from comic_generation import generate_asset, generate_batch, image_candidates
+from comic_generation import ComicGenerationError, generate_asset, generate_batch, image_candidates
 from dsh.harness import ToolDefinition
 from dsh.function_catalog import bind_tools
 
@@ -19,6 +19,10 @@ def _scope(arguments: dict) -> tuple[str | None, Path | None]:
     project = str(arguments.get("project") or "").strip() or None
     output_root_value = str(arguments.get("output_root") or "").strip()
     output_root = Path(output_root_value) if output_root_value else None
+    if output_root is not None:
+        candidate = output_root if output_root.is_absolute() else REPO / output_root
+        if "private" in candidate.parts or candidate.resolve().is_relative_to((REPO / "private").resolve()):
+            raise ComicGenerationError("private image tasks must use the host Agent CLI, outside DSH sessions")
     return project, output_root
 
 

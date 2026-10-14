@@ -193,6 +193,229 @@ def test_search_cli_honors_top_k():
         assert payload["truncated"] is True
 
 
+def make_star(conn, count):
+    for index in range(count):
+        target = f"leaf-{index:03}"
+        gl.ensure_node(conn, target, target, "page")
+        conn.execute("INSERT INTO edges(subject,predicate,object,confidence) VALUES (?,?,?,?)",
+                     ("page-a", "核心方法", target, "可追溯"))
+
+
+def assert_endpoints(result):
+    endpoints = {endpoint for edge in result["edges"] for endpoint in (edge["subject"], edge["object"])} - {result["start"]}
+    assert {node["path"] for node in result["nodes"]} == endpoints
+
+
+def test_neighbors_default_node_budget_and_determinism():
+    with tempfile.TemporaryDirectory() as directory:
+        conn = make_db(directory)
+        make_star(conn, 120)
+        before = conn.total_changes
+        result = module.neighbors_bfs(conn, "page-a")
+        assert result == module.neighbors_bfs(conn, "page-a")
+        assert conn.total_changes == before
+        assert len(result["nodes"]) == len(result["edges"]) == 100
+        assert result["traversal_truncated"] and result["truncated"]
+        assert result["truncation_reasons"] == ["max_nodes"]
+        assert "page-a" in result["remaining_frontier"]
+        assert "部分结果" in module.fmt_text(result, "neighbors")
+        assert_endpoints(result)
+        conn.close()
+
+
+def test_neighbors_top_k_only_caps_output_and_batches_details():
+    with tempfile.TemporaryDirectory() as directory:
+        conn = make_db(directory)
+        make_star(conn, 100)
+        selects = []
+        conn.set_trace_callback(lambda statement: selects.append(statement) if statement.startswith("SELECT") else None)
+        result = module.neighbors_bfs(conn, "page-a", top_k=3)
+        assert result["work"]["discovered_nodes"] == 100
+        assert len(result["nodes"]) == len(result["edges"]) == 3
+        assert result["truncation_reasons"] == ["output_top_k"]
+        assert not result["traversal_truncated"] and result["remaining_frontier"] == []
+        assert len(selects) == 106, len(selects)
+        assert_endpoints(result)
+        conn.close()
+
+
+def test_neighbors_each_budget_and_exact_boundary():
+    with tempfile.TemporaryDirectory() as directory:
+        conn = make_db(directory)
+        make_star(conn, 5)
+        for options, reason in (({"max_nodes": 4}, "max_nodes"), ({"max_edges": 4}, "max_edges"),
+                                ({"max_scanned_rows": 4}, "max_scanned_rows")):
+            result = module.neighbors_bfs(conn, "page-a", depth=1, **options)
+            assert reason in result["truncation_reasons"]
+            assert len(result["edges"]) == 4
+            assert_endpoints(result)
+        exact = module.neighbors_bfs(conn, "page-a", depth=1, max_nodes=5, max_edges=5, max_scanned_rows=5)
+        assert not exact["truncated"]
+        assert exact["work"]["fetched_rows"] == 5
+        cut = module.neighbors_bfs(conn, "page-a", depth=1, max_scanned_rows=4)
+        assert cut["work"]["scanned_rows"] == 4 and cut["work"]["fetched_rows"] == 5
+        conn.close()
+
+
+def test_neighbors_cycles_metadata_families_hubs_and_similarity():
+    with tempfile.TemporaryDirectory() as directory:
+        conn = make_db(directory)
+        gl.ensure_node(conn, "hub", "Hub", "hub")
+        gl.ensure_node(conn, "raw", "Raw", "raw")
+        gl.ensure_node(conn, "page-c", "C", "page")
+        gl.insert_aliases(conn, "page-b", ["alias"])
+        gl.add_node_gloss(conn, "page-b", "page-a", "academic/raw/example.md#L1", "gloss")
+        conn.executemany("INSERT INTO edges(subject,predicate,object,confidence,score) VALUES (?,?,?,?,?)", [
+            ("page-a", "核心方法", "page-b", "可追溯", None),
+            ("page-b", "核心方法", "page-a", "推断", None),
+            ("page-a", "来源", "raw", "可追溯", None),
+            ("page-a", "相似", "hub", "推断", .99),
+            ("page-a", "相似", "page-c", "推断", .8),
+        ])
+        result = module.neighbors_bfs(conn, "page-a")
+        assert {node["path"] for node in result["nodes"]} == {"page-b", "raw"}
+        assert len(result["edges"]) == 3 and not result["truncated"]
+        assert next(node for node in result["nodes"] if node["path"] == "page-b") == module.node_info(conn, "page-b")
+        included = module.neighbors_bfs(conn, "page-a", depth=1, include_hub=True)
+        assert "hub" in {node["path"] for node in included["nodes"]}
+        unlimited_similar = module.neighbors_bfs(conn, "page-a", depth=1, similar_topk=-1)
+        assert "page-c" in {node["path"] for node in unlimited_similar["nodes"]}
+        evidence = module.neighbors_bfs(conn, "page-a", families="evidence")
+        assert {edge["predicate"] for edge in evidence["edges"]} == {"来源"}
+        assert_endpoints(result)
+        conn.close()
+
+
+def test_neighbors_invalid_limits_and_zero_depth():
+    with tempfile.TemporaryDirectory() as directory:
+        conn = make_db(directory)
+        for options in ({"depth": 6}, {"depth": -1}, {"max_nodes": 0}, {"max_edges": 3001},
+                        {"max_scanned_rows": 10001}, {"max_nodes": True}, {"top_k": 0}):
+            assert "error" in module.neighbors_bfs(conn, "page-a", **options)
+        result = module.neighbors_bfs(conn, "page-a", depth=0)
+        assert result["nodes"] == result["edges"] == [] and not result["truncated"]
+        assert module.neighbors_bfs(conn, "missing") == {"error": "节点不存在: missing"}
+        conn.close()
+
+
+def test_neighbors_same_tier_prefers_direct_hop_over_path_tie():
+    with tempfile.TemporaryDirectory() as directory:
+        conn = make_db(directory)
+        gl.ensure_node(conn, "z-direct", "Direct", "page")
+        gl.ensure_node(conn, "a-indirect", "Indirect", "page")
+        conn.executemany("INSERT INTO edges(subject,predicate,object,confidence) VALUES (?,?,?,?)", [
+            ("page-a", "核心方法", "z-direct", "可追溯"),
+            ("a-indirect", "核心方法", "z-direct", "可追溯"),
+        ])
+        result = module.neighbors_bfs(conn, "page-a", depth=2, top_k=1)
+        assert result["edges"][0]["subject"] == "page-a"
+        assert_endpoints(result)
+        conn.close()
+
+
+def test_neighbors_cli_exposes_budgets():
+    with tempfile.TemporaryDirectory() as directory:
+        conn = make_db(directory)
+        make_star(conn, 5)
+        conn.commit()
+        conn.close()
+        process = subprocess.run([sys.executable, str(SCRIPT), "neighbors", "page-a", "--depth", "1",
+                                  "--max-nodes", "2", "--json", "--db", str(Path(directory) / "graph.db")],
+                                 check=True, capture_output=True, text=True)
+        result = json.loads(process.stdout)
+        assert result["budget"]["max_nodes"] == 2
+        assert result["truncation_reasons"] == ["max_nodes"]
+
+
+def test_deprecated_search_filter_is_before_limit_and_preserves_history():
+    with tempfile.TemporaryDirectory() as directory:
+        conn = make_db(directory)
+        gl.ensure_node(conn, "academic/wiki/papers/a-old", "Shared", "page", status="deprecated")
+        gl.ensure_node(conn, "academic/wiki/papers/z-current", "Shared overview", "page")
+        result = module.search_nodes(conn, "Shared", top_k=1)
+        assert [node["path"] for node in result["nodes"]] == ["academic/wiki/papers/z-current"]
+        assert result["count"] == 1 and result["truncated"] is False
+        history = module.search_nodes(conn, "Shared", top_k=1, include_deprecated=True)
+        assert history["nodes"][0]["path"] == "academic/wiki/papers/a-old"
+        assert history["nodes"][0]["material_role"] == "historical_navigation"
+        assert history["nodes"][0]["default_page_candidate"] is False
+        assert history["truncated"] is True
+        assert module.search_nodes(conn, "Shared", include_deprecated="false")["count"] == 1
+        conn.close()
+
+
+def test_search_only_filters_deprecated_pages_not_entities_or_raw():
+    with tempfile.TemporaryDirectory() as directory:
+        conn = make_db(directory)
+        gl.ensure_node(conn, "old-concept", "Shared", "entity", status="deprecated")
+        gl.ensure_node(conn, "old-raw", "Shared", "raw", status="deprecated")
+        gl.ensure_node(conn, "academic/wiki/people/old", "Shared", "people", status="deprecated")
+        assert {node["path"] for node in module.search_nodes(conn, "Shared")["nodes"]} == {"old-concept", "old-raw"}
+        for value in (None, 1, "yes", [], {}):
+            try:
+                module.search_nodes(conn, "Shared", include_deprecated=value)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"invalid history flag accepted: {value!r}")
+        conn.close()
+
+
+def test_deprecated_bridge_is_navigation_only_and_current_neighbor_survives():
+    with tempfile.TemporaryDirectory() as directory:
+        conn = make_db(directory)
+        old = "academic/wiki/papers/old"
+        current = "academic/wiki/papers/current"
+        gl.ensure_node(conn, old, "Old", "page", status="deprecated")
+        gl.ensure_node(conn, current, "Current", "page")
+        conn.execute("INSERT INTO edges(subject,predicate,object) VALUES (?,?,?)", ("page-a", "关联", old))
+        conn.execute("INSERT INTO edges(subject,predicate,object) VALUES (?,?,?)", (old, "关联", current))
+        result = module.neighbors_bfs(conn, "page-a", depth=2)
+        nodes = {item["path"]: item for item in result["nodes"]}
+        assert nodes[old]["material_role"] == "historical_navigation"
+        assert nodes[old]["default_page_candidate"] is False
+        assert nodes[current]["default_page_candidate"] is True
+        assert current in result["version_context"]["eligible_page_paths"]
+        assert old not in result["version_context"]["eligible_page_paths"]
+        assert result["version_context"]["historical_page_paths"] == [old]
+        assert len(result["edges"]) == 2
+        assert module.path_exists(conn, "page-a", current)["connected"] is True
+        explicit = module.neighbors_bfs(conn, old, depth=0)
+        assert explicit["version_context"]["historical_page_paths"] == [old]
+        assert module.node_info(conn, old)["default_page_candidate"] is False
+        conn.close()
+
+
+def test_relations_and_hub_navigation_expose_old_input_without_deleting_edges():
+    with tempfile.TemporaryDirectory() as directory:
+        conn = make_db(directory)
+        old = "academic/wiki/papers/old"
+        gl.ensure_node(conn, old, "Old", "page", status="deprecated")
+        gl.ensure_node(conn, "hub", "Hub", "hub")
+        conn.execute("INSERT INTO edges(subject,predicate,object) VALUES (?,?,?)", (old, "主要研究", "hub"))
+        result = module.relations(conn, "hub")
+        assert len(result["edges"]) == 1
+        assert result["version_context"]["historical_page_paths"] == [old]
+        assert result["version_context"]["eligible_page_paths"] == []
+        hub = module.hub_of(conn, old)
+        assert hub["hubs"][0]["path"] == "hub"
+        assert hub["version_context"]["historical_page_paths"] == [old]
+        conn.close()
+
+
+def test_search_cli_explicit_history_flag():
+    with tempfile.TemporaryDirectory() as directory:
+        conn = make_db(directory)
+        gl.ensure_node(conn, "academic/wiki/papers/old", "UniqueOldLabel", "page", status="deprecated")
+        conn.commit()
+        conn.close()
+        command = [sys.executable, str(SCRIPT), "search", "UniqueOldLabel", "--db", str(Path(directory) / "graph.db"), "--json"]
+        default = json.loads(subprocess.run(command, capture_output=True, text=True, check=True).stdout)
+        history = json.loads(subprocess.run([*command, "--include-deprecated"], capture_output=True, text=True, check=True).stdout)
+        assert default["count"] == 0
+        assert history["count"] == 1 and history["include_deprecated"] is True
+
+
 def main():
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_") and callable(value)]
     for test in tests:
