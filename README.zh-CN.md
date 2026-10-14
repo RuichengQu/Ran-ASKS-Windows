@@ -1,6 +1,15 @@
 # Ran-ASKS：Agent 驱动的科学知识系统
 > 当前 main 版本: v0.16.0
 
+### ⬅️ 找原始版本？
+
+**这个仓库是 Windows 移植版。** 原始项目由**冉仕举老师**开发，在 macOS 和 Linux 上运行：
+
+> ## 👉 https://github.com/ranshiju/Ran-ASKS
+
+**macOS / Linux 请用原版，只有 Windows 才需要这个移植版。**
+本移植版基于上游 **v0.16.0**（commit `7a864aa33710`，2026-10-14 同步），上游每发一版就跟一版。
+
 > **说明：** 这是 [ranshiju/Ran-ASKS](https://github.com/ranshiju/Ran-ASKS) 的 **Windows 兼容移植版**。
 > **只改可移植性，不改方法、数据契约和行为。**
 > 

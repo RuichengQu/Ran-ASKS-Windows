@@ -1,6 +1,15 @@
 # Ran-ASKS: Agent-Driven Scientific Knowledge System
 > Current main version: v0.16.0
 
+### ⬅️ Looking for the original?
+
+**This repository is the Windows port.** The original project, by Prof. Shi-Ju Ran (冉仕举), runs on macOS and Linux:
+
+> ## 👉 https://github.com/ranshiju/Ran-ASKS
+
+Use the original on macOS / Linux. Use this port only on Windows. This port is based on upstream **v0.16.0**
+(commit `7a864aa33710`, synced 2026-10-14) and tracks upstream release by release.
+
 > **Note:** This is a Windows-compatibility port of
 > [ranshiju/Ran-ASKS](https://github.com/ranshiju/Ran-ASKS). It changes
 > portability only — never the method, data contracts, or behaviour.
