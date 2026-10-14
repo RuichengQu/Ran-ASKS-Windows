@@ -3,8 +3,8 @@ schema: asks-community-downstream-record-v1
 name: "Ran-ASKS-Windows"
 status: community
 upstream_repository: "https://github.com/ranshiju/Ran-ASKS"
-upstream_version: "0.10.0"
-upstream_commit: "0e87e3bb295f57419c6b7bbc8a9b497a44e83526"
+upstream_version: "0.16.0"
+upstream_commit: "7a864aa337102bfdf05a4fce3385a1ce563352eb"
 maintainers:
   - name: "Ruicheng Qu (曲锐诚)"
     contact: "https://github.com/RuichengQu/Ran-ASKS-Windows/issues"
@@ -40,13 +40,33 @@ endorsement by the Ran-ASKS maintainer.
 
 | Field | Value |
 | --- | --- |
-| Version | 0.10.0 |
-| Commit | `0e87e3bb295f57419c6b7bbc8a9b497a44e83526` |
-| Upgraded on | 2026-09-29 |
-| Previous baseline | 0.8.0, retained on branch `backup-v0.8.0-port` |
+| Version | **0.16.0** |
+| Commit | `7a864aa337102bfdf05a4fce3385a1ce563352eb` |
+| Upgraded on | 2026-10-14 |
+| Previous baseline | 0.15.0 |
 
 Earlier baselines: v0.6.0 (initial port, branch `backup-v0.6.0-port`),
-v0.8.0. The `upstream` remote points at the Ran-ASKS public tree.
+v0.8.0 (branch `backup-v0.8.0-port`), v0.10.0, v0.15.0.
+The `upstream` remote points at the Ran-ASKS public tree.
+
+**Every upstream commit on `upstream/main` at v0.16.0 is merged into this
+port's `main`.** The port is kept in step with upstream release by release;
+it never forks the method. Merges use a real `git merge` so that hand-written
+Windows fixes in non-conflicting files are preserved — only conflicting files
+are taken from upstream and then re-transformed by the port's codemod.
+
+### Verification on this baseline
+
+Same Windows machine, same command
+(`python -X utf8 -m unittest discover -s .scripts -p "test_*.py"`):
+
+| Tree | Tests | Failing |
+| --- | --- | --- |
+| Clean upstream v0.16.0 | 292 | 102 |
+| This port, v0.16.0 | 340 | 52 |
+
+`graph_validate.py`: **0 ERROR** (171 WARN are upstream's own
+`missing_semantic_description`, unrelated to portability).
 
 ## Domain Capabilities
 

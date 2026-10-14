@@ -14,7 +14,11 @@ belong to the original authors.
   “LLMs Interpret, Embeddings Organize, Graphs Emerge: Agent-Driven Compilation
   of Scientific Knowledge,” [arXiv:2608.29612](https://arxiv.org/abs/2608.29612) (2026).
 - **原作者联系方式 / Original contact:** [sjran@cnu.edu.cn](mailto:sjran@cnu.edu.cn)
-- **分叉基线 / Fork baseline:** upstream `main`, v0.6.0
+- **分叉基线 / Fork baseline:** upstream `main`, **v0.16.0**
+  (commit `7a864aa337102bfdf05a4fce3385a1ce563352eb`，2026-10-14 同步)。
+  上游每发一个版本，这里就跟一次；**只改可移植性，不改方法与数据契约**。
+  Tracks upstream release by release; portability only, never the method
+  or the data contracts.
 
 引用本方法、软件或论文产物时，请引用**上游**论文与仓库，而不是这个移植版本。
 When citing the method, software, or paper artifacts, cite the **upstream**

@@ -3,7 +3,10 @@
 
 > **Note:** This is a Windows-compatibility port of
 > [ranshiju/Ran-ASKS](https://github.com/ranshiju/Ran-ASKS). It changes
-> portability only — never the method, data contracts, or behaviour. Cite the
+> portability only — never the method, data contracts, or behaviour.
+> **Based on upstream v0.16.0** (commit `7a864aa33710`, synced
+> 2026-10-14); see [`DOWNSTREAM.md`](DOWNSTREAM.md) for the baseline record
+> and the per-release tracking policy. Cite the
 > upstream paper and repository, not this port. See
 > [`FORK_NOTICE.md`](FORK_NOTICE.md) for what changed and the license terms,
 > which are retained unchanged (PolyForm Noncommercial 1.0.0 — noncommercial
