@@ -1774,6 +1774,7 @@ def publish_maintenance_report(report_path: Path, report: dict, *,
                 _reconcile_quality_after_maintenance(state, maintenance)
                 state["maintenance"] = linked
                 updates.append((transaction_id, state))
+        report["degraded"] = _report_counts(report.get("files", []))["degraded"]
         report["maintenance"] = {
             **maintenance, "status": "deferred", "retryable": True,
             "next_action": "reconcile_maintenance_report", "report_path": report_rel,
@@ -1936,16 +1937,15 @@ def _compact_summary(report: dict, report_path: Path) -> dict:
             if item.get(key) is not None:
                 compact[key] = item[key]
         warnings = item.get("quality_warnings") or []
+        compact["quality_warning_count"] = len(warnings)
         if warnings:
-            compact["quality_warning_count"] = len(warnings)
             compact["quality_warnings"] = [
                 {key: str(warning[key])[:240] for key in ("issue", "detail") if key in warning}
                 if isinstance(warning, dict) else {"detail": str(warning)[:240]}
                 for warning in warnings[:5]
             ]
         history = item.get("quality_warning_history") or []
-        if history:
-            compact["quality_warning_history_count"] = len(history)
+        compact["quality_warning_history_count"] = len(history)
         files.append(inbox_state.output_payload(item, compact))
     batch = inbox_state.batch_output_payload(
         items=files,
@@ -1963,7 +1963,7 @@ def _compact_summary(report: dict, report_path: Path) -> dict:
         "duplicates": report.get("duplicates", 0),
         "awaiting_agent": report.get("awaiting_agent", 0),
         "pending": report.get("pending", 0),
-        "degraded": report["degraded"],
+        "degraded": _report_counts(report["files"])["degraded"],
         "failed": report["failed"],
         "skipped": report["skipped"],
         "report_path": str(report_path.relative_to(REPO)),

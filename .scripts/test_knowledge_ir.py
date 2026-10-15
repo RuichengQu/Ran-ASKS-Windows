@@ -40,6 +40,106 @@ def test_profiles_share_one_envelope():
         assert not kir.validate_knowledge_ir(ir)
 
 
+def test_wrapped_document_rows_stay_anchored_across_domains():
+    pages = [
+        "admin/wiki/policies/organizational-reform",
+        "academic/wiki/references/campus-plan",
+        "teaching/wiki/courses/course-reform",
+        "business/wiki/reports/company-reform",
+    ]
+    for page in pages:
+        text = "三元组:\n- <本文档 ｜ 涉及 ｜ 组织调整>\n"
+        triples, keywords, *_ = graph_ingest.parse_semantic_text(text, page)
+        triples = graph_ingest.normalize_page_subjects(triples, page)
+        assert triples == [{"subject": page, "predicate": "涉及", "object": "组织调整"}]
+        assert keywords == ["组织调整"]
+        assert not kir.validate_knowledge_ir(_build(page, "reference", triples))
+    assert kir.parse_semantic_triple_line("a | b | c | d") is None
+
+
+def test_residual_wrappers_and_unresolved_endpoints_fail_before_graph():
+    page = "academic/wiki/references/campus-plan"
+    for subject, object_name in [
+        ("<本文档", "组织调整>"), (page, "组织调整>"),
+        ("本文档>", "组织调整"), (page, "本文档"),
+        ("`本文档`", "组织调整"), ("- 本文档", "组织调整"),
+    ]:
+        relation = {"subject": subject, "predicate": "涉及", "object": object_name}
+        invalid_ir = _build(page, "academic-reference", [{
+            "subject": page, "predicate": "涉及", "object": "组织调整",
+        }])
+        invalid_ir["relations"][0].update(relation)
+        assert kir.validate_knowledge_ir(invalid_ir)
+        try:
+            graph_ingest.normalize_page_subjects([relation], page)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"invalid endpoint was accepted: {relation}")
+
+
+def test_endpoint_guards_preserve_propositions_and_sparse_relations():
+    page = "academic/wiki/papers/error-bound"
+    relation = {"subject": page, "predicate": "核心创新点", "object": "误差 < 0.1 且 n > 0"}
+    assert graph_ingest.normalize_page_subjects([relation], page) == [relation]
+    assert not kir.validate_knowledge_ir(_build(page, "paper-summary", [relation]))
+    assert not kir.validate_knowledge_ir(_build(page, "paper-summary", []))
+
+
+def test_wrapped_text_writes_navigation_and_raw_anchor_without_placeholder_nodes():
+    with tempfile.TemporaryDirectory() as directory:
+        repo = Path(directory)
+        page = "academic/wiki/references/organizational-plan"
+        raw = "academic/raw/reference-documents/organizational-plan.md"
+        page_file = repo / f"{page}.md"
+        page_file.parent.mkdir(parents=True)
+        (repo / raw).parent.mkdir(parents=True)
+        (repo / raw).write_text("组织调整需要开展建设方案论证。\n", encoding="utf-8")
+        page_file.write_text(
+            "---\ntitle: Organizational plan\ntype: academic-reference\n"
+            f"sources:\n- {raw}\nstatus: draft\n---\n\n"
+            "## Navigation\n\n组织调整方案。\n\n## Content\n\n"
+            f"组织调整需要论证。[^r1]\n\n[^r1]: {raw}#L1\n",
+            encoding="utf-8",
+        )
+        semantic = repo / "semantic.txt"
+        semantic.write_text("三元组:\n<本文档 | 涉及 | 组织调整>\n", encoding="utf-8")
+        (repo / "cross-domain").mkdir()
+        database = repo / "cross-domain/graph.db"
+        old_repo, old_database = graph_ingest.gl.REPO, graph_ingest.gl.GRAPH_DB
+        old_locator_repos = graph_ingest.wl.REPO, graph_ingest.wl.raw_locator.REPO
+        graph_ingest.gl.REPO, graph_ingest.gl.GRAPH_DB = repo, database
+        graph_ingest.wl.REPO = repo
+        graph_ingest.wl.raw_locator.REPO = repo
+        try:
+            connection = graph_ingest.gl.connect()
+            graph_ingest.gl.init_schema(connection)
+            connection.close()
+            output = io.StringIO()
+            with redirect_stdout(output):
+                graph_ingest.cmd_ingest(Namespace(
+                    page=page, page_file=None, semantic=str(semantic),
+                    knowledge_ir=None, triples=None, triples_json=None,
+                    citations=None, raw_relationship_json=None,
+                    clean=False, db=None, plan_only=False,
+                ))
+            assert json.loads(output.getvalue())["semantic_subjects"]["resolved_subjects"] == 1
+            with graph_ingest.gl.connect(read_only=True) as connection:
+                assert connection.execute(
+                    "SELECT COUNT(*) FROM edges WHERE subject=? AND predicate='涉及' AND object='组织调整'",
+                    (page,),
+                ).fetchone()[0] == 1
+                assert connection.execute(
+                    "SELECT COUNT(*) FROM edges WHERE subject=? AND predicate='来源'", (page,),
+                ).fetchone()[0] == 1
+                assert connection.execute(
+                    "SELECT COUNT(*) FROM nodes WHERE path IN ('本文档','组织调整>')",
+                ).fetchone()[0] == 0
+        finally:
+            graph_ingest.gl.REPO, graph_ingest.gl.GRAPH_DB = old_repo, old_database
+            graph_ingest.wl.REPO, graph_ingest.wl.raw_locator.REPO = old_locator_repos
+
+
 def test_relation_roundtrip_preserves_writer_fields():
     relation = {
         "subject": "author/a",

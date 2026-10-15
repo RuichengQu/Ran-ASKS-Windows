@@ -482,6 +482,14 @@ def main() -> None:
         }
         assert (destination / "academic/raw/.gitkeep").is_file()
         assert (destination / "academic/frontier/.gitkeep").is_file()
+        assert (destination / "operations/ORAL_EXAM_AGENT.md").is_file()
+        assert not (destination / "memory/playbooks/oral.md").exists()
+        assert not (destination / "memory/playbooks/index.md").exists()
+        oral_route = subprocess.run(
+            [sys.executable, ".scripts/route.py", "--task", "oral_exam"],
+            cwd=destination, text=True, capture_output=True, check=True,
+        )
+        assert "智能口试快路径" in oral_route.stdout
         assert not (destination / "academic/raw/example.pdf").exists()
         assert not any(destination.rglob(".DS_Store"))
         assert not (destination / ".scripts/speech_entity_index.json").exists()

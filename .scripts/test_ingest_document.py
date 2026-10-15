@@ -1148,6 +1148,42 @@ def test_normalize_slots_accepts_only_harmless_markdown_wrappers():
     )
 
 
+def test_document_navigation_principles_are_shared_by_agent_and_api():
+    rules = module.document_navigation_principles()
+    assert "结合文档目的" in rules
+    assert "不强制凑足主题数" in rules
+    for prompt in [
+        module.build_doc_wiki_prompt("来源", "test-nav", "", "admin"),
+        module.build_doc_wiki_slots_prompt("来源", "test-nav", "", "admin"),
+        module.build_doc_slots_prompt("页面", "admin"),
+    ]:
+        assert rules in prompt
+    root = module.REPO / "temp/test-document-navigation-principles"
+    task = module.prepare_document_agent_task(
+        {"transaction_id": "test-navigation", "admin_id": "test-navigation"},
+        root / "doc.md", root / "output.txt",
+    )
+    assert any(item.get("locator") == "核心导航判据" for item in task["inputs"])
+
+
+def test_document_validator_rejects_partial_endpoint_wrappers():
+    with tempfile.TemporaryDirectory(dir=module.REPO / "temp") as directory:
+        root = Path(directory)
+        semantic = root / "semantic.txt"
+        state = {
+            "pipeline_script": "ingest_document.py",
+            "semantic_path": str(semantic.relative_to(module.REPO)),
+            "wiki_path": "academic/wiki/references/test-endpoint-wrapper",
+            "extract_dir": str(root.relative_to(module.REPO)),
+        }
+        semantic.write_text("三元组:\n<本文档 | 涉及 | 学院建设\n", encoding="utf-8")
+        errors, _warnings = module.step_validate_semantics(state)
+        assert any("residual wrapper" in error for error in errors), errors
+        semantic.write_text("三元组:\n<本文档 | 涉及 | 学院建设>\n", encoding="utf-8")
+        errors, _warnings = module.step_validate_semantics(state)
+        assert not errors, errors
+
+
 def test_sqlite_snapshot_restores_exact_graph_state():
     import sqlite3
     import tempfile
@@ -1275,6 +1311,8 @@ def main():
     test_resume_rejects_semantic_backend_switch_with_nonzero_exit()
     test_document_semantics_rejects_arrow_and_legacy_sections_before_finalize()
     test_normalize_slots_accepts_only_harmless_markdown_wrappers()
+    test_document_navigation_principles_are_shared_by_agent_and_api()
+    test_document_validator_rejects_partial_endpoint_wrappers()
     test_sqlite_snapshot_restores_exact_graph_state()
     test_rollback_removes_manifest_companion_restores_graph_and_marks_receipt()
     test_preprocess_binary_creates_raw_companion()

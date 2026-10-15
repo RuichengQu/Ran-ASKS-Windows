@@ -1,5 +1,5 @@
 # Ran-ASKS
-> 当前 main 版本: v0.16.0
+> 当前 main 版本: v0.17.0
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -10,6 +10,10 @@
 **GitHub：** [github.com/ranshiju/Ran-ASKS](https://github.com/ranshiju/Ran-ASKS)
 
 **项目更新日志：** [CHANGELOG.md](CHANGELOG.md)
+
+**平台版本：** 本仓库是 Shi-Ju Ran 开发的 macOS 版本；另有其他合作者开发维护的
+[Windows 版本](https://github.com/RuichengQu/Ran-ASKS-Windows)。安装方法与支持范围以
+各仓库说明为准；此入口不代表跨平台兼容性认证，也不授予 Reference Distribution 身份。
 
 **协作规则：** [治理](GOVERNANCE.md) | [ASKS 生态](ECOSYSTEM.md) |
 [贡献指南](CONTRIBUTING.md)
@@ -185,6 +189,25 @@ python3 .scripts/wg.py cv status --workspace cv-demo
 原生演示文稿制作遵循同一受管产物原则：保留持久修订，分离草稿批准与锁定边界，
 使用受约束布局生成确定性交付副本，并继承来源敏感性规则。演示文稿摄入与演示文稿
 制作仍是契约明确、彼此独立的功能。
+
+## 科普展板与可复用插图（preview）
+
+`wg.py science-exhibit` 围绕已摄入论文开展可接续的人机协作：讨论受众与用途，确定
+故事和视觉方案，再明确授权制作、检查实际预览。内部先核实论文贡献，面向公众的
+故事从动机出发，帮助读者连起目标、困难、研究做法和意义。类比可选，须说明对应
+关系与边界；可见英文缩写须展开。当前原生渲染器支持 A1/A0 竖版及有限可编辑示意，
+不是通用多位图海报拼版器。详见[展板契约](operations/SCIENCE_EXHIBIT.md)。
+
+共享[插图能力](operations/ILLUSTRATION.md) 复用原生 SVG/HTML 绘画与显式授权的位图
+API。先确定单图立意、受众、类比边界、使用位置、图注与替代文本，再制作。展板与
+手机端文章可复用含义和素材，不强行套同一版式；旧漫画与 storyboard 接口保持兼容。
+新 brief 入口处理公共域与 local_only，私有图片继续走已有隔离 CLI。普通写作或准备
+操作不会自动上传内容。
+
+可选模拟读者适配器在显式授权后，让两类独立角色只看实际整板 PNG，不提供论文或
+预期答案，检查读者能否理解动机、理解链在哪里中断。执行完成不是科学批准、真人
+证据、预览接受或发布许可。公众号评审须使用实际段落与配图语境，不能把户外展板
+提示冒充手机文章评估。这些能力不改变冻结论文产物。
 
 ## 科研代码与图片数据工作流（preview）
 

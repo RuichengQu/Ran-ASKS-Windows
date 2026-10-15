@@ -1108,6 +1108,11 @@ def test_compact_summary_excludes_graph_diagnostics_and_returns_report_path():
     assert compact["report_path"] == "cross-domain/ingest-reports/test.json"
     assert "graph_report" not in compact["files"][0]
     assert compact["backend"] == "api"
+    assert compact["files"][0]["quality_warning_count"] == 0
+    assert compact["files"][0]["quality_warning_history_count"] == 0
+    stale = {**report, "degraded": 1}
+    assert module._compact_summary(stale, report_path)["degraded"] == 0
+    assert stale["degraded"] == 1
     warnings = [{"issue": "ambiguous", "detail": "long" * 100, "candidates": ["large"]}] * 8
     warned = {**report, "files": [{
         **report["files"][0], "quality_warnings": warnings,
@@ -1989,6 +1994,76 @@ def test_maintenance_separates_warning_history_from_unresolved_quality():
     assert len(record["quality_warning_history"]) == 2
 
 
+def test_maintenance_publication_recounts_current_quality():
+    import inbox_state
+
+    scenarios = (
+        ("agent", "completed", 0, False),
+        ("api", "completed", 0, False),
+        ("api", "completed", 0, True),
+        ("agent", "agent_required", 1, True),
+        ("api", "error", 0, True),
+    )
+    for backend, abbreviation_status, remaining, independent_warning in scenarios:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            with patch.object(module, "REPO", root), patch.object(inbox_state, "REPO", root):
+                receipt_rel = "temp/inbox-maintenance/quality.json"
+                report_path = root / "cross-domain/ingest-reports/quality.json"
+                maintenance = {
+                    "status": abbreviation_status, "receipt_path": receipt_rel,
+                    "actions": [], "errors": [],
+                    "components": {"abbreviations": {
+                        "status": abbreviation_status, "remaining_occurrences": remaining,
+                    }},
+                }
+                module._write_json_atomic(root / receipt_rel, maintenance)
+                files = []
+                for transaction_id in ("resolved", "independent"):
+                    warnings = [{"issue": "semantic_bare_abbreviation", "detail": "LM"}]
+                    if transaction_id == "independent" and independent_warning:
+                        warnings.append({"issue": "graph_navigation_ambiguous", "detail": "1 mention"})
+                    state = {
+                        "status": "completed", "ok": True, "transaction_id": transaction_id,
+                        "wiki_path": f"academic/wiki/papers/{transaction_id}",
+                        "quality_status": "degraded", "quality_warnings": warnings,
+                    }
+                    inbox_state.save(transaction_id, state)
+                    files.append(dict(state))
+                report = {
+                    "total": len(files), **module._report_counts(files),
+                    "files": files, "maintenance": maintenance, "backend": backend,
+                }
+                assert report["degraded"] == 2
+                expected_degraded = int(independent_warning) if abbreviation_status == "completed" else 2
+                snapshots = []
+                original_write = module._write_json_atomic
+
+                def capture_report(path, value):
+                    if Path(path) == report_path:
+                        snapshots.append((value["maintenance"]["publication"]["status"], value["degraded"]))
+                    original_write(path, value)
+
+                with patch.object(module, "_write_json_atomic", side_effect=capture_report):
+                    assert module.publish_maintenance_report(report_path, report)
+                assert snapshots == [("pending", expected_degraded), ("completed", expected_degraded)]
+                persisted = json.loads(report_path.read_text(encoding="utf-8"))
+                assert persisted["degraded"] == expected_degraded
+                assert module._report_counts(persisted["files"])["degraded"] == expected_degraded
+                compact = module._compact_summary(persisted, report_path)
+                assert compact["degraded"] == expected_degraded
+                assert compact["file_status"] == "completed"
+                assert compact["backend"] == backend
+                assert compact["completed"] == 2 and compact["failed"] == 0
+                for item in persisted["files"]:
+                    state = inbox_state.load(item["transaction_id"])
+                    assert state["quality_status"] == item["quality_status"]
+                    assert state["quality_warnings"] == item["quality_warnings"]
+                    assert state["quality_warning_history"] == item["quality_warning_history"]
+                module.reconcile_maintenance_report(report_path)
+                assert json.loads(report_path.read_text(encoding="utf-8")) == persisted
+
+
 def main():
     test_extract_last_json_ignores_domain_status()
     test_managed_external_file_staging_and_inbox_boundary()
@@ -2044,6 +2119,7 @@ def main():
     test_maintenance_publication_recovers_write_failures()
     test_paper_batch_keeps_preclassified_fingerprint_results()
     test_maintenance_separates_warning_history_from_unresolved_quality()
+    test_maintenance_publication_recounts_current_quality()
     print("ingest_inbox dispatch regression: PASS")
 
 

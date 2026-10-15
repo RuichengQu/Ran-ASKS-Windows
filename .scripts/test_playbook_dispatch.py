@@ -2,6 +2,8 @@
 """playbook_dispatch.py regression tests."""
 import contextlib
 import importlib.util
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -132,6 +134,26 @@ def test_dispatch_short_query():
     assert result is None
 
 
+def test_real_oral_entry_links_specialized_fast_playbook():
+    for query in ("/oral help", "/oral start 矩阵乘积态理解程度", "继续口试"):
+        result = module.dispatch(query)
+        assert result is not None
+        assert result.startswith("## 智能口试指令\n")
+        assert "operations/ORAL_EXAM_AGENT.md" in result
+        assert "oral receive" in result
+        assert "最终回复" in result
+        assert len(result) < 1000
+    playbook = (module.REPO / "operations/ORAL_EXAM_AGENT.md").read_text(encoding="utf-8")
+    for required in ("教授", "物理图像", "--displayed-message-id", "task_error", "task.commands.commit", "最终回复（final）"):
+        assert required in playbook
+    routed = subprocess.run(
+        [sys.executable, ".scripts/route.py", "--task", "oral_exam"],
+        cwd=module.REPO, capture_output=True, text=True, check=True)
+    assert "智能口试快路径" in routed.stdout
+    assert "原子确认" in routed.stdout
+    assert "最终回复（final）" in routed.stdout
+
+
 def test_list_entries():
     import io
 
@@ -154,6 +176,7 @@ def main():
     test_real_playbook_dispatches_ingest_backend_model_aliases()
     test_real_playbook_dispatches_query_backend_model_aliases()
     test_dispatch_short_query()
+    test_real_oral_entry_links_specialized_fast_playbook()
     test_list_entries()
     print("playbook dispatch regression: PASS")
 

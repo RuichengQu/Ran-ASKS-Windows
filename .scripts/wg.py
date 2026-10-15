@@ -653,6 +653,17 @@ def cmd_code_library(args):
                     error=result.get("error", error.strip())[:500] if failed else "")
 
 
+def cmd_science_exhibit(args):
+    code, output, error = run_script([sys.executable, str(SCRIPTS / "science_exhibit.py"), *args.exhibit_args])
+    try:
+        result = json.loads(output)
+    except json.JSONDecodeError:
+        return envelope("science-exhibit", None, status="error", error=(error or output).strip()[:500])
+    failed = code != 0 or result.get("status") == "error"
+    return envelope("science-exhibit", result, status="error" if failed else "ok", ok=not failed,
+                    error=result.get("error", error.strip())[:500] if failed else "")
+
+
 def cmd_extract_data(args):
     code, output, error = run_script([sys.executable, str(SCRIPTS / "extract_data.py"), *args.extract_args])
     try:
@@ -807,6 +818,9 @@ def build_parser():
     p = sub.add_parser('slide-library', help='PPT模板管理与复用')
     p.add_argument('library_args', nargs=argparse.REMAINDER)
     p.set_defaults(func=cmd_library_or_graph)
+    p = sub.add_parser("science-exhibit", help="论文到公众科普展板：源绑定创作、局部修订与本地草稿导出")
+    p.add_argument("exhibit_args", nargs=argparse.REMAINDER)
+    p.set_defaults(func=cmd_science_exhibit)
     p = sub.add_parser("extract-data", help="离线图片曲线/散点数据提取：准备、校准检查与数字化")
     p.add_argument("extract_args", nargs=argparse.REMAINDER)
     p.set_defaults(func=cmd_extract_data)

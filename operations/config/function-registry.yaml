@@ -250,6 +250,25 @@ functions:
       cli: [.scripts/cv.py]
     protocols: [cv-template-v1, cv-version-v1]
 
+  artifact.science_exhibit:
+    title: 论文到公众科普展板
+    summary: 可接续的人机协作展板创作：讨论需求与方案、记录真实制作授权和实际预览反馈，复用绘画/版本内核本地导出原生 A1/A0 草稿；不自动公开发布。
+    kind: pipeline
+    audience: [user, agent]
+    control_owners: [host_agent, code]
+    allowed_callers: [main_agent]
+    backends: [agent]
+    effects: [read, temp, project]
+    maturity: preview
+    states: [workspace, research]
+    bindings:
+      route_capabilities:
+        science-exhibit: [create, discuss, resume]
+      wg: [science-exhibit]
+      cli: [.scripts/science_exhibit.py]
+      pipelines: [.scripts/science_exhibit.py]
+    protocols: [agent-task-v1, science-exhibit-v1, science-exhibit-v2, science-exhibit-brief-v1, science-exhibit-plan-v1, science-exhibit-content-v1, science-exhibit-layout-v1, science-exhibit-delivery-v1]
+
   artifact.presentation:
     title: 演示文稿制作与辅助检查
     summary: 制作、预览和导出原生 PPTX/PDF，并按需进行形式检查、证据核查和引用脱敏。
@@ -365,18 +384,20 @@ functions:
       cli: [.scripts/visual_to_editable_ppt.py]
 
   artifact.comic:
-    title: 漫画与配图生成
-    summary: 查询模型并生成单图或 storyboard 批量图片；真实远程调用需要显式授权。
+    title: 插图创作（含漫画）
+    summary: 先确定图意与提示词，再复用原生绘画或 API 位图；兼容旧漫画与 storyboard 接口，远程调用需显式授权。
     kind: tool
     audience: [user, agent]
     control_owners: [host_agent, api_controller]
     allowed_callers: [main_agent, sub_agent, api_controller]
     backends: [agent, api]
-    effects: [project, remote]
+    effects: [read, temp, project, remote]
     maturity: stable
     bindings:
       dsh: [comic_models, comic_generate, comic_batch]
-      cli: [.scripts/comic_generation.py]
+      route_capabilities:
+        illustration: [general]
+      cli: [.scripts/comic_generation.py, .scripts/illustration.py]
 
   state.workspace.manage:
     title: 工作区状态管理

@@ -952,6 +952,9 @@ def normalize_page_subjects(triples, page: str, fm=None):
         elif subject in PAGE_SUBJECT_PRONOUNS:
             unresolved.append({"index": index, "subject": subject})
         normalized.append(item)
+        endpoint_errors = kir.semantic_endpoint_errors(item)
+        if endpoint_errors:
+            raise ValueError("; ".join(endpoint_errors))
     if unresolved:
         detail = ", ".join(
             f"#{item['index']}={item['subject']}" for item in unresolved
@@ -1049,8 +1052,10 @@ def parse_semantic_sections(text):
                 current_section = header
                 current_items = []
                 continue
-        parts = [x.strip() for x in stripped.split("|", 2)]
-        triple_like = len(parts) == 3 and all(parts)
+        parts = kir.parse_semantic_triple_line(stripped)
+        triple_like = parts is not None
+        if triple_like and current_section in (None, "三元组"):
+            stripped = " | ".join(parts)
         if current_section:
             current_items.append(stripped)
             if current_section == "三元组" and not triple_like:
@@ -1104,7 +1109,9 @@ def parse_semantic_text(text, page_path, fm=None):
     direction_predicates: [(direction, predicate), ...] 方向+语义谓词(用于 keyword 归属判断)
     """
     triples = []
-    sections, _diagnostics = parse_semantic_sections(text)
+    sections, diagnostics = parse_semantic_sections(text)
+    if diagnostics["malformed_triple_lines"]:
+        raise ValueError("三元组格式不合法: " + "; ".join(diagnostics["malformed_triple_lines"]))
 
     # General documents share the page-subject and navigation predicate contract.
     domain = _get_domain_from_path(page_path)

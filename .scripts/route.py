@@ -236,14 +236,20 @@ ROUTES = {
         "sections": None,  # 全文输出
     },
     "oral_exam": {
-        "file": "operations/ORAL_EXAM.md",
-        "sections": ["功能边界", "风格与默认", "用户入口", "宿主接入", "Agent 与 API"],
+        "file": "operations/ORAL_EXAM_AGENT.md",
+        "sections": None,
     },
 }
 
 # 能力是工作状态内按需加载的规范包；它不创建或切换工作状态。
 # 顶层 --task write 继续作为 general profile 的兼容入口。
 CAPABILITY_ROUTES = {
+    "illustration": {"general": [("operations/ILLUSTRATION.md", None)]},
+    "science-exhibit": {
+        "create": [("operations/SCIENCE_EXHIBIT.md", None)],
+        "discuss": [("operations/SCIENCE_EXHIBIT.md", ["协作创作状态"])],
+        "resume": [("operations/SCIENCE_EXHIBIT.md", ["协作创作状态", "接续与修改"])],
+    },
     "code-run": {"general": [("operations/CODE_RUN.md", None)]},
     "code-library": {"general": [("operations/CODE_LIBRARY.md", None)]},
     "extract-data": {"general": [("operations/EXTRACT_DATA.md", None)]},
@@ -601,7 +607,7 @@ def main():
     ap.add_argument("--capability", choices=sorted(CAPABILITY_ROUTES),
                     help="在当前工作状态内按需加载的能力")
     ap.add_argument("--capability-profile", default="general",
-                    help="能力 profile（write: general/academic；presentation: create/form-check/evidence-check/citation-redact）")
+                    help="能力 profile（write: general/academic；science-exhibit: create/discuss/resume；presentation: create/form-check/evidence-check/citation-redact）")
     ap.add_argument("--subproject", help="ingest 目标域或 query 范围；private 使用隔离图及本地 Agent，不继承公共 API backend")
     ap.add_argument("--mode", help="ingest 模式: create(默认)/update/batch")
     ap.add_argument("--content", help="ingest 内容类型: paper(默认)/other")

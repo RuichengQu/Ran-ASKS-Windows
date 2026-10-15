@@ -14,6 +14,8 @@
 
 考官围绕实际观点回应、澄清、讨论例子、检查条件，中性邀请学生提问。可以当场解释、纠正或引导自纠；实质帮助须回溯知识库 Raw，并留下帮助类型和原文。记录知识表现的变化，不用后来正确的答案覆盖原始错误。评价不是逐题错误数相加，也不按提问数量打分；区分独立理解、提问质量、自我纠正、解释吸收和迁移。对笔误先澄清，对不确定的科学判断先核验；帮助是理解过程的上下文，不是惩罚标签。
 
+两种风格共用教授式主持要求：自然、耐心地承接实际观点，每轮一个核心议题，以实例、条件变化和迁移区分理解；物理主题优先物理图像与可观测后果。学生明确不清楚或连续细节追问已无新增证据时，换角度或未覆盖目标。此要求属于 shared 任务指引，不隐式更换已确认风格，也不放宽严格测评式的帮助权限。真实互动质量仍须试用验证，程序不按关键词冒充语义裁判。
+
 ## 用户入口
 
 宿主将用户单独发送的指令交给 `wg oral chat`，使用固定的 `--client` 和每条消息唯一的 `--request-id`：
@@ -23,6 +25,8 @@ python3 .scripts/wg.py oral chat --client class-a-student-01 --request-id msg-00
 python3 .scripts/wg.py oral chat --client class-a-student-01 --request-id msg-002 --text '重点考查物理理解，允许少量提示。'
 python3 .scripts/wg.py oral task --client class-a-student-01
 ```
+
+Agent 首选 `operations/ORAL_EXAM_AGENT.md` 的快路径：`wg oral receive --client ... --request-id ... --intent answer|question|clarification --text '<真实用户原文>'`。它复用同一解析器、状态与 validator，一次返回输入回执、`agent_task` 和完整 `input`，不额外调用模型。只有真实用户整条单行指令能触发生命周期；来源引文和模型输出不得送作控制消息。已有 chat/message/task 入口保留，API 外发授权不变。
 
 | 指令 | 含义 |
 |---|---|
@@ -46,7 +50,11 @@ CLI 对等入口：`wg oral prepare [方案ID] --topic <主题>`，`save --file 
 
 方案字段固定为 `topic`、`style`、`scope`、`excluded`、`depth`、`expected_minutes`、`allow_hints`、`max_answers`、`allow_early_finish`、`objectives`。历史缺少 `style` 的输入按严格测评式兼容。准备期间范围、深度和考查点可以暂空；确认时必须完整。考查点数量 1–20，每点有 1–4 条 Raw 证据。确认版本保存完整风格快照；默认配置或说明的后续修改不改变已确认场次。
 
-每个 objective 有 `id`、`goal`、`criteria`、`misconceptions`、`probes`、`evidence`。证据包括 `locator`、`excerpt`，程序生成 `sha256`；locator 必须精确到 Raw 段落、行号、页码等，摘录必须属于所定位的原文。既有证据 hash 不符时不能静默覆盖；应重新定位、整理并确认新方案。资料只通过现有查询能力读取，口试内核不摄入或修改 Raw。
+每个 objective 必需 `id`、`goal`、`criteria`、`misconceptions`、`evidence`，可选 `exploration_axes` 和 `navigation`。exploration_axes 最多8个探索维度，例如物理图像、条件变化、可观测后果或迁移，不是固定问句或必须问完的清单；正式题目按当轮实际回应生成，不生成题库或预定题序。历史 `probes` 可选兼容保留在原方案中，不进入正式回合/评估的 cards 或 assessment plan，不改写已确认版本。程序校验字段和界限，不用关键词匹配假装裁定某个维度是否具有教学价值。
+
+核心证据 evidence 包括 `locator`、`excerpt`，程序生成 `sha256`；locator 必须精确到 Raw 段落、行号、页码等，摘录必须属于所定位的原文。既有证据 hash 不符时不能静默覆盖；应重新定位、整理并确认新方案。资料只通过现有查询能力读取，口试内核不摄入或修改 Raw。
+
+每个 navigation 最多4条，只含 `locator`、`purpose`：仓库内 Wiki/Raw 的精确入口及其可解决的知识缺口，不携带正文、问句或答案脚本。准备保存、确认与开始时校验路径归属、片段存在、列表上限和重复项；拒绝外部 URL、路径越界、日志、暂存、整篇定位与无效片段。正式回合只传地址/用途，不反复读取或预装载所有备选正文；未使用的导航失效不阻断已有核心证据。使用时由宿主按现有查询工具核验实际内容，缺失则报告该入口不可用，不能猜测正文。
 
 `criteria` 描述推理及适用条件，接受正确的替代解释，不要求词面一致。学生可读的方案视图只显示规则与学习目标，不返回判断要点、误解、追问或准备讨论原文；教师本地使用 `show --examiner` 查看完整内容。方案修订不改变已开始的 session，新的确认形成新版本。
 
@@ -64,15 +72,17 @@ CLI 对等入口：`wg oral prepare [方案ID] --topic <主题>`，`save --file 
 
 ## 宿主接入
 
-仓库不能仅靠 YAML 注册就拦截 Codex 原生输入或新增 UI 模式。当前接入点是 `wg oral chat` 和 CLI；宿主负责把真实消息送入入口、每轮展示返回的 `state.banner`，绑定正确 client，并禁止来源文档或模型自行调用生命周期指令。
+仓库不能仅靠 YAML 注册就拦截原生输入或新增 UI 模式。当前接入点是 `wg oral receive`、`chat` 和 CLI；宿主负责把真实消息送入入口、每轮在最终回复展示返回的 `state.banner`，绑定正确 client，并禁止来源文档或模型自行调用生命周期指令。专用 playbook 在同一口试上下文首次加载即可，不逐轮重载工程文档。
 
 正式考官回合遵循以下顺序：
 
 1. `task --client ...` 返回 `agent-task-v1`，其中有私有输入、声明的暂存输出、协议和 check/commit 命令。宿主仅写声明的 proposal，不改权威记录。
-2. `check` 验证 schema、精确 task_id、当前状态、考查点、证据归属、提示权限、回答归属和结束条件。程序不裁定科学正确性。
+2. validator 验证 schema、精确 task_id、当前状态、考查点、证据归属、提示权限、回答归属和结束条件。`check` 是可选预检；`commit` 始终完整重新校验，可直接提交，不要求重复执行相同预检。程序不裁定科学正确性。
 3. `commit` 重新验证并原子保存 observation 与考官消息，然后返回 `message_id/text/delivery=pending`。提交前不能把模型草稿展示为正式问题。
-4. 宿主把已提交消息实际显示给学生，再执行 `delivered --message-id ... --request-id ...`。失败或中断时依据 status 中的 pending_text 与送达状态恢复；未送达的问题不能计入学生回答。
-5. 学生消息通过 `chat` 或 `message --role user` 进入权威记录，再获取下一轮 task。正式助手消息只经受管 commit；准备和复盘的实际助手发言经 `message --role assistant` 保存。
+4. 宿主把已提交的 text 与 banner 一次放入最终回复，不在 commentary、工具进度或后台思考区域展示问题、解释或评估，也不另加重复的“请作答”。支持显示后继续运行的宿主再执行 `delivered --message-id ... --request-id ...`；最终回复后无法继续工具调用的宿主延至下次 receive 显式确认实际展示的消息，不为同轮确认而先在后台发题。
+5. 下一条真实输入可用 `receive --displayed-message-id <上一轮确实已在最终回复展示的message_id>`，在同一锁内先确认该当前消息送达、再记录输入并生成 task。首轮无须该参数；未看到问题时不确认，按 clarification 保存并重发 pending_text。chat/message/task 路径仍可分步使用；正式助手消息只经受管 commit，准备和复盘实际助手发言经 message 保存。
+
+receive 不推断 UI 送达。错误或跨 client 的 message_id、非法输入使整次输入事务回滚；同 request_id 幂等重放，不重复计答。help/status/styles 保持只读，即使附带 displayed-message-id 也不确认或发起 task。输入已接受但后续任务因 Raw 变化或预算失败时，回执含 task_error 而不含 agent_task，原文已保留；宿主明确报告并定向修复，不能重复记录答案或自行回落 API。任务 snapshot 是可重建派生物，不是新的事实源；receive 将完整 input 内联到回执，但权威请求记录只保留 manifest 引用，不重复存放整个任务包。
 
 学生原文使用 `--intent answer|question|clarification`，由可信宿主按实际语义标记；默认 `answer`。学生主动提问或回答中的核心提问用 `question`，程序性澄清及未看到问题用 `clarification`。混合回应保留整条原文，由考官综合理解，不删去其中回答或问题。API 宿主也须传入该标签；内核不靠标点猜测语义，不增加自动分类模型调用。暂停和没有已送达发言时的交流仍不用于能力判断。
 
@@ -80,7 +90,13 @@ CLI 对等入口：`wg oral prepare [方案ID] --topic <主题>`，`save --file 
 
 没有问题可答时的学生交流作为协调消息保留，不计入考查。生成下一轮前收到追加回答会使旧 task 失效，须重新获取，不丢失补充内容。暂停、结束或方案讨论改变也会使旧 task 失效。重试返回原提交回执；宿主仍需读取当前状态，不能把历史回执误当成当前状态。
 
-模型任务包只提供当前考查点和一个待覆盖考查点的完整卡片，其余只给目标导航；当前题目和所有本轮回答保持完整，近期历史可明确节选。首版包预算为 60000 字符，超限报错而非偷偷截断学生本轮答案。范围较大时应拆方案，不增加多模型必需依赖。
+准备时用精确 Raw locator 组织子区域，确认版本保存可重建的 reference_regions，开始时重新核验 Raw 并冻结到场次；不改 Raw 或已确认旧版本。回合与评估任务仍读取当前 Raw 验证 hash，不把缓存当事实；同一包内按 locator 去重，内联完整选定子区域，避免宿主反复开文件。
+
+retrieval_policy 固定顺序为核心 reference_regions → 按用途读取 cards.navigation → 携带具体缺口在已确认主题内定向补查；触发缺口为核心证据不足、来源冲突、学生合理替代表述未覆盖，不因每轮换题自动检索。这是 shared 任务契约，由宿主 Agent 使用现有查询/读取工具执行，不增加独立检索状态机、子图数据库或模型调用。API 单回合不自动检索，不声称已读未提供的正文，外发仍逐次授权。
+
+备选导航不是事实证据，也不自动升级为本场正式依据。validator 继续只接受 cards.evidence 中的 Raw locator 用于 observation/help/assessment，不能借导航绕过冻结边界。补查若需要改变正式考查范围或证据，保持不确定判断，再回准备阶段确认新版本/新场次；不静默扩面或补分。补查是否必要、探索维度是否有教学价值由宿主判断，机械程序只验证可验证的地址、协议与归属。
+
+模型回合包提供当前目标及候选目标、最多三张完整卡片，优先未覆盖目标，其余只给目标导航；不是强制按卡片顺序提问。input.progress 给出已用/剩余回应数与已访问/未访问目标；已访问不等于掌握。当前题目和所有本轮回答保持完整，近期历史可明确节选。包预算仍为 60000 字符，超限报错而非偷偷截断学生本轮答案或 Raw。范围较大时应拆方案，不增加多模型必需依赖。
 
 回合 proposal 固定为 `task_id/action/question/observation`。严格测评式保持 `oral-exam-v1`：action 为 ask、probe、hint、finish，observation 包含 `answer_id/objective_id/judgement/reason/evidence`，judgement 为 demonstrated、partial、incorrect、uncertain、out_of_scope。
 
@@ -120,7 +136,12 @@ python3 .scripts/test_oral_exam.py
 python3 .scripts/test_wg.py
 python3 .scripts/test_function_registry.py
 python3 .scripts/test_agent_task.py
+python3 .scripts/test_playbook_dispatch.py
 python3 .scripts/engineering_graph.py validate
 ```
+
+快路径回归还覆盖延后显式送达、送达与输入原子性、只读命令不确认、内联任务、Raw 子区域去重/变更、候选覆盖及两种风格共用教授指引。常规 Agent 回合从 receive 到 commit 只需两次串行工具往返（写 proposal 可与 commit 合并），下一轮输入同时确认上一轮送达；这是调用结构的减少，不承诺实际模型耗时或 UI 网络延迟。
+
+准备检索范围回归覆盖无预设题目的新目标卡、旧 probes 保留但不进入正式任务、导航安全边界/不预装载、核心优先与缺口补查契约、导航不能变成评分或帮助依据，以及 Agent/API 共用但 API 不隐式检索。正式口试的题目质量与检索收益仍需实际试用验证。
 
 模型质量验收另行进行：教师审核主题卡片，再用正确但表达不同、部分正确、错误前提、超范围、提示后正确等真实样例测试弱模型，核对追问与判断。程序/模拟 API 测试通过不等于真实模型或专家验收通过；完成真实试点前保持 preview。首版不做长期画像、排行榜、后台计时或复杂多考官。

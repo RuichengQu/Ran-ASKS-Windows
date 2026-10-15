@@ -236,6 +236,22 @@ contain the same update; frozen paper experiments and artifacts are unchanged.
 质量与效率为准，复杂变更先计划。输入长度减少不代表实际费用或线上质量改善已经
 验证。Markdown 与 Word 导出的追加 PDF 页面同步，冻结论文实验与产物保持不变。
 
+The 2026-10-15 `v0.17.0` update adds preview public-science poster collaboration,
+motivation-first storytelling, visible-acronym validation, optional independent
+simulated-reader feedback and reusable illustration briefs using existing native
+and explicitly authorized raster engines. Both READMEs identify the macOS version
+and link the separately maintained Windows version without certifying it.
+The generic oral host playbook lives under public operations, not personal memory.
+These are compatible capabilities and documentation updates; frozen paper
+artifacts are unchanged. The Markdown and newly appended Word-exported,
+normalized PDF pages contain the same addendum; earlier reviewed pages remain.
+
+2026年10月15日的 `v0.17.0` 更新新增 preview 科普展板协作、从动机出发的公众叙事、
+可见缩写校验、可选独立模拟读者及复用既有绘图引擎的共享插图 brief。中英文 README
+明确 macOS 开发归属并加入独立维护的 Windows 版本入口，不据此认证兼容性。公开树
+只新增精确批准的通用口试快路径，不包含个人记忆。Markdown 与 Word 导出并标准化的
+追加 PDF 页面同步，保留原已审阅页面；论文实验和冻结数据产物保持不变。
+
 | 中文说明涉及的内容 | Ran-ASKS 边界 | 论文数据产物 | 状态 |
 | --- | --- | --- | --- |
 | 核心方法与56篇论文的时间序列展示 | `v0.2.0` | `1.0.0` | arXiv:2608.29612 v1 的冻结边界 |

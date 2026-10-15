@@ -25,7 +25,8 @@ def test_registry_and_runtime_have_exact_coverage():
     data = registry.load_registry()
     assert registry.validate_registry(data) == []
     assert registry.validate_runtime(data) == []
-    assert len(data["functions"]) == 30
+    assert len(data["functions"]) == 31
+    assert data["functions"]["artifact.science_exhibit"]["backends"] == ["agent"]
     assert set(data["states"]) == {"workspace", "research", "frontier", "oral_exam"}
     assert len(registry.observed_dsh_tools()) == 38
     assert registry.observed_dsh_tool_names() == registry.observed_dsh_tools()
