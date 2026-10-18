@@ -156,13 +156,13 @@ def read_document_preview(path: Path, max_chars: int = 8000) -> str:
         if suffix in {".docx", ".doc"}:
             result = subprocess.run(
                 ["textutil", "-convert", "txt", "-stdout", str(path)],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
             )
             return result.stdout[:max_chars] if result.returncode == 0 else ""
         if suffix == ".pptx":
             result = subprocess.run(
                 ["pandoc", "-t", "plain", str(path)],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
             )
             return result.stdout[:max_chars] if result.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError, UnicodeError):
@@ -610,7 +610,7 @@ def download_pdfs(urls: list[str], verbose: bool = True) -> list[Path]:
             print(f"  下载 {url} → inbox/{name}...", flush=True)
         result = subprocess.run(
             ["curl", "-sL", "-o", str(dest), url],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         if result.returncode == 0 and dest.stat().st_size > 1000:
             downloaded.append(dest)
@@ -883,10 +883,21 @@ def _result_entry(file_name: str, file_type: str, parsed: dict, content: str = "
             if parsed.get(key) is not None:
                 entry[key] = parsed[key]
         return entry
-    reason = (
-        content.splitlines()[0][:200]
-        if content and content.splitlines() else str(parsed.get("errors") or status)
-    )
+    # **不能只取第一行。** 子进程吐的是 pretty-print 的 JSON，第一行就是
+    # 孤零零一个「{」，真正的报错在后面几十行里，全被丢掉 ——
+    # 2026-10-18 实测摄入 pptx 失败，报告里的 reason 就只有一个「{」，
+    # 等于把诊断信息自己吃掉了，比原始故障更难查。
+    # 先从结构化字段里找，找不到再退回正文，且跳过纯符号行。
+    _err = parsed.get("errors") or parsed.get("error") or ""
+    if isinstance(_err, list):
+        _err = _err[0] if _err else ""
+    if not _err:
+        for _line in (content or "").splitlines():
+            _s = _line.strip()
+            if _s and _s not in "{}[]":
+                _err = _s
+                break
+    reason = str(_err or status)[:400]
     return {"file": file_name, "type": file_type, "ok": False,
             "status": status, "reason": reason}
 
@@ -1094,7 +1105,7 @@ def resume_transaction(transaction_id: str, backend: str, *,
         if allow_remote_ocr:
             command.append("--allow-remote-ocr")
         completed = subprocess.run(
-            command, cwd=REPO, text=True, capture_output=True, check=False,
+            command, cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True, check=False,
         )
         parsed = _extract_last_json(completed.stdout)
     if not isinstance(parsed, dict):
@@ -1246,7 +1257,7 @@ def _auto_resolve_abbreviations(session_id: str) -> dict:
     ]
     try:
         result = subprocess.run(
-            command, cwd=REPO, capture_output=True, text=True, timeout=120,
+            command, cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
         )
         try:
             parsed = json.loads(result.stdout)
@@ -1285,7 +1296,7 @@ def _auto_resolve_abbreviations(session_id: str) -> dict:
             f"{_safe_session_id(session_id)}.json"
         )
         decision_path = review_path.with_name(review_path.stem + "-decisions.json")
-        decision_file = str(decision_path.relative_to(REPO))
+        decision_file = decision_path.relative_to(REPO).as_posix()
         receipt_file = str(
             (REPO / "temp" / "inbox-maintenance" /
              f"{_safe_session_id(session_id)}.json").relative_to(REPO)
@@ -1420,7 +1431,7 @@ def _auto_create_hubs(session_id: str, results: list[dict] | None = None) -> dic
         try:
             result = subprocess.run(
                 command,
-                cwd=REPO, capture_output=True, text=True, timeout=120)
+                cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
             if result.returncode != 0:
                 return {"status": "error", "error": result.stderr[:300]}
             check = json.loads(result.stdout)
@@ -1546,7 +1557,7 @@ def _validate_people_artifacts(auto_built: dict) -> dict:
         sys.executable, str(REPO / ".scripts" / "ingest_check.py"), "--graph",
         *sorted(artifacts),
     ]
-    completed = subprocess.run(command, cwd=REPO, text=True, capture_output=True)
+    completed = subprocess.run(command, cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True)
     return {
         "status": "completed" if completed.returncode == 0 else "error",
         "files": sorted(artifacts),
@@ -2473,7 +2484,7 @@ def main():
                         **ocr_options,
                     )
                 completed = subprocess.run(
-                    command, cwd=REPO, text=True, capture_output=True, check=False,
+                    command, cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True, check=False,
                 )
                 content = completed.stdout
                 parsed = _extract_last_json(content)

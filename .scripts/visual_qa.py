@@ -72,6 +72,12 @@ def load_visual_env(env_file: Path | None = None) -> dict[str, str]:
     source = env_file or (REPO / ".env")
     known = {
         "LLM_API_BASE", "LLM_API_KEY",
+        # 路径必须可配。智谱的 base 是 .../api/paas/v4，不以 /v1 结尾，
+        # 下面 _chat_completions_url 会再补一个 /v1，拼成
+        # .../v4/v1/chat/completions -> HTTP 404。
+        # 上游在 chat 和 embedding 两条路上都已经提供了 *_API_PATH 来解决，
+        # 唯独视觉这条路没读它。2026-10-18 实测：摄入 PPTX 时 37 页全部 404。
+        "LLM_API_PATH", "VISUAL_QA_API_PATH",
         "VISUAL_QA_API_BASE", "VISUAL_QA_API_KEY",
         "VISUAL_QA_MODEL", "VISUAL_QA_FALLBACK_MODEL",
         "VISUAL_QA_REASONING_EFFORT", "VISUAL_QA_FALLBACK_REASONING_EFFORT",
@@ -87,6 +93,14 @@ class RemoteConfig:
     timeout: int = 90
     reasoning_effort: str = "default"
     max_tokens: int = 1800
+    # 显式路径。不给就按 api_base 猜，而猜法对非 OpenAI 风格的服务商会出错
+    # （智谱 /v4 会被补成 /v4/v1 -> 404）。见 _chat_completions_url。
+    #
+    # **必须加在末尾。** 本来加在 api_key 后面，结果把位置参数整体右移，
+    # 调用处 RemoteConfig(base, key, path, timeout, effort, budget) 里的
+    # timeout 被当成了 reasoning_effort，报
+    # 「reasoning_effort must be default, low, or high」。
+    api_path: str = ""
 
     def __post_init__(self) -> None:
         if self.reasoning_effort not in REASONING_EFFORTS:
@@ -218,13 +232,27 @@ def _find_soffice(explicit: str | None = None) -> Path:
     if found:
         candidates.append(Path(found))
     candidates.append(Path("/Applications/LibreOffice.app/Contents/MacOS/soffice"))
+    # Windows：可执行文件叫 soffice.exe，而且 LibreOffice 默认不进 PATH，
+    # 所以 shutil.which 和上面那条 macOS 路径都找不到它。
+    # 2026-10-18 实测：机器上装着 LibreOffice，摄入 pptx 仍报
+    # 「requires LibreOffice/soffice; set SOFFICE_BIN」。
+    if os.name == "nt":
+        found_exe = shutil.which("soffice.exe") or shutil.which("soffice.com")
+        if found_exe:
+            candidates.append(Path(found_exe))
+        for base in (os.environ.get("ProgramFiles", r"C:\Program Files"),
+                     os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")):
+            candidates.append(Path(base) / "LibreOffice" / "program" / "soffice.exe")
     runtime_root = Path.home() / ".cache" / "codex-runtimes"
     if runtime_root.exists():
         candidates.extend(sorted(runtime_root.glob(
             "*/dependencies/bin/override/soffice"
         )))
     for candidate in candidates:
-        if candidate.is_file() and os.access(candidate, os.X_OK):
+        # Windows 上 os.access(path, X_OK) 对 .exe 并不可靠（它看的是
+        # 文件存在性与 ACL，不看扩展名），所以那边只要求「是个文件」。
+        if candidate.is_file() and (os.name == "nt"
+                                    or os.access(candidate, os.X_OK)):
             return candidate.resolve()
     raise VisualQAError(
         "PPT/PPTX rendering requires LibreOffice/soffice; set SOFFICE_BIN"
@@ -257,7 +285,7 @@ def _convert_slides_to_pdf(path: Path, target_pdf: Path,
             str(soffice), "--headless", "--convert-to", "pdf",
             "--outdir", str(out_dir), str(path),
         ]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180,
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180,
                               env=_soffice_env(soffice))
         converted = out_dir / f"{path.stem}.pdf"
         if proc.returncode != 0 or not converted.is_file():
@@ -596,11 +624,23 @@ def _normalize_vision_result(obj: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _chat_completions_url(api_base: str) -> str:
+def _chat_completions_url(api_base: str, api_path: str = "") -> str:
+    """拼出 chat/completions 的完整地址。
+
+    api_path 显式给了就用它 —— 和上游 chat / embedding 两条路上的
+    LLM_API_PATH、EMBED_API_PATH 是同一套规矩。
+
+    不给时只能猜，而猜法对非 OpenAI 风格的服务商会出错：
+    智谱的 base 是 `https://open.bigmodel.cn/api/paas/v4`，不以 `/v1` 结尾，
+    于是被当成「没有版本段」又补了一个，拼成 `/v4/v1/chat/completions`，
+    404。所以这里把判断放宽成「结尾是 /v + 数字」。
+    """
     base = api_base.rstrip("/")
+    if api_path:
+        return base + "/" + api_path.lstrip("/")
     if base.endswith("/chat/completions"):
         return base
-    if base.endswith("/v1"):
+    if re.search(r"/v[0-9]+$", base):
         return base + "/chat/completions"
     return base + "/v1/chat/completions"
 
@@ -625,7 +665,7 @@ def call_json_vision(model: str, image_paths: list[Path], prompt: str,
     if config.reasoning_effort != "default":
         payload["reasoning_effort"] = config.reasoning_effort
     request = urllib.request.Request(
-        _chat_completions_url(config.api_base),
+        _chat_completions_url(config.api_base, config.api_path),
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {config.api_key}",
@@ -792,8 +832,18 @@ def run_visual_qa(
         chosen_budget = max_tokens if max_tokens is not None else int(env.get("VISUAL_QA_MAX_TOKENS", "1800"))
     except ValueError:
         raise VisualQAError("VISUAL_QA_MAX_TOKENS must be an integer") from None
-    primary_config = RemoteConfig(base, key, int(timeout), chosen_effort, chosen_budget)
-    fallback_config = RemoteConfig(base, key, int(timeout), fallback_effort, chosen_budget)
+    # 路径取 VISUAL_QA_API_PATH，没有就退回 LLM_API_PATH（chat 那条路用的同一个）
+    path = (env.get("VISUAL_QA_API_PATH", "")
+            or env.get("LLM_API_PATH", "")).strip()
+    # 一律用关键字传 —— 这个 dataclass 字段多，位置传参加一个字段就全乱。
+    primary_config = RemoteConfig(api_base=base, api_key=key,
+                                  timeout=int(timeout),
+                                  reasoning_effort=chosen_effort,
+                                  max_tokens=chosen_budget, api_path=path)
+    fallback_config = RemoteConfig(api_base=base, api_key=key,
+                                   timeout=int(timeout),
+                                   reasoning_effort=fallback_effort,
+                                   max_tokens=chosen_budget, api_path=path)
     render_config = {"version": RENDER_VERSION, "dpi": int(dpi), "format": "png"}
     check_key_data = {
         "prompt_version": PROMPT_VERSION,

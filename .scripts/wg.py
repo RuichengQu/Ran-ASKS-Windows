@@ -86,7 +86,16 @@ def envelope(action, result, sources=None, status="ok", error="", ok=None):
 
 def run_script(args: list[str], **kw) -> tuple[int, str, str]:
     binary_input = isinstance(kw.get("input"), bytes)
-    p = subprocess.run(args, capture_output=True, text=not binary_input, **kw)
+    # **文本那条路必须显式指定编码。** 这是整个 ASKS 的子进程总入口，
+    # 所有脚本调用都从这里走。中文 Windows 上子进程输出是 GBK，
+    # text=True, encoding="utf-8", errors="replace" 不带 encoding 就按 UTF-8 解，一碰到中文立刻
+    # UnicodeDecodeError（实测 0xb5：摄入中文 pptx 时第一步就崩，
+    # 而且错误发生在读取线程里，栈里看不到这一行，很难定位）。
+    #
+    # 下面二进制那条路本来就用了 errors="replace"，只有文本这条漏了。
+    p = subprocess.run(args, capture_output=True, text=not binary_input,
+                       encoding=None if binary_input else "utf-8",
+                       errors=None if binary_input else "replace", **kw)
     if binary_input:
         return p.returncode, p.stdout.decode("utf-8", errors="replace"), p.stderr.decode("utf-8", errors="replace")
     return p.returncode, p.stdout, p.stderr
