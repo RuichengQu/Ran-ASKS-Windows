@@ -186,7 +186,7 @@ def test_search_cli_honors_top_k():
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "search", "Term", "--top-k", "2", "--json",
              "--db", str(Path(directory) / "graph.db")],
-            check=True, capture_output=True, text=True,
+            check=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         payload = json.loads(result.stdout)
         assert payload["count"] == payload["limit"] == 2
@@ -321,7 +321,7 @@ def test_neighbors_cli_exposes_budgets():
         conn.close()
         process = subprocess.run([sys.executable, str(SCRIPT), "neighbors", "page-a", "--depth", "1",
                                   "--max-nodes", "2", "--json", "--db", str(Path(directory) / "graph.db")],
-                                 check=True, capture_output=True, text=True)
+                                 check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
         result = json.loads(process.stdout)
         assert result["budget"]["max_nodes"] == 2
         assert result["truncation_reasons"] == ["max_nodes"]
@@ -410,8 +410,8 @@ def test_search_cli_explicit_history_flag():
         conn.commit()
         conn.close()
         command = [sys.executable, str(SCRIPT), "search", "UniqueOldLabel", "--db", str(Path(directory) / "graph.db"), "--json"]
-        default = json.loads(subprocess.run(command, capture_output=True, text=True, check=True).stdout)
-        history = json.loads(subprocess.run([*command, "--include-deprecated"], capture_output=True, text=True, check=True).stdout)
+        default = json.loads(subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout)
+        history = json.loads(subprocess.run([*command, "--include-deprecated"], capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout)
         assert default["count"] == 0
         assert history["count"] == 1 and history["include_deprecated"] is True
 

@@ -40,7 +40,7 @@ def _target(hub):
 
 def plan_retirement(hub):
     target, node, root = _target(hub)
-    text = target.read_text()
+    text = target.read_text(encoding="utf-8")
     blockers = []
     if ('arXiv 物理分类研究方向' not in text or 'hub_subtype: research-direction' not in text
             or re.search(r'^## Scope\s*$', text, re.M)):
@@ -85,7 +85,7 @@ def plan_retirement(hub):
         for page in folder.rglob('*.md'):
             if page == target or page == root / 'wiki/log.md':
                 continue  # audit history must not block retirement
-            content = page.read_text()
+            content = page.read_text(encoding="utf-8")
             links = re.findall(r'\[\[([^\]|#]+)', content)
             links += re.findall(r'\]\(([^)#]+)', content)
             if any(link in names or (page.parent / link).resolve() == target.resolve()
@@ -101,7 +101,7 @@ def plan_retirement(hub):
 
 
 def _append_log(log, node):
-    previous = log.read_text() if log.exists() else '# private operation log\n'
+    previous = log.read_text(encoding="utf-8") if log.exists() else '# private operation log\n'
     log.write_text(previous + f'\n## [{datetime.date.today()}] maintenance | retire legacy Hub\n'
                    f'- Retired `{node}`: orphan arXiv-template Hub; Raw unchanged.\n')
 

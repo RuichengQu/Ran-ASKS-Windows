@@ -75,7 +75,7 @@ class ReuseTests(unittest.TestCase):
     def test_direct_is_byte_identical_and_has_usage(self):
         direct = self.typed('direct')
         self.assertEqual((direct/'component.pptx').read_bytes(), (self.base/'component.pptx').read_bytes())
-        self.assertIn('直接使用型', (direct/'component.md').read_text())
+        self.assertIn('直接使用型', (direct/'component.md').read_text(encoding="utf-8"))
         self.assertEqual(lib.verify_bundle(direct)['reuse_kind'], 'direct')
 
     def test_both_types_coexist_and_deduplicate_by_kind_and_profile(self):
@@ -85,7 +85,7 @@ class ReuseTests(unittest.TestCase):
         self.assertEqual(len(lib.search('', 'direct')), 1)
         self.assertEqual(len(lib.search('', 'adaptable')), 1)
         self.assertEqual(len(lib.search('', 'unclassified')), 1)
-        index = (self.repo/'slide-library/_index.md').read_text()
+        index = (self.repo/'slide-library/_index.md').read_text(encoding="utf-8")
         self.assertIn('直接使用型', index); self.assertIn('套用填充型', index)
 
     def test_native_slots_replace_text_image_and_notes_preserve_style_and_fixed_object(self):
@@ -202,7 +202,7 @@ class ReuseTests(unittest.TestCase):
         lib.vision.write(report_dir/'layout-analysis.json', report)
         collected = Path(lib.collect(staged, 'reviewed', 'TEST-ONLY', report_dir/'layout-analysis.json')['path'])
         self.assertEqual(lib.verify_bundle(collected)['layout_analysis'], 'api')
-        self.assertIn('TEST-ONLY layout', (collected/'component.md').read_text())
+        self.assertIn('TEST-ONLY layout', (collected/'component.md').read_text(encoding="utf-8"))
         report['source_sha256'] = 'changed'
         lib.vision.write(report_dir/'layout-analysis.json', report)
         with self.assertRaises(ValueError): reuse.validate_layout(staged, report_dir/'layout-analysis.json')

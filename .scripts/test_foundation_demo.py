@@ -35,7 +35,7 @@ def test_demo_rejects_fixture_drift() -> None:
         root = Path(temporary)
         target = root / "examples" / "demo"
         shutil.copytree(REPO / "examples" / "demo", target)
-        (target / "sources" / "experiment-notes.md").write_text("tampered\n", encoding="utf-8")
+        (target / "sources" / "experiment-notes.md").write_text("tampered\n", encoding="utf-8", newline="\n")
         try:
             demo.load_scenario(root)
         except ValueError as error:
@@ -47,7 +47,7 @@ def test_demo_rejects_fixture_drift() -> None:
 def test_demo_json_cli() -> None:
     result = subprocess.run(
         [sys.executable, str(REPO / ".scripts" / "foundation_demo.py"), "--json"],
-        cwd=REPO, text=True, capture_output=True, check=True,
+        cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True, check=True,
     )
     assert json.loads(result.stdout)["schema"] == "ran-asks-demo-result-v1"
 

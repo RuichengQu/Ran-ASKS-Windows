@@ -79,7 +79,7 @@ def _run_graph(page: str, wiki: Path, semantic: Path, transaction_id: str,
     ]
     if plan_only:
         command.append("--plan-only")
-    result = subprocess.run(command, cwd=REPO, text=True, capture_output=True)
+    result = subprocess.run(command, cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True)
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
     return json.loads(result.stdout)
@@ -205,7 +205,7 @@ def repair(args: argparse.Namespace) -> dict:
         audit = {
             "repair_id": repair_id,
             "kind": "meeting-projection-conflict-fix",
-            "raw_source": str(raw_source.relative_to(REPO)),
+            "raw_source": raw_source.relative_to(REPO).as_posix(),
             "identity_changes": 0,
             "guidance_updates": len(updates),
         }
@@ -265,7 +265,7 @@ def repair(args: argparse.Namespace) -> dict:
             "mention": args.mention,
             "from": old_entity,
             "to": args.canonical_entity,
-            "raw_source": str(raw_source.relative_to(REPO)),
+            "raw_source": raw_source.relative_to(REPO).as_posix(),
             "resolution_changes": resolution_changes,
             "identity_changes": identity_changes,
             "guidance_updates": len(updates),
@@ -297,7 +297,7 @@ def repair(args: argparse.Namespace) -> dict:
     stage.mkdir(parents=True, exist_ok=True)
     repaired_wiki = meeting.compile_meeting_navigation(
         wiki_draft, repaired_ir,
-        raw_source=str(raw_source.relative_to(REPO)), date=state["date"], catalog=catalog,
+        raw_source=raw_source.relative_to(REPO).as_posix(), date=state["date"], catalog=catalog,
     )
     staged_wiki = stage / "wiki.md"
     staged_semantic = stage / "semantic.txt"
@@ -305,7 +305,7 @@ def repair(args: argparse.Namespace) -> dict:
     staged_resolution = stage / "entity-resolution.json"
     staged_knowledge = stage / "knowledge-ir.json"
     staged_plan = stage / "graph-plan.json"
-    staged_wiki.write_text(repaired_wiki, encoding="utf-8")
+    staged_wiki.write_text(repaired_wiki, encoding="utf-8", newline="\n")
     staged_semantic.write_text(meeting.compile_meeting_slots(repaired_ir), encoding="utf-8")
     staged_ir.write_bytes(_json_bytes(repaired_ir))
     staged_resolution.write_bytes(_json_bytes(repaired_resolution))
@@ -314,8 +314,8 @@ def repair(args: argparse.Namespace) -> dict:
     check_state.update({
         "wiki_content": repaired_wiki,
         "meeting_ir_content": repaired_ir,
-        "source": str(raw_source.relative_to(REPO)),
-        "extract_dir": str(stage.relative_to(REPO)),
+        "source": raw_source.relative_to(REPO).as_posix(),
+        "extract_dir": stage.relative_to(REPO).as_posix(),
     })
     wiki_errors = meeting.step_validate_wiki(check_state)
     if wiki_errors:
@@ -325,7 +325,7 @@ def repair(args: argparse.Namespace) -> dict:
         staged_knowledge, staged_plan, plan_only=True,
     )
     if not args.apply:
-        return {"status": "planned", **audit, "stage": str(stage.relative_to(REPO)),
+        return {"status": "planned", **audit, "stage": stage.relative_to(REPO).as_posix(),
                 "graph_plan_only": bool(plan.get("plan_only"))}
 
     backup = stage / "backup"
@@ -405,7 +405,7 @@ def repair(args: argparse.Namespace) -> dict:
 
         check = subprocess.run(
             [sys.executable, str(REPO / ".scripts/ingest_check.py"),
-             str(wiki_path), "--graph"], cwd=REPO, text=True, capture_output=True,
+             str(wiki_path), "--graph"], cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
         if check.returncode:
             raise RuntimeError(check.stdout.strip() or check.stderr.strip())
@@ -451,7 +451,7 @@ def repair(args: argparse.Namespace) -> dict:
              "quality_warnings": state.get("quality_warnings", []),
              "verification_receipt": state["verification_receipt"]}
     _atomic_bytes(report_path, _json_bytes(final))
-    return final | {"report": str(report_path.relative_to(REPO))}
+    return final | {"report": report_path.relative_to(REPO).as_posix()}
 
 
 def main() -> None:

@@ -5655,7 +5655,7 @@ def run_agent_graph_preflight(state: dict) -> tuple[list[str], dict]:
             "--raw-relationship-json",
             json.dumps(raw_relationship, ensure_ascii=False, separators=(",", ":")),
         ])
-    result = subprocess.run(command, cwd=REPO, text=True, capture_output=True)
+    result = subprocess.run(command, cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True)
     if result.returncode != 0:
         try:
             failure = json.loads(result.stdout)
@@ -6429,7 +6429,7 @@ def step_validate_wiki(state: dict) -> list[str]:
     wiki_path = extract_dir / "wiki.md"
     result = subprocess.run([sys.executable, str(REPO / ".scripts/ingest_check.py"),
                              wiki_path.relative_to(REPO).as_posix()],
-                            cwd=REPO, text=True, capture_output=True)
+                            cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True)
     errors = [] if result.returncode == 0 else parse_check_errors(result.stdout + result.stderr)
     final_raw = f"{state.get('raw_dir', '')}/paper.md"
     raw_overrides = {final_raw: extract_dir / "paper.md"} if final_raw.strip("/") else {}

@@ -63,7 +63,7 @@ def run_specs(workspace: Path, specs: list[str], *, fail_fast: bool = False,
     for spec in specs:
         item_started = time.monotonic()
         completed = subprocess.run(
-            command_for(spec), cwd=workspace, text=True,
+            command_for(spec), cwd=workspace, text=True, encoding="utf-8", errors="replace",
             capture_output=not stream,
         )
         result = {

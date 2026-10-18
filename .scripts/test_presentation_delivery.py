@@ -337,7 +337,7 @@ class DeliveryTests(unittest.TestCase):
     def test_explicit_routes_and_real_cli_status(self):
         for kind in pd.KINDS:
             proc = subprocess.run([sys.executable, str(REPO / '.scripts/route.py'), '--capability', 'presentation',
-                                   '--capability-profile', kind], capture_output=True, text=True)
+                                   '--capability-profile', kind], capture_output=True, text=True, encoding="utf-8", errors="replace")
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertIn(pd.LABELS[kind], proc.stdout)
             self.assertNotIn('## 阶段1A 命令与数据协议', proc.stdout)
@@ -345,14 +345,14 @@ class DeliveryTests(unittest.TestCase):
         for name in ('presentation_state.py', 'presentation_render.py', 'presentation_delivery.py', 'agent_task.py', 'env_config.py'):
             shutil.copy2(REPO / '.scripts' / name, scripts / name)
         proc = subprocess.run([sys.executable, str(scripts / 'presentation_delivery.py'), 'status', '--store', str(self.store.root)],
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(__import__('json').loads(proc.stdout)['outputs'], [])
         self.apply('set-content', payload=content())
         command = [sys.executable, str(scripts / 'presentation_delivery.py'), 'prepare', '--store', str(self.store.root),
                    '--expected-revision', self.rev(), '--kind', 'evidence-check', '--slides', 's1',
                    '--instruction', DECLARATION, '--question', 'TEST-ONLY: what is the source?']
-        proc = subprocess.run(command, capture_output=True, text=True, cwd=self.repo)
+        proc = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=self.repo)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         task = __import__('json').loads(proc.stdout)
         candidate = self.repo / task['outputs'][0]['path']
@@ -362,7 +362,7 @@ class DeliveryTests(unittest.TestCase):
         candidate.write_bytes(ps.json_bytes(result))
         import shlex
         for action in ('check', 'commit'):
-            proc = subprocess.run(shlex.split(task['commands'][action]), capture_output=True, text=True, cwd=self.repo)
+            proc = subprocess.run(shlex.split(task['commands'][action]), capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=self.repo)
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(self.delivery.status()['outputs'][0]['kind'], 'evidence-check')
 

@@ -188,7 +188,7 @@ def _rewrite_person_links(repo: Path, pages: list[str], name: str,
         )
         if rewritten == original:
             continue
-        page_file.write_text(rewritten, encoding="utf-8")
+        page_file.write_text(rewritten, encoding="utf-8", newline="\n")
         updated.append(page)
     return updated
 

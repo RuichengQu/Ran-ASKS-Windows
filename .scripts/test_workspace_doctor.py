@@ -34,7 +34,7 @@ def test_missing_workspace_markers_fail_closed() -> None:
 def test_json_cli_contract() -> None:
     result = subprocess.run(
         [sys.executable, str(REPO / ".scripts" / "workspace_doctor.py"), "--json"],
-        cwd=REPO, text=True, capture_output=True, check=True,
+        cwd=REPO, text=True, encoding="utf-8", errors="replace", capture_output=True, check=True,
     )
     assert json.loads(result.stdout)["schema"] == "ran-asks-doctor-v1"
 

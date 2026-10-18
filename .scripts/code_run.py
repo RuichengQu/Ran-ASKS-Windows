@@ -335,7 +335,7 @@ def execute_worker(project, run_id, bindings, inputs_hash, timeout):
     environment.update(OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", VECLIB_MAXIMUM_THREADS="1", PYTHONDONTWRITEBYTECODE="1")
     return subprocess.run([sys.executable, str(REPO / ".scripts/code_run.py"), "_worker"],
                           input=json.dumps({"project": project, "run_id": run_id, "source_bindings": bindings, "inputs_sha256": inputs_hash}),
-                          text=True, capture_output=True, cwd=REPO, env=environment, timeout=timeout)
+                          text=True, encoding="utf-8", errors="replace", capture_output=True, cwd=REPO, env=environment, timeout=timeout)
 
 
 def run_validation(project, seed=41, timeout=60):
@@ -395,13 +395,13 @@ def run_validation(project, seed=41, timeout=60):
         stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr or ""
     except (ValueError, OSError) as exc:
         status, validation, error = "error", {}, str(exc)[:600]
-    (directory / "stdout.log").write_text(stdout, encoding="utf-8")
-    (directory / "stderr.log").write_text(stderr, encoding="utf-8")
+    (directory / "stdout.log").write_text(stdout, encoding="utf-8", newline="\n")
+    (directory / "stderr.log").write_text(stderr, encoding="utf-8", newline="\n")
     (directory / "report.md").write_text(
         f"# TT 梯度局部检查\n\n- run_id: {run_id}\n- status: {status}\n- seed: {seed}\n"
         "- 源码、输入、依赖和验证阈值见 metadata.json/spec.json。\n"
         "- 独立逐元素矩阵与中心有限差分检查 core、input、bias；不是 MNIST 训练或论文性能复现。\n"
-        f"- error: {error or 'none'}\n", encoding="utf-8")
+        f"- error: {error or 'none'}\n", encoding="utf-8", newline="\n")
     artifacts = {path.relative_to(directory).as_posix(): digest(path) for path in sorted(directory.rglob("*")) if path.is_file() and path.suffix != ".pyc"}
     record = {"schema": "scientific-run-v1", "run_id": run_id, "project": project, "recipe": RECIPE,
               "status": status, "scientific_status": "local_check_not_paper_reproduction",

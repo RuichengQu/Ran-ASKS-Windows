@@ -140,7 +140,7 @@ class AcademicPPTTests(unittest.TestCase):
         self.assertIn('> 图片文字',text);self.assertIn('API视觉识读',text)
         self.assertEqual(receipt['reviewer']['kind'],'api')
         self.assertEqual(receipt['schema'],'pptx-source-v2')
-        review=json.loads((self.dir/'pptx-review.json').read_text());review['pages'][0]['result']['supplement']='tampered'
+        review=json.loads((self.dir/'pptx-review.json').read_text(encoding="utf-8"));review['pages'][0]['result']['supplement']='tampered'
         (self.dir/'pptx-review.json').write_text(json.dumps(review))
         with self.assertRaises(doc.PPTXError):doc.validated(self.source,self.dir)
 
@@ -172,11 +172,11 @@ class AcademicPPTTests(unittest.TestCase):
         with patch.object(qa,'_prepare_source',side_effect=renderer):lib.export(source,'1',prepared,'test')
         library=self.repo/'slide-library';library.mkdir();(library/'_index.md').write_text('# Existing index\n\nKeep this text\n')
         r=lib.collect(prepared,'test','TEST-ONLY selected page 1')
-        self.assertEqual(r['status'],'collected');self.assertIn('Keep this text',(library/'_index.md').read_text())
+        self.assertEqual(r['status'],'collected');self.assertIn('Keep this text',(library/'_index.md').read_text(encoding="utf-8"))
         self.assertEqual(lib.collect(prepared,'test-other','TEST-ONLY')['status'],'already_collected')
         self.assertEqual(len(lib.search('one')),1)
         (library/'_index.md').write_text('# Existing index\n');lib.rebuild_index(library)
-        self.assertIn('test/component.md',(library/'_index.md').read_text())
+        self.assertIn('test/component.md',(library/'_index.md').read_text(encoding="utf-8"))
         source.write_bytes(source.read_bytes()+b'changed')
         with self.assertRaisesRegex(ValueError,'Source changed'):lib.collect(prepared,'other','TEST-ONLY')
 

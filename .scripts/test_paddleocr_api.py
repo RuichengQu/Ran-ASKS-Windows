@@ -85,7 +85,7 @@ class PaddleOCRTests(unittest.TestCase):
         self.assertEqual(len(list((result.artifact_root / "images").iterdir())), 1)
         self.assertEqual(result.meta["input_sha256"], api._sha256_file(self.pdf))
         self.assertEqual(result.meta["page_count"], 1)
-        checkpoint = (self.work / "paddleocr-job-v1.json").read_text()
+        checkpoint = (self.work / "paddleocr-job-v1.json").read_text(encoding="utf-8")
         self.assertNotIn("test-secret", checkpoint)
         self.assertNotIn("resultUrl", checkpoint)
 
@@ -139,7 +139,7 @@ class PaddleOCRTests(unittest.TestCase):
     def test_unsafe_or_missing_image_reference_never_downloads(self):
         for text in ("![x](../figure.png)", "![x](https://evil.example/x.png)",
                      "![x](missing.png)", '<img src="https://evil.example/x">', ""):
-            with self.subTest(text=text), patch.object(requests, "get") as remote:
+            with self.subTest(text=text, encoding="utf-8", errors="replace"), patch.object(requests, "get") as remote:
                 with self.assertRaises(api.PaddleOCRError):
                     api._materialize_pages(records(text), self.root, timeout=60)
                 remote.assert_not_called()
@@ -181,7 +181,7 @@ class PaddleOCRTests(unittest.TestCase):
             with self.assertRaises(api.PaddleOCRError):
                 api.extract_pdf_bundle_with_paddleocr(
                     self.pdf, "test-secret", work_dir=self.work, poll_timeout_sec=3)
-        self.assertEqual(json.loads((self.work / "paddleocr-job-v1.json").read_text())["job_id"], "job-1")
+        self.assertEqual(json.loads((self.work / "paddleocr-job-v1.json").read_text(encoding="utf-8"))["job_id"], "job-1")
 
     def test_malformed_result_and_business_failure(self):
         with self.assertRaises(api.PaddleOCRError):
@@ -198,7 +198,7 @@ class PaddleOCRTests(unittest.TestCase):
             with self.assertRaises(api.PaddleOCRError):
                 self.extract()
             self.assertEqual(remote.call_count, 1)
-        self.assertEqual(json.loads((self.work / "paddleocr-job-v1.json").read_text())["status"], "rejected")
+        self.assertEqual(json.loads((self.work / "paddleocr-job-v1.json").read_text(encoding="utf-8"))["status"], "rejected")
         with patch.object(requests, "request", self.request), patch.object(requests, "get", self.download):
             self.extract()
         self.assertEqual(self.submissions, 1)

@@ -30,7 +30,7 @@ class OralExamTests(unittest.TestCase):
         (self.repo / help_document).write_bytes((oral_exam.REPO / help_document).read_bytes())
         self.raw = self.repo / "academic/raw/test.md"
         self.raw.parent.mkdir(parents=True)
-        self.raw.write_text("# 守恒\n系统的总量在无交换时保持不变。\n边界交换会改变系统总量。\n", encoding="utf-8")
+        self.raw.write_text("# 守恒\n系统的总量在无交换时保持不变。\n边界交换会改变系统总量。\n", encoding="utf-8", newline="\n")
         self.kernel = oral_exam.OralExam(self.repo)
         self.client = "student-01"
         self.draft = {
@@ -82,7 +82,7 @@ class OralExamTests(unittest.TestCase):
         return self.kernel.execute(self.client, "delivered", message_id=result["message_id"])
 
     def answer(self, content="没有外界交换时总量不变。", **params):
-        return self.kernel.execute(self.client, "message", text=content, **params)
+        return self.kernel.execute(self.client, "message", text=content, encoding="utf-8", errors="replace", **params)
 
     def test_prepare_discussion_save_and_confirmation_gate(self):
         result = self.kernel.chat(self.client, "/oral prepare 守恒概念", request_id="prepare")
@@ -370,7 +370,7 @@ class OralExamTests(unittest.TestCase):
         self.raw.write_text(original.replace("保持不变", "发生变化"), encoding="utf-8")
         with self.assertRaises(ValueError):
             self.kernel.execute(self.client, "start")
-        self.raw.write_text(original, encoding="utf-8")
+        self.raw.write_text(original, encoding="utf-8", newline="\n")
         self.kernel.execute(self.client, "start")
         self.raw.write_text(original.replace("保持不变", "保持不变（新增限定）"), encoding="utf-8")
         with self.assertRaises(ValueError):

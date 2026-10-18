@@ -152,7 +152,7 @@ def graph_query(command: str, args: list[str]) -> tuple[str, int]:
     """执行只读图查询；图结果纳入统一编排轨迹和 token 计量。"""
     db_script = _SCRIPTS / "query_graph.py"
     r = subprocess.run([sys.executable, str(db_script), command, *args, "--json", "--db", str(query_db_path())],
-                       capture_output=True, text=True, cwd=_REPO)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=_REPO)
     text = r.stdout.strip() or r.stderr.strip()
     return text, _tok(text)
 
@@ -401,7 +401,7 @@ def _wiki_recall_data(conn, query: str, domain: str, limit: int,
             if not graph_registered:
                 item["status"] = item["page_status"]
             item["navigation"] = match.group(1).strip() if match else ""
-            profile = hs.read_paper_profile(rel, text=text)
+            profile = hs.read_paper_profile(rel, text=text, encoding="utf-8", errors="replace")
             if profile is not None:
                 item["profile"] = profile.text
     direction_profile_hits = sum(

@@ -21,7 +21,7 @@ class PublishError(ValueError):
 
 
 def run(command: list[str], *, cwd: Path, capture: bool = True) -> subprocess.CompletedProcess:
-    result = subprocess.run(command, cwd=cwd, text=True, capture_output=capture)
+    result = subprocess.run(command, cwd=cwd, text=True, encoding="utf-8", errors="replace", capture_output=capture)
     if result.returncode:
         detail = (result.stderr or result.stdout or "").strip()
         raise PublishError(f"command failed ({' '.join(command)}): {detail}")
@@ -172,7 +172,7 @@ def version_tag(version: str) -> str:
 def local_ref_exists(repository: Path, ref: str) -> bool:
     result = subprocess.run(
         ["git", "show-ref", "--verify", "--quiet", ref], cwd=repository,
-        text=True, capture_output=True,
+        text=True, encoding="utf-8", errors="replace", capture_output=True,
     )
     return result.returncode == 0
 

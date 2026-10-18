@@ -29,7 +29,7 @@ class PrivateCreateTests(unittest.TestCase):
         work = Path(result['workspace'])
         source = result['agent_task']['protocol']['frontmatter']['sources'][0]
         candidate = work / 'candidate.md'
-        candidate.write_text(candidate.read_text().replace('## Navigation\n', '## Navigation\n\nA private record.\n')
+        candidate.write_text(candidate.read_text(encoding="utf-8").replace('## Navigation\n', '## Navigation\n\nA private record.\n')
                              .replace('## Content\n', '## Content\n\nSynthetic observation.[^r]\n')
                              + f'\n[^r]: {source}#L2\n')
         (work / 'semantic.txt').write_text(SEMANTIC)
@@ -87,7 +87,7 @@ class PrivateCreateTests(unittest.TestCase):
     def test_source_provenance_cannot_change_after_prepare(self):
         txn, work = self.prepare(source_type='web')
         candidate = work / 'candidate.md'
-        candidate.write_text(candidate.read_text().replace('source_type: web', 'source_type: user-assertion'))
+        candidate.write_text(candidate.read_text(encoding="utf-8").replace('source_type: web', 'source_type: user-assertion'))
         with self.assertRaisesRegex(ValueError, 'source_type changed'):
             pi.commit(txn)
         self.assertFalse(self.target.exists())
@@ -109,16 +109,16 @@ class PrivateCreateTests(unittest.TestCase):
         work = Path(result['workspace'])
         raw_source = result['agent_task']['protocol']['frontmatter']['sources'][0]
         self.assertEqual(result['agent_task']['protocol']['frontmatter']['source_type'], 'official-doc')
-        self.assertIn('## Page 1', (work / 'extracted.md').read_text())
-        state = json.loads((work / 'state.json').read_text())
+        self.assertIn('## Page 1', (work / 'extracted.md').read_text(encoding="utf-8"))
+        state = json.loads((work / 'state.json').read_text(encoding="utf-8"))
         self.assertEqual(state['document_companion'], 'report.md')
         self.assertEqual(len(state['files']), 3)
-        self.assertEqual((work / 'bundle/report.md').read_text(), (work / 'extracted.md').read_text())
-        context = json.loads((work / 'bundle/report.pdf.source.json').read_text())
+        self.assertEqual((work / 'bundle/report.md').read_text(encoding="utf-8"), (work / 'extracted.md').read_text(encoding="utf-8"))
+        context = json.loads((work / 'bundle/report.pdf.source.json').read_text(encoding="utf-8"))
         self.assertEqual(context['companion']['schema'], 'raw-companion-v1')
         self.assertEqual(context['companion']['locator_scheme'], 'page-heading')
         candidate = work / 'candidate.md'
-        candidate.write_text(candidate.read_text().replace(
+        candidate.write_text(candidate.read_text(encoding="utf-8").replace(
             '## Navigation\n', '## Navigation\n\nA private PDF record.[^r]\n').replace(
             '## Content\n', '## Content\n\nSynthetic official health report.[^r]\n')
             + f'\n[^r]: {raw_source}#page-1\n')
@@ -129,7 +129,7 @@ class PrivateCreateTests(unittest.TestCase):
                                     if item['destination'].endswith('.pdf'))
         companion = archived.with_suffix('.md')
         self.assertEqual(archived.read_bytes(), source.read_bytes())
-        self.assertEqual(companion.read_text(), (work / 'extracted.md').read_text())
+        self.assertEqual(companion.read_text(encoding="utf-8"), (work / 'extracted.md').read_text(encoding="utf-8"))
         self.assertEqual(gl.read_frontmatter(self.target)['sources'], [raw_source])
         source_target, read_target = pi.sl.evidence_targets(archived, 'page-1')
         self.assertEqual(source_target, archived)
@@ -171,7 +171,7 @@ class PrivateCreateTests(unittest.TestCase):
         work = Path(result['workspace'])
         raw_source = result['agent_task']['protocol']['frontmatter']['sources'][0]
         candidate = work / 'candidate.md'
-        candidate.write_text(candidate.read_text().replace(
+        candidate.write_text(candidate.read_text(encoding="utf-8").replace(
             '## Navigation\n', '## Navigation\n\nA private PDF record.[^r]\n').replace(
             '## Content\n', '## Content\n\nSynthetic official health report.[^r]\n')
             + f'\n[^r]: {raw_source}#page-1\n')
@@ -185,7 +185,7 @@ class PrivateCreateTests(unittest.TestCase):
         sidecar = self.root / sidecar_item['destination']
         companion.unlink()
         sidecar.unlink()
-        state = json.loads((work / 'state.json').read_text())
+        state = json.loads((work / 'state.json').read_text(encoding="utf-8"))
         state['files'] = [item for item in state['files']
                           if item['destination'] not in {
                               companion_item['destination'], sidecar_item['destination']}]
@@ -232,13 +232,13 @@ class PrivateCreateTests(unittest.TestCase):
 
     def test_existing_raw_never_overwritten(self):
         txn, work = self.prepare()
-        state = json.loads((work / 'state.json').read_text())
+        state = json.loads((work / 'state.json').read_text(encoding="utf-8"))
         destination = self.root / state['files'][0]['destination']
         destination.parent.mkdir(parents=True)
         destination.write_text('Existing source')
         with self.assertRaises(FileExistsError):
             pi.commit(txn)
-        self.assertEqual(destination.read_text(), 'Existing source')
+        self.assertEqual(destination.read_text(encoding="utf-8"), 'Existing source')
 
     def test_post_graph_failure_restores_all_layers(self):
         txn, work = self.prepare()
@@ -252,12 +252,12 @@ class PrivateCreateTests(unittest.TestCase):
         with gl.connect(self.private, read_only=True) as conn:
             self.assertEqual(pr._graph_signature(conn, self.new_page), old_graph)
         self.assertFalse((self.root / 'private/wiki/log.md').exists())
-        self.assertEqual(json.loads((work / 'state.json').read_text())['status'], 'rolled_back')
+        self.assertEqual(json.loads((work / 'state.json').read_text(encoding="utf-8"))['status'], 'rolled_back')
 
     def test_bad_citation_rolls_back_sources(self):
         txn, work = self.prepare()
         candidate = work / 'candidate.md'
-        candidate.write_text(candidate.read_text().replace('#L2', '#L9999'))
+        candidate.write_text(candidate.read_text(encoding="utf-8").replace('#L2', '#L9999'))
         with self.assertRaisesRegex(ValueError, 'validation failed'):
             pi.commit(txn)
         self.assertFalse(self.target.exists())
@@ -294,8 +294,8 @@ class PrivateCreateTests(unittest.TestCase):
         self.assertEqual(len(result['files']), 4)
         raw_dir = (self.root / result['files'][0]['destination']).parent
         self.assertEqual((raw_dir / 'chart.png').read_bytes(), source.read_bytes())
-        self.assertEqual((raw_dir / 'chart.md').read_text(), receipt['markdown'])
-        self.assertEqual(json.loads((raw_dir / 'chart.png.source.json').read_text())['ocr']['review_status'], 'agent-reviewed')
+        self.assertEqual((raw_dir / 'chart.md').read_text(encoding="utf-8"), receipt['markdown'])
+        self.assertEqual(json.loads((raw_dir / 'chart.png.source.json').read_text(encoding="utf-8"))['ocr']['review_status'], 'agent-reviewed')
 
     def test_offline_blocks_all_embedding_entrypoints(self):
         with patch('urllib.request.urlopen') as network, embed_helper.offline():

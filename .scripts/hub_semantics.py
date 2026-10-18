@@ -264,7 +264,7 @@ def _section_body(path: str | Path, heading: str, *, text: str | None = None) ->
 
 
 def read_paper_profile(path: str | Path, *, text: str | None = None) -> DirectionProfile | None:
-    text, section = _section_body(path, "研究方向定位", text=text)
+    text, section = _section_body(path, "研究方向定位", text=text, encoding="utf-8", errors="replace")
     if not text or section is None:
         return None
     target = _page_file(path)
@@ -272,7 +272,7 @@ def read_paper_profile(path: str | Path, *, text: str | None = None) -> Directio
     return DirectionProfile(
         page=rel,
         locator=f"{rel}#{section.slug}",
-        text=text,
+        text=text, encoding="utf-8", errors="replace",
         raw_citations=tuple(section.raw_citations),
     )
 

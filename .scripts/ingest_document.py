@@ -261,7 +261,7 @@ def extract_doc_text(source_path: Path, extract_dir: Path | None = None) -> str:
     if suffix in (".docx", ".doc"):
         result = subprocess.run(
             ["textutil", "-convert", "txt", "-stdout", str(source_path)],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         return result.stdout if result.returncode == 0 else ""
     if suffix == ".pptx":
@@ -276,7 +276,7 @@ def extract_doc_text(source_path: Path, extract_dir: Path | None = None) -> str:
              "--paper", paper_id,
              "--external-pdf", str(source_path),
              "--papers-dir", str(extract_dir)],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         md_path = extract_dir / paper_id / "paper.md"
         if md_path.is_file():
@@ -290,7 +290,7 @@ def extract_doc_text(source_path: Path, extract_dir: Path | None = None) -> str:
                  "--external-pdf", str(source_path),
                  "--papers-dir", str(extract_dir),
                  "--engine", "blsc_ocr"],
-                capture_output=True, text=True,
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
             )
             if md_path.is_file():
                 return md_path.read_text(encoding="utf-8")
@@ -2067,7 +2067,7 @@ def prepare_companion_repair(source: Path, wiki: Path, subproject: str) -> dict:
             or not source.is_relative_to((REPO / subproject / "raw").resolve())
             or not wiki.is_relative_to((REPO / subproject / "wiki").resolve())):
         raise ValueError("repair requires an existing same-domain Raw Excel and Wiki")
-    source_relative = str(source.relative_to(REPO))
+    source_relative = source.relative_to(REPO).as_posix()
     original_wiki = wiki.read_text(encoding="utf-8")
     match = re.match(r"^---\n(.*?)\n---(?:\n|$)", original_wiki, re.S)
     if not match:
@@ -2085,7 +2085,7 @@ def prepare_companion_repair(source: Path, wiki: Path, subproject: str) -> dict:
         "transaction_id": transaction_id, "workflow": "companion_repair",
         "source": source_relative, "source_filename": source.name,
         "subproject": subproject, "source_kind": "ordinary", "semantic_backend": "agent",
-        "wiki_path": str(wiki.relative_to(REPO)), "source_sha256": sha256_file(source),
+        "wiki_path": wiki.relative_to(REPO).as_posix(), "source_sha256": sha256_file(source),
         "wiki_sha256": sha256_file(wiki), "extract_dir": f"temp/inbox-extract/{transaction_id}",
     }
     success, message = step_preprocess(state)
@@ -2094,7 +2094,7 @@ def prepare_companion_repair(source: Path, wiki: Path, subproject: str) -> dict:
     if sha256_file(source) != state["source_sha256"] or sha256_file(wiki) != state["wiki_sha256"]:
         raise ValueError("repair input changed during extraction")
     extract = REPO / state["extract_dir"]
-    (extract / "original-wiki.md").write_text(original_wiki, encoding="utf-8")
+    (extract / "original-wiki.md").write_text(original_wiki, encoding="utf-8", newline="\n")
     context_path = extract / names[1]
     context = json.loads(context_path.read_text(encoding="utf-8"))
     context["source"] = source_relative
@@ -2188,7 +2188,7 @@ def resume_companion_repair(state: dict) -> dict:
     metadata = re.sub(r"(?m)^updated:.*$", f"updated: {today}", metadata)
     if not re.search(r"(?m)^updated:", metadata):
         metadata += f"updated: {today}\n"
-    draft.write_text("---" + metadata + "---" + body, encoding="utf-8")
+    draft.write_text("---" + metadata + "---" + body, encoding="utf-8", newline="\n")
     manifest = extract / "manifest.json"
     manifest.write_text(json.dumps({"schema": inbox_finalize.MANIFEST_V2,
                                    "raw_artifacts": state["repair_artifacts"], "wiki_file": "wiki.md"},
@@ -2203,8 +2203,8 @@ def resume_companion_repair(state: dict) -> dict:
         expected_wiki_sha256=state["wiki_sha256"], raw_guards=((source, state["source_sha256"]),),
         update_log=(REPO / state["subproject"] / "wiki/log.md", log_entry),
     )
-    state.update(status="completed", receipt=str(receipt.relative_to(REPO)),
-                 receipt_path=str(receipt.relative_to(REPO)), final_wiki_sha256=sha256_file(wiki))
+    state.update(status="completed", receipt=receipt.relative_to(REPO).as_posix(),
+                 receipt_path=receipt.relative_to(REPO).as_posix(), final_wiki_sha256=sha256_file(wiki))
     inbox_state.save(state["transaction_id"], state)
     return {"status": "completed", "committed": True, "receipt": state["receipt"],
             "transaction_id": state["transaction_id"], "source_sha256": state["source_sha256"]}

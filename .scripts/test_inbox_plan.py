@@ -66,7 +66,7 @@ def test_hidden_control_and_system_entries_are_not_planned():
     with tempfile.TemporaryDirectory() as directory:
         inbox = Path(directory) / "inbox"
         inbox.mkdir()
-        (inbox / ".gitkeep").write_text("", encoding="utf-8")
+        (inbox / ".gitkeep").write_text("", encoding="utf-8", newline="\n")
         (inbox / ".DS_Store").write_bytes(b"metadata")
         (inbox / ".temporary-upload").write_bytes(b"partial")
         (inbox / "paper.pdf").write_bytes(b"pdf")

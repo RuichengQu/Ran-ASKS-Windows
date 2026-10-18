@@ -709,7 +709,7 @@ def test_agent_reading_contract_uses_full_short_and_sections_long():
         original_repo = module.REPO
         try:
             module.REPO = root
-            paper.write_text("short paper", encoding="utf-8")
+            paper.write_text("short paper", encoding="utf-8", newline="\n")
             short = module._agent_reading_contract(paper)
             assert short["mode"] == "full"
             assert short["primary"]["action"] == "read_full"
@@ -775,8 +775,8 @@ def test_agent_workspace_check_restores_hash_bound_input_artifacts():
         source = extract_dir / "source.yaml"
         sidecar = extract_dir / "paper.pdf.source.json"
         manifest = extract_dir / "manifest.json"
-        source.write_text("external_path: inbox/demo.pdf\n", encoding="utf-8")
-        sidecar.write_text('{"original": true}\n', encoding="utf-8")
+        source.write_text("external_path: inbox/demo.pdf\n", encoding="utf-8", newline="\n")
+        sidecar.write_text('{"original": true}\n', encoding="utf-8", newline="\n")
         expected_source = source.read_bytes()
         expected_sidecar = sidecar.read_bytes()
         state = {
@@ -788,9 +788,9 @@ def test_agent_workspace_check_restores_hash_bound_input_artifacts():
         original_check = module._check_agent_workspace_once
 
         def mutating_check(_state):
-            source.write_text("bibliographic: changed\n", encoding="utf-8")
+            source.write_text("bibliographic: changed\n", encoding="utf-8", newline="\n")
             sidecar.unlink()
-            manifest.write_text('{"changed": true}\n', encoding="utf-8")
+            manifest.write_text('{"changed": true}\n', encoding="utf-8", newline="\n")
             return {"status": "ready_to_commit"}
 
         try:
@@ -2986,7 +2986,7 @@ def test_paper_materialization_repairs_inline_citation_without_model_rewrite():
             root = Path(directory)
             extract_dir = root / "temp/paper-inline-citation"
             extract_dir.mkdir(parents=True)
-            (extract_dir / "paper.md").write_text("Bell inequalities\n", encoding="utf-8")
+            (extract_dir / "paper.md").write_text("Bell inequalities\n", encoding="utf-8", newline="\n")
             raw_path = "academic/raw/references/demo/paper.md"
             wiki = (
                 f"---\ntitle: Demo\nsources:\n  - {raw_path}\n---\n"
@@ -2996,7 +2996,7 @@ def test_paper_materialization_repairs_inline_citation_without_model_rewrite():
                 f"\n## Sources\n\n[^r1]: {raw_path}#L1\n"
             )
             slots = "三元组:\n本论文|研究基础|贝尔不等式\n概念说明:\n"
-            (extract_dir / "skeleton.md").write_text(wiki, encoding="utf-8")
+            (extract_dir / "skeleton.md").write_text(wiki, encoding="utf-8", newline="\n")
             (extract_dir / "agent-wiki-slots.txt").write_text(
                 f"<<<WIKI>>>\n{wiki}\n<<<SLOTS>>>\n{slots}", encoding="utf-8",
             )
@@ -3122,7 +3122,7 @@ def test_api_workspace_persists_prepared_checkpoint_before_worker_call():
         extract_dir = root / "temp" / "api-checkpoint"
         extract_dir.mkdir(parents=True)
         paper_md = extract_dir / "paper.md"
-        paper_md.write_text("# Stable Paper\n", encoding="utf-8")
+        paper_md.write_text("# Stable Paper\n", encoding="utf-8", newline="\n")
         (extract_dir / "paper.pdf").write_bytes(b"pdf")
         state = {
             "status": "extract",
@@ -3756,7 +3756,7 @@ def test_resume_after_semantic_fix_loads_disk_content():
 def test_resume_after_semantic_fix_defers_to_awaiting_workspace():
     with tempfile.TemporaryDirectory() as directory:
         semantic_path = Path(directory) / "semantic.txt"
-        semantic_path.write_text("三元组:\n本论文 | 核心方法 | 修正概念\n", encoding="utf-8")
+        semantic_path.write_text("三元组:\n本论文 | 核心方法 | 修正概念\n", encoding="utf-8", newline="\n")
         original_repo = module.REPO
         try:
             module.REPO = Path(directory)
@@ -5653,10 +5653,10 @@ def test_reingest_commit_persists_declared_forward_stages():
         root = Path(directory)
         wiki_path = root / "academic/wiki/papers/demo.md"
         wiki_path.parent.mkdir(parents=True)
-        wiki_path.write_text("old wiki\n", encoding="utf-8")
+        wiki_path.write_text("old wiki\n", encoding="utf-8", newline="\n")
         extract_dir = root / "temp/reingest-extract/txn"
         extract_dir.mkdir(parents=True)
-        (extract_dir / "wiki.md").write_text("new wiki\n", encoding="utf-8")
+        (extract_dir / "wiki.md").write_text("new wiki\n", encoding="utf-8", newline="\n")
         state = {
             "transaction_id": "txn", "paper_id": "demo",
             "wiki_path": "academic/wiki/papers/demo",
@@ -5921,7 +5921,7 @@ def test_managed_workspace_bundle_rebase_requires_matching_state_and_bibliograph
         extract_dir = root / "temp/inbox-extract/txn"
         extract_dir.mkdir(parents=True)
         (extract_dir / "paper.pdf").write_bytes(b"pdf")
-        (extract_dir / "paper.md").write_text("# Demo\n", encoding="utf-8")
+        (extract_dir / "paper.md").write_text("# Demo\n", encoding="utf-8", newline="\n")
         bibliography = {
             "title": "Demo", "authors": ["Alice Example"], "year": "2026",
             "venue": "Example Journal",
@@ -5933,7 +5933,7 @@ def test_managed_workspace_bundle_rebase_requires_matching_state_and_bibliograph
         bundle_state = {}
         current_bundle = module._write_paper_artifact_manifest(bundle_state, extract_dir)
         output = extract_dir / "agent-workspace.txt"
-        output.write_text("workspace", encoding="utf-8")
+        output.write_text("workspace", encoding="utf-8", newline="\n")
         state = {
             "transaction_id": "txn", "status": "agent_required",
             "extract_dir": "temp/inbox-extract/txn",
@@ -5969,7 +5969,7 @@ def test_explicit_refresh_restores_legacy_agent_check_bibliography_drift():
         extract_dir = root / "temp/inbox-extract/txn"
         extract_dir.mkdir(parents=True)
         paper = extract_dir / "paper.md"
-        paper.write_text("# Demo\n\nAlice Example\n\n2026\n", encoding="utf-8")
+        paper.write_text("# Demo\n\nAlice Example\n\n2026\n", encoding="utf-8", newline="\n")
         (extract_dir / "paper.pdf").write_bytes(b"pdf")
         (extract_dir / "source.yaml").write_text(
             module.yaml.safe_dump({"external_path": "inbox/demo.pdf"}, sort_keys=False),
@@ -6025,7 +6025,7 @@ def test_explicit_refresh_restores_legacy_agent_check_bibliography_drift():
                 "artifact_bundle_sha256": expected_bundle,
                 "output_path": "temp/inbox-extract/txn/agent-workspace.txt",
             }
-            review = module.compile_bibliographic_decision(decision, catalog, paper.read_text())
+            review = module.compile_bibliographic_decision(decision, catalog, paper.read_text(encoding="utf-8"))
             module.normalize_bibliographic_review(review, candidates)
             locked = module.merge_bibliographic_review({}, review)
             module.persist_bibliographic_metadata(extract_dir, locked)
@@ -6181,7 +6181,7 @@ def test_agent_bibliography_schema_reports_independent_field_errors():
 def test_agent_reading_contract_exposes_individual_section_commands():
     with tempfile.TemporaryDirectory() as directory:
         source = Path(directory) / "paper with spaces.md"
-        source.write_text("text " * 10000, encoding="utf-8")
+        source.write_text("text " * 10000, encoding="utf-8", newline="\n")
         contract = module._agent_reading_contract(source)
         assert contract["mode"] == "adaptive_sections"
         commands = contract["primary"]["section_commands"]
@@ -6271,7 +6271,7 @@ def test_api_partial_paper_sections_supplement_body_with_real_bounded_handles():
     assert len(source) > module.FULL_TEXT_MAX_CHARS
     with tempfile.TemporaryDirectory() as directory:
         source_path = Path(directory) / "paper.md"
-        source_path.write_text(source, encoding="utf-8")
+        source_path.write_text(source, encoding="utf-8", newline="\n")
         details = {}
         context = module._api_paper_context(source, source_path, "academic/raw/references/example/paper.md", details)
     assert details["hit_sections"] == ["abstract"]
@@ -6300,7 +6300,7 @@ def test_api_paper_body_fallback_excludes_references_but_not_numbered_method_ste
     source = "\n".join(lines)
     with tempfile.TemporaryDirectory() as directory:
         source_path = Path(directory) / "paper.md"
-        source_path.write_text(source, encoding="utf-8")
+        source_path.write_text(source, encoding="utf-8", newline="\n")
         details = {}
         context = module.build_paper_context(source, source_path, diagnostics=details)
     assert details["mode"] == "body_windows"
@@ -6319,7 +6319,7 @@ def test_api_complete_paper_sections_keep_true_handles_across_trailing_blank_lin
     source = "\n".join(lines)
     with tempfile.TemporaryDirectory() as directory:
         source_path = Path(directory) / "paper.md"
-        source_path.write_text(source, encoding="utf-8")
+        source_path.write_text(source, encoding="utf-8", newline="\n")
         details = {}
         context = module._api_paper_context(source, source_path, "academic/raw/references/example/paper.md", details)
     assert details["mode"] == "sections"
@@ -6470,8 +6470,8 @@ def test_api_local_repair_uses_one_patch_call_preserves_slots_and_records_valida
         extract = root / "temp/patch"
         extract.mkdir(parents=True)
         wiki = _local_patch_wiki()
-        (extract / "wiki.md").write_text(wiki, encoding="utf-8")
-        (extract / "paper.md").write_text("# Evidence\nSecond source line.\n", encoding="utf-8")
+        (extract / "wiki.md").write_text(wiki, encoding="utf-8", newline="\n")
+        (extract / "paper.md").write_text("# Evidence\nSecond source line.\n", encoding="utf-8", newline="\n")
         state = {
             "transaction_id": "patch", "status": "write_wiki", "extract_dir": "temp/patch",
             "raw_dir": "academic/raw/references/example", "wiki_content": wiki,
@@ -6513,11 +6513,11 @@ def test_api_local_body_repair_invalidates_slots_and_syncs_only_workspace_segmen
         extract = root / "temp/patch-body"
         extract.mkdir(parents=True)
         wiki = _local_patch_wiki().replace("Stable study.", "待补充")
-        (extract / "wiki.md").write_text(wiki, encoding="utf-8")
-        (extract / "paper.md").write_text("# Evidence\nChanged study object.\n", encoding="utf-8")
+        (extract / "wiki.md").write_text(wiki, encoding="utf-8", newline="\n")
+        (extract / "paper.md").write_text("# Evidence\nChanged study object.\n", encoding="utf-8", newline="\n")
         original_prefix = '<<<BIBLIOGRAPHIC>>>\n{"locked": true}\n'
         workspace_path = extract / "agent-workspace.txt"
-        workspace_path.write_text(original_prefix + f"<<<WIKI>>>\n{wiki}<<<SLOTS>>>\nstale slots\n", encoding="utf-8")
+        workspace_path.write_text(original_prefix + f"<<<WIKI>>>\n{wiki}<<<SLOTS>>>\nstale slots\n", encoding="utf-8", newline="\n")
         state = {
             "transaction_id": "patch-body", "status": "write_wiki", "extract_dir": "temp/patch-body",
             "raw_dir": "academic/raw/references/example", "wiki_content": wiki, "slots_content": "stale slots",
@@ -6556,7 +6556,7 @@ def test_api_wiki_unknown_targets_and_agent_backend_do_not_call_patch_worker():
         extract = root / "temp/unknown-patch"
         extract.mkdir(parents=True)
         wiki = _local_patch_wiki()
-        (extract / "wiki.md").write_text(wiki, encoding="utf-8")
+        (extract / "wiki.md").write_text(wiki, encoding="utf-8", newline="\n")
         state = {"transaction_id": "unknown-patch", "extract_dir": "temp/unknown-patch", "wiki_content": wiki}
         with patch.object(module, "REPO", root), patch.object(module, "call_json", side_effect=AssertionError("不得调用 API")):
             with patch.object(module, "ingest_mode", return_value="api"):
@@ -6574,9 +6574,9 @@ def test_api_invalidated_slots_are_not_reused_after_workspace_materialization():
         extract = root / "temp/invalidated-slots"
         extract.mkdir(parents=True)
         wiki = _local_patch_wiki()
-        (extract / "skeleton.md").write_text(wiki, encoding="utf-8")
-        (extract / "paper.md").write_text("# Evidence\nSecond source line.\n", encoding="utf-8")
-        (extract / "agent-wiki-slots.txt").write_text(f"<<<WIKI>>>\n{wiki}<<<SLOTS>>>\nstale slots\n", encoding="utf-8")
+        (extract / "skeleton.md").write_text(wiki, encoding="utf-8", newline="\n")
+        (extract / "paper.md").write_text("# Evidence\nSecond source line.\n", encoding="utf-8", newline="\n")
+        (extract / "agent-wiki-slots.txt").write_text(f"<<<WIKI>>>\n{wiki}<<<SLOTS>>>\nstale slots\n", encoding="utf-8", newline="\n")
         state = {
             "transaction_id": "invalidated-slots", "status": "write_wiki", "extract_dir": "temp/invalidated-slots",
             "paper_id": "example", "raw_dir": "academic/raw/references/example", "wiki_path": "academic/wiki/papers/example",
@@ -6602,7 +6602,7 @@ def test_api_semantic_telemetry_records_actual_revalidation_after_repair():
         extract = root / "temp/semantic-telemetry"
         extract.mkdir(parents=True)
         semantic_path = extract / "semantic.txt"
-        semantic_path.write_text("invalid slots\n", encoding="utf-8")
+        semantic_path.write_text("invalid slots\n", encoding="utf-8", newline="\n")
         state = {
             "transaction_id": "semantic-telemetry", "extract_dir": "temp/semantic-telemetry",
             "semantic_path": "temp/semantic-telemetry/semantic.txt", "wiki_path": "academic/wiki/papers/example",
@@ -6611,7 +6611,7 @@ def test_api_semantic_telemetry_records_actual_revalidation_after_repair():
         with patch.object(module, "REPO", root), patch.object(module.ic, "load_raw_abbr_map", return_value={}):
             errors, _warnings = module.step_validate_semantics(state)
             assert errors
-            semantic_path.write_text("三元组:\n本论文 | 核心方法 | 稳定方法\n\n概念说明:\n稳定方法 | 局部方法说明。\n", encoding="utf-8")
+            semantic_path.write_text("三元组:\n本论文 | 核心方法 | 稳定方法\n\n概念说明:\n稳定方法 | 局部方法说明。\n", encoding="utf-8", newline="\n")
             errors, warnings = module.step_validate_semantics(state)
             assert not errors, errors
             assert not [warning for warning in warnings if module.ic.is_blocking_warning(warning, module.NON_BLOCKING_ISSUES)]
@@ -6627,10 +6627,10 @@ def test_api_prepare_uses_one_local_wiki_revision_then_hands_off_without_regener
         extract = root / "temp/patch-budget"
         extract.mkdir(parents=True)
         wiki = _local_patch_wiki()
-        (extract / "wiki.md").write_text(wiki, encoding="utf-8")
-        (extract / "paper.md").write_text("# Evidence\nSecond source line.\n", encoding="utf-8")
+        (extract / "wiki.md").write_text(wiki, encoding="utf-8", newline="\n")
+        (extract / "paper.md").write_text("# Evidence\nSecond source line.\n", encoding="utf-8", newline="\n")
         output = extract / "agent-workspace.txt"
-        output.write_text(f"<<<BIBLIOGRAPHIC>>>\n{{}}\n<<<WIKI>>>\n{wiki}<<<SLOTS>>>\nOriginal slots\n", encoding="utf-8")
+        output.write_text(f"<<<BIBLIOGRAPHIC>>>\n{{}}\n<<<WIKI>>>\n{wiki}<<<SLOTS>>>\nOriginal slots\n", encoding="utf-8", newline="\n")
         state = {
             "transaction_id": "patch-budget", "status": "write_wiki", "extract_dir": "temp/patch-budget",
             "raw_dir": "academic/raw/references/example", "wiki_content": wiki, "slots_content": "Original slots",
@@ -6728,7 +6728,7 @@ def test_resume_candidate_bibliography_reports_proposal_field_error_without_api(
         root = Path(directory)
         extract_dir = root / "temp/review"
         extract_dir.mkdir(parents=True)
-        (extract_dir / "paper.md").write_text("# Paper\n\nAlice Example\n", encoding="utf-8")
+        (extract_dir / "paper.md").write_text("# Paper\n\nAlice Example\n", encoding="utf-8", newline="\n")
         decision = module.api_bibliographic_decision_template()
         decision["selections"]["authors"]["proposed"] = [
             {"value": "Alice Example", "locator": "paper.md#L3"},

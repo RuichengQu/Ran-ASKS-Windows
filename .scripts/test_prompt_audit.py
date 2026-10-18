@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parent.parent
 
 
 def run(*args):
-    return subprocess.run(args, cwd=REPO, capture_output=True, text=True, check=True)
+    return subprocess.run(args, cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
 
 
 def has_routed_locator(text: str, file: str, section: str) -> bool:
@@ -287,7 +287,7 @@ def test_trusted_agent_build_profile_skips_semantic_review():
 
     incomplete = subprocess.run(
         (sys.executable, ".scripts/lint_specs.py", "--task", "build"),
-        cwd=REPO, capture_output=True, text=True,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     assert incomplete.returncode == 2
     assert "--task 与 --backend 必须同时提供" in incomplete.stderr
@@ -486,7 +486,7 @@ def test_private_query_uses_shared_stages_and_explicit_local_scope():
         result = subprocess.run(
             [sys.executable, '.scripts/route.py', '--task', 'query', '--subproject', 'private',
              '--query-stage', stage, '--format', 'json'], cwd=REPO, env=env,
-            capture_output=True, text=True, check=True)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
         payload = json.loads(result.stdout)
         assert payload['stage'] == stage
         assert payload['query_scope']['db'] == 'private/graph.db'
@@ -501,7 +501,7 @@ def test_private_query_uses_shared_stages_and_explicit_local_scope():
             assert '工程上下文(按元图派发)' not in payload['prompt']
     invalid = subprocess.run(
         [sys.executable, '.scripts/route.py', '--task', 'query', '--subproject', 'typo'],
-        cwd=REPO, capture_output=True, text=True)
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace")
     assert invalid.returncode != 0
 
 
@@ -535,7 +535,7 @@ def test_private_metaphysics_topic_dispatch_and_followups():
     for task, scope in [('query', 'public'), ('lint', 'private')]:
         invalid = subprocess.run(
             [sys.executable, '.scripts/route.py', '--task', task, '--subproject', scope,
-             '--query-topic', 'metaphysics'], cwd=REPO, capture_output=True, text=True)
+             '--query-topic', 'metaphysics'], cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace")
         assert invalid.returncode != 0
         assert 'query-topic' in invalid.stderr
 
@@ -563,7 +563,7 @@ def test_non_agent_backend_notices_every_stage():
     query_env["LLM_MODEL"] = "DeepSeek-V3.2"
     query = subprocess.run(
         [sys.executable, ".scripts/route.py", "--task", "query", "--query", "继续核验", "--query-stage", "continue"],
-        cwd=REPO, capture_output=True, text=True, check=True, env=query_env,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True, env=query_env,
     )
     assert "[query 后端] 阶段 continue：LLM=API（DeepSeek-V3.2）" in query.stderr
 
@@ -572,7 +572,7 @@ def test_non_agent_backend_notices_every_stage():
     ingest_env["LLM_MODEL"] = "DeepSeek-V3.2"
     ingest = subprocess.run(
         [sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic", "--stage", "2"],
-        cwd=REPO, capture_output=True, text=True, check=True, env=ingest_env,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True, env=ingest_env,
     )
     assert "[ingest 后端] 阶段2巩固：LLM=API（DeepSeek-V3.2）" in ingest.stderr
 
@@ -587,7 +587,7 @@ def test_ingest_dispatch_parameter_contract():
     bad = subprocess.run(
         [sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
          "--source-kind", "meeting", "--content", "paper", "--stage", "1"],
-        cwd=REPO, capture_output=True, text=True,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     assert bad.returncode != 0
     assert "不能派发论文模板" in bad.stderr
@@ -597,13 +597,13 @@ def test_paper_update_dispatch_keeps_local_changes_out_of_full_compilation():
     for backend in ("agent", "api"):
         env = dict(os.environ, INGEST_BACKEND=backend)
         command = [
-            "python3", ".scripts/route.py", "--task", "ingest",
+            sys.executable, ".scripts/route.py", "--task", "ingest",
             "--subproject", "academic", "--mode", "update",
             "--content", "paper", "--source-kind", "ordinary",
         ]
         warmup = subprocess.run(
             [*command, "--context-warmup", "--format", "json"],
-            cwd=REPO, capture_output=True, text=True, check=True, env=env,
+            cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True, env=env,
         )
         payload = json.loads(warmup.stdout)
         assert "--mode update" in payload["entrypoint"]
@@ -613,7 +613,7 @@ def test_paper_update_dispatch_keeps_local_changes_out_of_full_compilation():
         assert payload["backend"] == backend
         assert len(warmup.stdout) < 1800
         routed = subprocess.run(command, cwd=REPO, capture_output=True,
-                                text=True, check=True, env=env)
+                                text=True, encoding="utf-8", errors="replace", check=True, env=env)
         assert "增量" in routed.stderr
         assert "re_ingest.py --raw" in routed.stderr
         assert "ingest_paper.py --raw" not in routed.stderr
@@ -630,10 +630,10 @@ def test_ingest_context_warmup_is_compact_complete_and_profiled():
         "--context-warmup", "--format", "json",
     ]
     first = subprocess.run(
-        command, cwd=REPO, capture_output=True, text=True, check=True, env=env,
+        command, cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True, env=env,
     )
     second = subprocess.run(
-        command, cwd=REPO, capture_output=True, text=True, check=True, env=env,
+        command, cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True, env=env,
     )
     payload = json.loads(first.stdout)
     assert payload["schema"] == "ingest-context-warmup-v1"
@@ -668,7 +668,7 @@ def test_ingest_context_warmup_is_compact_complete_and_profiled():
             "--source-kind", "meeting", "--stage", "1", "--context-warmup",
             "--format", "json",
         ],
-        cwd=REPO, capture_output=True, text=True, check=True, env=env,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True, env=env,
     )
     meeting_payload = json.loads(meeting.stdout)
     assert meeting_payload["flow"] == "meeting"
@@ -682,7 +682,7 @@ def test_ingest_context_warmup_is_compact_complete_and_profiled():
             "--source-kind", "ordinary", "--stage", "1", "--context-warmup",
             "--format", "json",
         ],
-        cwd=REPO, capture_output=True, text=True, check=True, env=env,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True, env=env,
     ).stdout)
     assert document_payload["flow"] == "document"
     assert document_payload["entrypoint"].endswith("--subproject teaching")
@@ -693,7 +693,7 @@ def test_ingest_context_warmup_is_compact_complete_and_profiled():
     api_env = dict(env)
     api_env["INGEST_BACKEND"] = "api"
     api_payload = json.loads(subprocess.run(
-        command, cwd=REPO, capture_output=True, text=True, check=True, env=api_env,
+        command, cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True, env=api_env,
     ).stdout)
     assert api_payload["backend"] == "api"
     assert api_payload["control_owner"] == "program"
@@ -706,14 +706,14 @@ def test_ingest_context_warmup_is_compact_complete_and_profiled():
             "--source-kind", "ordinary", "--stage", "1", "--context-warmup",
             "--format", "json",
         ],
-        cwd=REPO, capture_output=True, text=True, env=api_env,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", env=api_env,
     )
     assert private_warmup.returncode != 0
     assert "仅覆盖公共域摄入，不适用于 private" in private_warmup.stderr
 
     invalid = subprocess.run(
         [sys.executable, ".scripts/route.py", "--task", "query", "--context-warmup"],
-        cwd=REPO, capture_output=True, text=True,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     assert invalid.returncode != 0
     assert "仅适用于 --task ingest" in invalid.stderr
@@ -771,7 +771,7 @@ def test_state_capability_tool_dispatch_is_explicit():
 
     mixed = subprocess.run(
         [sys.executable, ".scripts/route.py", "--task", "research", "--capability", "write"],
-        cwd=REPO, capture_output=True, text=True,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     assert mixed.returncode != 0
     assert "请分两次调用" in mixed.stderr
@@ -885,7 +885,7 @@ def test_engineering_graph_target_resolution():
 
     unknown = subprocess.run(
         [sys.executable, ".scripts/engineering_graph.py", "impact", "/tmp/graph_ingest.py"],
-        cwd=REPO, capture_output=True, text=True,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     assert unknown.returncode == 2
     assert "未知工程目标" in unknown.stderr
@@ -929,13 +929,13 @@ def test_long_document_documentation():
 def test_ingest_route_guardrails():
     missing_domain = subprocess.run(
         (sys.executable, ".scripts/route.py", "--task", "ingest", "--stage", "1"),
-        cwd=REPO, capture_output=True, text=True,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     assert missing_domain.returncode != 0
     assert "必须指定 --subproject" in missing_domain.stderr
     missing_stage = subprocess.run(
         (sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic"),
-        cwd=REPO, capture_output=True, text=True,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     assert missing_stage.returncode != 0
     assert "必须指定 --stage" in missing_stage.stderr
@@ -949,7 +949,7 @@ def test_ingest_route_guardrails():
     api_routed = subprocess.run(
         (sys.executable, ".scripts/route.py", "--task", "ingest", "--subproject", "academic",
          "--content", "paper", "--stage", "1"),
-        cwd=REPO, capture_output=True, text=True, env=api_env,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", env=api_env,
     )
     # API 与 Agent 共用输入分流；新文件和已归档 Raw 的整篇编译入口各自明确。
     assert api_routed.returncode == 0
@@ -1024,7 +1024,7 @@ def test_audited_prompt_currency_regressions():
 
 
 def test_build_principles_quality_efficiency_and_planning():
-    build = run("python3", ".scripts/route.py", "--task", "build").stdout
+    build = run(sys.executable, ".scripts/route.py", "--task", "build").stdout
     agents = (REPO / "AGENTS.md").read_text(encoding="utf-8")
     conventions = (REPO / "operations/shared-conventions.md").read_text(encoding="utf-8")
     assert "最小方案不等于最优方案" in build

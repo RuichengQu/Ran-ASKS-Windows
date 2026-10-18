@@ -951,10 +951,10 @@ def test_identity_correction_requires_archived_exact_assertion():
         repo = Path(temporary)
         raw = repo / "cross-domain/raw/facts/user-assertions.md"
         raw.parent.mkdir(parents=True)
-        raw.write_text("- [2026-10-10] **网名指真实姓名。** {: #fact-identity-test}\n", encoding="utf-8")
+        raw.write_text("- [2026-10-10] **网名指真实姓名。** {: #fact-identity-test}\n", encoding="utf-8", newline="\n")
         person = repo / "academic/wiki/authors/person.md"
         person.parent.mkdir(parents=True)
-        person.write_text("---\ntitle: 真实姓名\ntype: people\nsources: [cross-domain/raw/facts/user-assertions.md]\n---\n", encoding="utf-8")
+        person.write_text("---\ntitle: 真实姓名\ntype: people\nsources: [cross-domain/raw/facts/user-assertions.md]\n---\n", encoding="utf-8", newline="\n")
         correction = {"mention": "网名", "canonical": "academic/wiki/authors/person", "label": "真实姓名",
                       "source": "cross-domain/raw/facts/user-assertions.md#fact-identity-test", "quote": "网名指真实姓名。"}
         resolution = {"resolved": [], "compiler_entity_resolutions": [
@@ -999,7 +999,7 @@ def test_body_source_rebinding_survives_title_change_in_both_backends():
                     assert not ok and error == "Agent task prepared"
                     with patch.dict(globals(), {"_proposal": lambda: proposal}):
                         output = _output()
-                    (work / "agent-meeting-compiler.txt").write_text(output, encoding="utf-8")
+                    (work / "agent-meeting-compiler.txt").write_text(output, encoding="utf-8", newline="\n")
                 ok, error = meeting.step_write_wiki(state)
                 assert ok, (backend, error)
                 assert runner.call_count == (1 if backend == "api" else 0)

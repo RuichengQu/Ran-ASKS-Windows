@@ -361,7 +361,7 @@ def test_reasoning_budget_and_prompt_invalidate_cache(tmp: Path) -> None:
         assert changed["resumed_pages"] == 0
     with patch.object(visual_qa, "PROMPT_VERSION", "old-prompt"):
         assert run_visual_qa(image, **options)["check_key"] != first["check_key"]
-    manifest = json.loads(Path(first["receipt_dir"], "manifest.json").read_text())
+    manifest = json.loads(Path(first["receipt_dir"], "manifest.json").read_text(encoding="utf-8"))
     assert manifest["check_key_inputs"]["reasoning_effort"] == "low"
     assert manifest["check_key_inputs"]["max_tokens"] == 1800
 

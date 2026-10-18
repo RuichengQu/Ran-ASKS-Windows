@@ -311,7 +311,7 @@ def run_action(state: dict, action: str, repo: Path = REPO) -> dict:
     env = os.environ.copy()
     env.update(overrides)
     result = subprocess.run(
-        argv, cwd=repo, env=env, text=True, capture_output=True,
+        argv, cwd=repo, env=env, text=True, encoding="utf-8", errors="replace", capture_output=True,
     )
     return {
         "action": action,

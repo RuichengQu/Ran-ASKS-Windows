@@ -402,7 +402,7 @@ def test_staged_page_preflight_checks_future_graph_and_rolls_back():
         db = repo / "cross-domain/graph.db"
         for path in (original, draft, raw, db):
             path.parent.mkdir(parents=True, exist_ok=True)
-        raw.write_text("# Demo\n\nAlice Example\n\nSupported fact.\n", encoding="utf-8")
+        raw.write_text("# Demo\n\nAlice Example\n\nSupported fact.\n", encoding="utf-8", newline="\n")
         text = (
             "---\ntitle: Demo\ntype: paper-summary\nauthors: [Alice Example]\n"
             "sources: [academic/raw/references/demo/paper.md]\n"
@@ -411,8 +411,8 @@ def test_staged_page_preflight_checks_future_graph_and_rolls_back():
             "## Navigation\n\n## Content\nSupported fact.[^r1]\n"
             "## Sources\n[^r1]: academic/raw/references/demo/paper.md#L5\n"
         )
-        original.write_text(text, encoding="utf-8")
-        draft.write_text(text, encoding="utf-8")
+        original.write_text(text, encoding="utf-8", newline="\n")
+        draft.write_text(text, encoding="utf-8", newline="\n")
         with (patch.object(gl, "REPO", repo), patch.object(gl, "GRAPH_DB", db),
               patch.object(module.ingest_check, "REPO", repo),
               patch.object(module.wl, "REPO", repo),
@@ -466,7 +466,7 @@ def test_staged_page_preflight_checks_future_graph_and_rolls_back():
                 assert any("locator 不存在" in error for error in exc.report["errors"])
                 assert any("status 非法" in error for error in exc.report["errors"])
             assert list(conn.iterdump()) == before
-            draft.write_text(text, encoding="utf-8")
+            draft.write_text(text, encoding="utf-8", newline="\n")
             args.plan_only = False
             with redirect_stdout(StringIO()):
                 module.cmd_ingest(args)

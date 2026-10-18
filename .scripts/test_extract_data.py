@@ -280,18 +280,18 @@ class ExtractDataTests(unittest.TestCase):
 
     def test_cli_and_wg_envelopes(self):
         command = [sys.executable, str(REPO / ".scripts" / "extract_data.py"), "check", "--spec", str(self.spec_path)]
-        completed = subprocess.run(command, capture_output=True, text=True)
+        completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         self.assertEqual(json.loads(completed.stdout)["status"], "valid")
         command = [sys.executable, str(REPO / ".scripts" / "wg.py"), "extract-data", "check", "--spec", str(self.spec_path)]
-        completed = subprocess.run(command, capture_output=True, text=True)
+        completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
         result = json.loads(completed.stdout)
         self.assertTrue(result["ok"], completed.stdout)
         self.assertEqual(result["action"], "extract-data")
         self.assertEqual(result["sources"], [str(self.source)])
         self.spec["calibration_review"]["status"] = "pending"
         self.save_spec()
-        completed = subprocess.run(command, capture_output=True, text=True)
+        completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertFalse(json.loads(completed.stdout)["ok"])
 
     def test_shared_kernel_never_calls_remote_ocr(self):

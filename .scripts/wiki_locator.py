@@ -207,7 +207,7 @@ def parse_wiki_text(text: str) -> tuple[list[WikiSection], dict[str, str]]:
             level=level,
             start_line=start + 1,
             end_line=end,
-            text=section_text,
+            text=section_text, encoding="utf-8", errors="replace",
             footnote_ids=ids,
             raw_citations=citations,
         ))

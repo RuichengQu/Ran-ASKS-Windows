@@ -108,7 +108,7 @@ def diagnose(workspace: Path, profile: str = "core") -> dict:
     if validator.is_file() and importlib.util.find_spec("yaml") is not None:
         result = subprocess.run(
             [sys.executable, str(validator), "validate"], cwd=root,
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
         detail = (result.stdout or result.stderr).strip().splitlines()
         checks.append(item("engineering graph", "pass" if result.returncode == 0 else "error",

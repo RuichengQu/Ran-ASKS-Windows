@@ -15,7 +15,7 @@ import open_source_release as release
 
 
 def git(repository: Path, *arguments: str) -> str:
-    result = subprocess.run(["git", *arguments], cwd=repository, text=True,
+    result = subprocess.run(["git", *arguments], cwd=repository, text=True, encoding="utf-8", errors="replace",
                             capture_output=True, check=True)
     return result.stdout.strip()
 
@@ -134,7 +134,7 @@ def test_prospective_ignore_audit_uses_staged_release_rules() -> None:
         staging = root / "staging"
         destination.mkdir()
         staging.mkdir()
-        (destination / ".gitignore").write_text("**/wiki/**\n", encoding="utf-8")
+        (destination / ".gitignore").write_text("**/wiki/**\n", encoding="utf-8", newline="\n")
         (staging / ".gitignore").write_text(
             "**/wiki/**\n!examples/\n!examples/**\n", encoding="utf-8",
         )

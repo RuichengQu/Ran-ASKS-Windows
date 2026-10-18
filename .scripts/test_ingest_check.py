@@ -332,7 +332,7 @@ def test_bibliographic_consistency_accepts_exact_layout_venue_over_stale_scalar(
         repo = Path(directory).resolve()
         raw_dir = repo / "academic/raw/references/demo"
         raw_dir.mkdir(parents=True)
-        (raw_dir / "paper.md").write_text("# Demo\n", encoding="utf-8")
+        (raw_dir / "paper.md").write_text("# Demo\n", encoding="utf-8", newline="\n")
         (raw_dir / "source.yaml").write_text(
             "bibliographic:\n"
             "  year: '2007'\n"

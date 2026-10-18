@@ -251,10 +251,10 @@ def release_payload_sha256(destination: Path) -> str:
 
 def git_source_identity(repository: Path = REPO) -> tuple[str | None, str | None]:
     commit = subprocess.run(
-        ["git", "rev-parse", "HEAD^{commit}"], cwd=repository, text=True, capture_output=True
+        ["git", "rev-parse", "HEAD^{commit}"], cwd=repository, text=True, encoding="utf-8", errors="replace", capture_output=True
     )
     tree = subprocess.run(
-        ["git", "rev-parse", "HEAD^{tree}"], cwd=repository, text=True, capture_output=True
+        ["git", "rev-parse", "HEAD^{tree}"], cwd=repository, text=True, encoding="utf-8", errors="replace", capture_output=True
     )
     if commit.returncode or tree.returncode:
         return None, None
@@ -353,7 +353,7 @@ def git_publication_diff(destination: Path) -> tuple[set[str], str | None]:
     inside = subprocess.run(
         ["git", "rev-parse", "--is-inside-work-tree"],
         cwd=destination,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         capture_output=True,
     )
     if inside.returncode != 0 or inside.stdout.strip() != "true":
@@ -361,7 +361,7 @@ def git_publication_diff(destination: Path) -> tuple[set[str], str | None]:
     has_head = subprocess.run(
         ["git", "rev-parse", "--verify", "HEAD"],
         cwd=destination,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         capture_output=True,
     )
     if has_head.returncode != 0:
@@ -369,14 +369,14 @@ def git_publication_diff(destination: Path) -> tuple[set[str], str | None]:
     tracked = subprocess.run(
         ["git", "diff", "HEAD", "--name-only", "--"],
         cwd=destination,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         capture_output=True,
         check=True,
     )
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"],
         cwd=destination,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         capture_output=True,
         check=True,
     )
@@ -390,7 +390,7 @@ def git_publication_diff(destination: Path) -> tuple[set[str], str | None]:
     has_parent = subprocess.run(
         ["git", "rev-parse", "--verify", "HEAD^"],
         cwd=destination,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         capture_output=True,
     )
     if has_parent.returncode != 0:
@@ -398,7 +398,7 @@ def git_publication_diff(destination: Path) -> tuple[set[str], str | None]:
     latest = subprocess.run(
         ["git", "diff", "HEAD^", "HEAD", "--name-only", "--"],
         cwd=destination,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         capture_output=True,
         check=True,
     )
@@ -413,7 +413,7 @@ def version_progression_errors(destination: Path, version: str, changes: set[str
     if not changes or base is None:
         return []
     previous = subprocess.run(["git", "show", f"{base}:VERSION"], cwd=destination,
-                              text=True, capture_output=True)
+                              text=True, encoding="utf-8", errors="replace", capture_output=True)
     if previous.returncode != 0:
         return ["public update baseline has no VERSION; review the baseline before publishing"]
     old_version = previous.stdout.strip()
@@ -621,7 +621,7 @@ def git_ignored_files(destination: Path, paths: set[str]) -> list[str]:
     probe = subprocess.run(
         ["git", "rev-parse", "--is-inside-work-tree"],
         cwd=destination,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         capture_output=True,
     )
     if probe.returncode != 0:
@@ -630,7 +630,7 @@ def git_ignored_files(destination: Path, paths: set[str]) -> list[str]:
         ["git", "check-ignore", "--no-index", "--stdin"],
         cwd=destination,
         input="\n".join(sorted(paths)) + "\n",
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         capture_output=True,
     )
     if checked.returncode not in (0, 1):
@@ -648,7 +648,7 @@ def prospective_git_ignored_files(tree: Path, paths: set[str]) -> list[str]:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
         initialized = subprocess.run(
-            ["git", "init", "-q"], cwd=audit, text=True, capture_output=True,
+            ["git", "init", "-q"], cwd=audit, text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
         if initialized.returncode:
             raise ValueError(f"git ignore audit init failed: {initialized.stderr.strip()}")

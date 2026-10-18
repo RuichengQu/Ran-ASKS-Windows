@@ -20,15 +20,15 @@ def test_workspace_discovery_from_nested_path() -> None:
         nested = root / "a" / "b"
         (root / ".scripts").mkdir(parents=True)
         nested.mkdir(parents=True)
-        (root / "AGENTS.md").write_text("test\n", encoding="utf-8")
-        (root / ".scripts" / "wg.py").write_text("pass\n", encoding="utf-8")
+        (root / "AGENTS.md").write_text("test\n", encoding="utf-8", newline="\n")
+        (root / ".scripts" / "wg.py").write_text("pass\n", encoding="utf-8", newline="\n")
         assert cli.find_workspace(cwd=nested) == root.resolve()
 
 
 def test_cli_reports_canonical_version() -> None:
     result = subprocess.run(
         [sys.executable, "-m", "ran_asks", "--version"], cwd=REPO,
-        text=True, capture_output=True, check=True,
+        text=True, encoding="utf-8", errors="replace", capture_output=True, check=True,
     )
     assert result.stdout.strip() == (REPO / "VERSION").read_text(encoding="utf-8").strip()
 

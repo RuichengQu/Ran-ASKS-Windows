@@ -122,7 +122,7 @@ def verify_manifest_artifact(source: Path, entry: dict) -> None:
 
 def run_ingest_check(project_root: Path, wiki_path: Path) -> None:
     command = [sys.executable, str(project_root / ".scripts" / "ingest_check.py"), str(wiki_path)]
-    result = subprocess.run(command, cwd=project_root, capture_output=True, text=True)
+    result = subprocess.run(command, cwd=project_root, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode:
         detail = (result.stdout + result.stderr).strip()
         raise ValueError(f"ingest_check failed; temporary extraction is retained: {detail}")

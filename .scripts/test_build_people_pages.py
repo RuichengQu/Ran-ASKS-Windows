@@ -98,7 +98,7 @@ def test_meeting_person_page_uses_raw_source_and_rewrites_canonical_link() -> No
         meeting_file.parent.mkdir(parents=True)
         raw.parent.mkdir(parents=True)
         pending.parent.mkdir(parents=True)
-        raw.write_text("张三参加会议。\n", encoding="utf-8")
+        raw.write_text("张三参加会议。\n", encoding="utf-8", newline="\n")
         meeting_file.write_text(
             "---\ntitle: 测试会议\ntype: conference-summary\nsources:\n"
             "  - academic/raw/conferences/2026/1002-test.txt\n"
@@ -172,7 +172,7 @@ def test_repair_generated_page_adds_raw_support_edge() -> None:
             f"  - {raw_path}\nsource_type: speech-recognition\n---\n\n# 测试会议\n",
             encoding="utf-8",
         )
-        raw.write_text("张三参加会议。\n", encoding="utf-8")
+        raw.write_text("张三参加会议。\n", encoding="utf-8", newline="\n")
 
         conn = gl.connect(repo / "graph.db")
         gl.init_schema(conn)

@@ -23,7 +23,7 @@ def valid_source():
 
 
 def test_real_manifest_preserves_original_questions_and_cross_domain_scope():
-    manifest = json.loads(benchmark.manifest_for_suite("real").read_text())
+    manifest = json.loads(benchmark.manifest_for_suite("real").read_text(encoding="utf-8"))
     cases = benchmark.validate_manifest(manifest, suite="real")
     assert len(cases) == 15
     assert sum(case["domain"] == "admin" for case in cases) == 3
@@ -83,7 +83,7 @@ def test_real_run_uses_frozen_manifest_without_reading_source_log():
         assert report["suite"] == "real" and report["stable_responses"]
         assert probe.call_args.args[0] == case
         assert fingerprints.call_count == 2 and fingerprints.call_args.args == (manifest_path,)
-        assert json.loads((output / "manifest.json").read_text()) == manifest
+        assert json.loads((output / "manifest.json").read_text(encoding="utf-8")) == manifest
         assert not (root / "academic").exists()
         assert len(list(output.iterdir())) == 2
 
@@ -99,7 +99,7 @@ def test_fingerprints_bind_selected_suite_and_reject_manifest_escape():
         with patch.object(benchmark, "REPO", root), patch.object(benchmark, "SOURCE_FILES", ()), \
              patch.object(benchmark.qg, "__file__", str(runtime)):
             fingerprints = benchmark.input_fingerprints(manifest_path)
-        assert fingerprints["files"][str(manifest_path.relative_to(root))] == benchmark.digest(b"real")
+        assert fingerprints["files"][manifest_path.relative_to(root).as_posix()] == benchmark.digest(b"real")
         assert "operations/config/retrieval-benchmark.json" not in fingerprints["files"]
         manifest_path.unlink()
         outside = root / "outside.json"
@@ -116,7 +116,7 @@ def test_fingerprints_bind_selected_suite_and_reject_manifest_escape():
 
 
 def test_manifest_rejects_executable_fields_and_private_targets():
-    assert len(benchmark.validate_manifest(json.loads(benchmark.MANIFEST.read_text()))) == 20
+    assert len(benchmark.validate_manifest(json.loads(benchmark.MANIFEST.read_text(encoding="utf-8")))) == 20
     for changes in ({"command": "echo forbidden"}, {"channel": "hybrid"}, {"domain": "private"},
                     {"expected": ["private/wiki/example"]}, {"expected": ["academic/wiki/../../private/example"]},
                     {"depth": 6}, {"top_k": True}, {"query": ""}):
@@ -158,7 +158,7 @@ def test_network_blocked_and_logical_reads_counted():
         target.write_text("example")
 
         def recall(*args):
-            assert target.read_text() == target.read_text() == "example"
+            assert target.read_text(encoding="utf-8") == target.read_text(encoding="utf-8") == "example"
             with socket.socket() as client:
                 try:
                     client.connect(("127.0.0.1", 9))

@@ -187,7 +187,7 @@ class StateTests(unittest.TestCase):
         self.assertEqual(ps.stage(current, 's1'), 'content_review')
         self.assertEqual(current['session']['approval_records']['s1'], {})
         self.assertNotIn('build', current['slides']['s1'])
-        self.assertEqual((self.store.root / 'assets' / old_hash).read_text(), 'source fixture')
+        self.assertEqual((self.store.root / 'assets' / old_hash).read_text(encoding="utf-8"), 'source fixture')
 
     def test_design_change_retains_only_content_approval(self):
         self.ready()
@@ -306,7 +306,7 @@ class StateTests(unittest.TestCase):
         bad['sources'][0]['evidence_status'] = 'raw_verified'
         with self.assertRaises(ps.StateError):
             self.apply('set-content', payload=bad)
-        self.assertEqual(path.read_text(), 'source fixture')
+        self.assertEqual(path.read_text(encoding="utf-8"), 'source fixture')
 
     def test_no_visual_or_user_approval_from_mechanical_pass(self):
         self.ready()
@@ -354,7 +354,7 @@ class StateTests(unittest.TestCase):
         self.assertEqual((self.store.root / 'current.json').read_bytes(), baseline)
         self.store.apply(req)
         self.assertEqual(self.store.read()['slides']['s1']['content'], content())
-        for source in (Path(ps.__file__).read_text(), Path(render.__file__).read_text()):
+        for source in (Path(ps.__file__).read_text(encoding="utf-8"), Path(render.__file__).read_text(encoding="utf-8")):
             self.assertNotIn('import dsh', source)
             self.assertNotIn('llm_structured', source)
             self.assertNotIn('load_visual_env(', source)
@@ -403,7 +403,7 @@ class StateTests(unittest.TestCase):
             shutil.copyfile(REPO / '.scripts' / name, scripts / name)
         def cli(*args, expected=0):
             proc = subprocess.run([sys.executable, '-B', str(scripts / 'presentation_state.py'), *args],
-                                  cwd=self.repo, capture_output=True, text=True)
+                                  cwd=self.repo, capture_output=True, text=True, encoding="utf-8", errors="replace")
             self.assertEqual(proc.returncode, expected, proc.stdout + proc.stderr)
             return json.loads(proc.stdout)
         plan = self.repo / 'plan.json'

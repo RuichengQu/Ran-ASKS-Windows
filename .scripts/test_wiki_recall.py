@@ -198,7 +198,7 @@ class WikiRecallTests(unittest.TestCase):
 
         def read_text(target, *args, **kwargs):
             if target.suffix == ".md":
-                reads[str(target.relative_to(self.root)).removesuffix(".md")] += 1
+                reads[target.relative_to(self.root).as_posix().removesuffix(".md")] += 1
             return original_read(target, *args, **kwargs)
 
         with patch.object(Path, "read_text", read_text):
@@ -212,7 +212,7 @@ class WikiRecallTests(unittest.TestCase):
 
         def read_text(target, *args, **kwargs):
             if target.suffix == ".md":
-                reads[str(target.relative_to(self.root)).removesuffix(".md")] += 1
+                reads[target.relative_to(self.root).as_posix().removesuffix(".md")] += 1
             return original_read(target, *args, **kwargs)
 
         with patch.object(Path, "read_text", read_text):
@@ -257,7 +257,7 @@ class WikiRecallTests(unittest.TestCase):
 
         def read_text(target, *args, **kwargs):
             if target.suffix == ".md":
-                reads[str(target.relative_to(self.root)).removesuffix(".md")] += 1
+                reads[target.relative_to(self.root).as_posix().removesuffix(".md")] += 1
             return original_read(target, *args, **kwargs)
 
         with patch.object(Path, "read_text", read_text):
@@ -308,10 +308,10 @@ class WikiRecallTests(unittest.TestCase):
 
     def test_supplied_profile_text_matches_file_parser_without_reread(self):
         page = self.add_page("profile", "Example", profile="研究开放量子系统中的纠缠动力学。")
-        text = (self.root / f"{page}.md").read_text()
+        text = (self.root / f"{page}.md").read_text(encoding="utf-8")
         expected = hs.read_paper_profile(page)
         with patch.object(Path, "read_text", side_effect=AssertionError("second read")):
-            actual = hs.read_paper_profile(page, text=text)
+            actual = hs.read_paper_profile(page, text=text, encoding="utf-8", errors="replace")
             self.assertIsNone(hs.read_paper_profile(page, text="# no direction section"))
         self.assertEqual(expected, actual)
         self.assertEqual(actual.raw_citations, ("academic/raw/example.md#L2",))

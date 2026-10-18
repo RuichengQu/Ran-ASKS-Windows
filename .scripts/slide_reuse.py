@@ -386,7 +386,7 @@ def instantiate(component, values, target):
         require(library.vision.digest(component/'receipt.json') == template_digest, 'Template changed during use')
         library.vision.write(pending/'instance.json', {
             'schema':'slide-reuse-instance-v1', 'kind':'direct',
-            'template':str(component.relative_to(library.REPO)),
+            'template':component.relative_to(library.REPO).as_posix(),
             'template_receipt_sha256':template_digest, 'source':receipt['source'],
             'source_sha256':receipt['source_sha256'], 'values':{},
             'files':{p.name:library.vision.digest(p) for p in pending.iterdir() if p.is_file()},

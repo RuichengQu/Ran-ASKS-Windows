@@ -43,13 +43,13 @@ def test_injection_is_blocked_and_fallback_trace_is_complete() -> None:
 def test_cli_json_and_validate_modes() -> None:
     json_run = subprocess.run(
         [sys.executable, str(SCRIPT), "--json"], cwd=REPO,
-        text=True, capture_output=True, check=False,
+        text=True, encoding="utf-8", errors="replace", capture_output=True, check=False,
     )
     assert json_run.returncode == 0, json_run.stderr
     assert json.loads(json_run.stdout)["status"] == "passed"
     validate = subprocess.run(
         [sys.executable, str(SCRIPT), "--validate"], cwd=REPO,
-        text=True, capture_output=True, check=False,
+        text=True, encoding="utf-8", errors="replace", capture_output=True, check=False,
     )
     assert validate.returncode == 0, validate.stderr
     assert "PASS" in validate.stdout

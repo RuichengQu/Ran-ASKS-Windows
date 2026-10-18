@@ -926,7 +926,7 @@ def validate_semantics(state: dict, REPO: Path, allowed_predicates: set[str],
     state["slots_content"] = sem_text
     canonicalized = canonicalize_semantic_abbreviations(sem_text)
     if canonicalized != sem_text:
-        semantic_path.write_text(canonicalized, encoding="utf-8")
+        semantic_path.write_text(canonicalized, encoding="utf-8", newline="\n")
         sem_text = canonicalized
         state["slots_content"] = canonicalized
     # 裸缩写三段式第二步: alias 未命中时从 raw 全文查全称,自动补全为 full(ABBR) 格式

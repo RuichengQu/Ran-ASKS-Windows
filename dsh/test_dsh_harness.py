@@ -318,7 +318,7 @@ def test_citation_records_original_for_companion():
         original = folder / "managed.docx"
         companion = folder / "managed.md"
         original.write_bytes(b"synthetic docx fixture")
-        companion.write_text("alpha\nverified evidence\n", encoding="utf-8")
+        companion.write_text("alpha\nverified evidence\n", encoding="utf-8", newline="\n")
         locator = companion.relative_to(REPO).as_posix() + "#L2"
         original_source = original.relative_to(REPO).as_posix()
         guard = CitationGuard()

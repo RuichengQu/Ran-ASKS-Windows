@@ -148,7 +148,7 @@ def test_academic_missing_type_stops_before_transaction_and_raw_write():
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "--file", inbox_file.relative_to(module.REPO).as_posix(),
              "--subproject", "academic"],
-            cwd=module.REPO, capture_output=True, text=True, check=True,
+            cwd=module.REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
         )
         payload = json.loads(result.stdout)
         assert payload["status"] == "classification_required"
@@ -454,14 +454,14 @@ def test_document_evidence_requires_inline_handles_without_relaxing_validation()
     )
     with tempfile.TemporaryDirectory() as directory:
         source_path = Path(directory) / "source.md"
-        source_path.write_text("拟修订落实原则\n", encoding="utf-8")
+        source_path.write_text("拟修订落实原则\n", encoding="utf-8", newline="\n")
         for draft, valid in ((inline, True), (footnote_only, False),
                              (inline.replace("<RAW#L1>", "<RAW#L99>"), False)):
             normalized, _repairs = module.normalize_document_wiki(
                 draft, correct_sources="admin/raw/policies/source.md", source_date="",
                 doc_text=source_path.read_text(encoding="utf-8"), created_at="2026-10-12",
             )
-            (Path(directory) / "wiki.md").write_text(normalized, encoding="utf-8")
+            (Path(directory) / "wiki.md").write_text(normalized, encoding="utf-8", newline="\n")
             state = {
                 "subproject": "admin", "wiki_content": normalized,
                 "source_filename": "source.docx", "locator_source_filename": "source.md",
@@ -720,7 +720,7 @@ def test_preprocess_preserves_cover_month_for_both_backends():
             for backend in ("agent", "api"):
                 with patch.dict("os.environ", {"INGEST_BACKEND": backend}):
                     state = {
-                        "source": str(source.relative_to(repo)),
+                        "source": source.relative_to(repo).as_posix(),
                         "source_filename": source.name,
                         "extract_dir": f"temp/extract-{backend}",
                     }
@@ -1324,7 +1324,7 @@ def test_preprocess_binary_creates_raw_companion():
         assert module._manifest_raw_files(state) == [
             "policy.docx", "policy.md", "policy.docx.source.json"]
         context = json.loads((module.REPO / state["extract_dir"]
-                              / "policy.docx.source.json").read_text())
+                              / "policy.docx.source.json").read_text(encoding="utf-8"))
         assert context["companion"]["source_sha256"] == module.sha256_file(
             module.REPO / state["source"])
     finally:
@@ -1763,8 +1763,8 @@ def test_spreadsheet_preprocess_keeps_original_and_companion():
             assert module._manifest_raw_files(state) == [
                 "台账.xls", "台账.md", "台账.xls.source.json"]
         assert state["locator_source_filename"] == "台账.md"
-        assert (repo / state["extract_dir"] / "台账.md").read_text() == module.extract_doc_text(source)
-        context = json.loads((repo / state["extract_dir"] / "台账.xls.source.json").read_text())
+        assert (repo / state["extract_dir"] / "台账.md").read_text(encoding="utf-8") == module.extract_doc_text(source)
+        context = json.loads((repo / state["extract_dir"] / "台账.xls.source.json").read_text(encoding="utf-8"))
         assert context["companion"]["schema"] == "raw-companion-v1"
         assert context["companion"]["locator_scheme"] == "table-row"
         assert source.read_bytes() == before
@@ -1788,9 +1788,9 @@ def test_companion_repair_transaction_and_guards():
             original_wiki = ("---\ntitle: Demo\ntype: profile\nsources:\n"
                              "  - admin/raw/profile/table.xls\nupdated: 2026-01-01\n---\n"
                              "# Demo\n\n## Facts\n原始事实\n")
-            wiki.write_text(original_wiki, encoding="utf-8")
+            wiki.write_text(original_wiki, encoding="utf-8", newline="\n")
             log = repo / "admin/wiki/log.md"
-            log.write_text("existing log", encoding="utf-8")
+            log.write_text("existing log", encoding="utf-8", newline="\n")
             with patch.object(module, "REPO", repo), patch.object(module.inbox_state, "REPO", repo), \
                     patch.object(module, "ingest_mode", return_value="agent"), \
                     patch.object(inbox_finalize, "run_ingest_check",
@@ -1805,17 +1805,17 @@ def test_companion_repair_transaction_and_guards():
                 if failure == "source":
                     source.write_bytes(original + b"changed")
                 elif failure == "wiki":
-                    wiki.write_text(original_wiki + "changed", encoding="utf-8")
+                    wiki.write_text(original_wiki + "changed", encoding="utf-8", newline="\n")
                 elif failure == "companion":
-                    (extract / "table.md").write_text("invented", encoding="utf-8")
+                    (extract / "table.md").write_text("invented", encoding="utf-8", newline="\n")
                 elif failure == "sidecar":
-                    (extract / "table.xls.source.json").write_text("{}", encoding="utf-8")
+                    (extract / "table.xls.source.json").write_text("{}", encoding="utf-8", newline="\n")
                 elif failure == "semantics":
-                    draft.write_text(draft.read_text().replace("原始事实", "虚构事实"), encoding="utf-8")
+                    draft.write_text(draft.read_text(encoding="utf-8").replace("原始事实", "虚构事实"), encoding="utf-8")
                 elif failure == "metadata":
-                    draft.write_text(draft.read_text().replace("title: Demo", "title: Demo[^raw]"), encoding="utf-8")
+                    draft.write_text(draft.read_text(encoding="utf-8").replace("title: Demo", "title: Demo[^raw]"), encoding="utf-8")
                 elif failure == "heading":
-                    draft.write_text(draft.read_text().replace("## Facts", "## Facts[^raw]"), encoding="utf-8")
+                    draft.write_text(draft.read_text(encoding="utf-8").replace("## Facts", "## Facts[^raw]"), encoding="utf-8")
                 before_wiki = wiki.read_bytes()
                 try:
                     result = module.resume_companion_repair(state)
@@ -1823,12 +1823,12 @@ def test_companion_repair_transaction_and_guards():
                     assert failure is not None, failure
                     assert not (source.parent / "table.md").exists()
                     assert wiki.read_bytes() == before_wiki
-                    assert log.read_text() == "existing log"
+                    assert log.read_text(encoding="utf-8") == "existing log"
                 else:
                     assert failure is None
                     assert result["committed"] and source.read_bytes() == original
                     assert module.sl.companion_binding_status(source, source.parent / "table.md")["status"] == "valid"
-                    assert "[^raw]" in wiki.read_text()
+                    assert "[^raw]" in wiki.read_text(encoding="utf-8")
                     before_log = log.read_bytes()
                     assert module.resume_companion_repair(state) == result
                     assert log.read_bytes() == before_log

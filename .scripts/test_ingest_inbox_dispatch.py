@@ -1702,7 +1702,7 @@ def test_initial_maintenance_publication_and_historical_reconciliation(historica
                     assert inbox_state.load(transaction_id)["route_corrections"][-1]["hub"] == result["hub"]
                 else:
                     hub_semantics.record_paper_route_correction(transaction_id, result)
-                current = json.loads(report_path.read_text())
+                current = json.loads(report_path.read_text(encoding="utf-8"))
                 if interrupted:
                     assert current["maintenance"]["publication"]["status"] == "pending"
                     continue
@@ -1715,7 +1715,7 @@ def test_initial_maintenance_publication_and_historical_reconciliation(historica
             assert summary["maintenance"]["status"] == "completed"
             assert summary["maintenance"]["components"]["people"]["auto_built"]["remaining"] == 1
             assert summary["maintenance"]["components"]["hubs"]["split_backlog_count"] == 4
-            repaired = json.loads(report_path.read_text())
+            repaired = json.loads(report_path.read_text(encoding="utf-8"))
             assert repaired["maintenance"]["components"]["hubs"]["route_review_count"] == 0
             assert repaired["degraded"] == 2
             for member in files:
@@ -1729,10 +1729,10 @@ def test_initial_maintenance_publication_and_historical_reconciliation(historica
             assert not module._hub_route_reviews(repaired["files"])
             assert all(item["quality_warnings"] for item in repaired["files"])
             assert all(item["resolution"]["status"] == "applied"
-                       for item in json.loads((root / route_rel).read_text()))
+                       for item in json.loads((root / route_rel).read_text(encoding="utf-8")))
             module.reconcile_maintenance_report(report_path)
-            assert json.loads(report_path.read_text()) == repaired
-            receipt = json.loads((root / receipt_rel).read_text())
+            assert json.loads(report_path.read_text(encoding="utf-8")) == repaired
+            receipt = json.loads((root / receipt_rel).read_text(encoding="utf-8"))
             receipt["actions"] = [{"component": "abbreviations", "next_action": "review"}]
             receipt["status"] = "agent_required"
             module._write_json_atomic(root / receipt_rel, receipt)
@@ -1740,7 +1740,7 @@ def test_initial_maintenance_publication_and_historical_reconciliation(historica
             module._write_json_atomic(report_path, repaired)
             summary = module.reconcile_maintenance_report(report_path)
             assert summary["maintenance"]["status"] == "agent_required"
-            assert json.loads(report_path.read_text())["maintenance"]["actions"] == receipt["actions"]
+            assert json.loads(report_path.read_text(encoding="utf-8"))["maintenance"]["actions"] == receipt["actions"]
 
 
 def test_split_handoff_reconciliation(preserve_pending=False, interrupt_receipt=False):
@@ -1825,13 +1825,13 @@ def test_split_handoff_reconciliation(preserve_pending=False, interrupt_receipt=
                 assert interrupted["completed"] == 2 and interrupted["failed"] == 0
                 assert interrupted["maintenance"]["status"] == "error"
                 assert interrupted["maintenance"]["retryable"] is True
-                assert json.loads((root / split_rel).read_text())[0]["resolution"]["status"] == "applied"
-                assert json.loads((root / receipt_rel).read_text())["components"]["hubs"]["split_count"] == 1
+                assert json.loads((root / split_rel).read_text(encoding="utf-8"))[0]["resolution"]["status"] == "applied"
+                assert json.loads((root / receipt_rel).read_text(encoding="utf-8"))["components"]["hubs"]["split_count"] == 1
             summary = module.reconcile_maintenance_report(report_path)
             expected = "agent_required" if preserve_pending else "completed"
             assert summary["completed"] == 2 and summary["failed"] == 0
             assert summary["maintenance"]["status"] == expected
-            repaired = json.loads(report_path.read_text())
+            repaired = json.loads(report_path.read_text(encoding="utf-8"))
             hubs = repaired["maintenance"]["components"]["hubs"]
             assert hubs["split_count"] == int(preserve_pending)
             assert hubs["route_review_count"] == int(preserve_pending)
@@ -1847,7 +1847,7 @@ def test_split_handoff_reconciliation(preserve_pending=False, interrupt_receipt=
                 assert state["maintenance"]["status"] == expected
                 assert state["maintenance"]["components"]["hubs"]["split_count"] == int(preserve_pending)
             module.reconcile_maintenance_report(report_path)
-            assert json.loads(report_path.read_text()) == repaired
+            assert json.loads(report_path.read_text(encoding="utf-8")) == repaired
             assert graph_path.read_bytes() == graph_before
 
 
@@ -1945,12 +1945,12 @@ def test_maintenance_publication_recovers_write_failures():
                     assert all("maintenance" not in inbox_state.load(item["transaction_id"]) for item in files)
                     assert module.publish_maintenance_report(report_path, report)
                 else:
-                    persisted = json.loads(report_path.read_text())
+                    persisted = json.loads(report_path.read_text(encoding="utf-8"))
                     expected = "pending" if scenario in {"final_report", "interruption"} else "error"
                     assert persisted["maintenance"]["publication"]["status"] == expected
                     compact = module.reconcile_maintenance_report(report_path)
                     assert compact["maintenance"]["status"] == "completed"
-                bound_receipt = json.loads((root / receipt_rel).read_text())
+                bound_receipt = json.loads((root / receipt_rel).read_text(encoding="utf-8"))
                 assert bound_receipt["status"] == receipt["status"]
                 assert bound_receipt["report_path"] == report_path.relative_to(root).as_posix()
                 assert bound_receipt["publication"]["status"] == "completed"
@@ -1959,9 +1959,9 @@ def test_maintenance_publication_recovers_write_failures():
                     assert state["status"] == "completed"
                     assert state["maintenance"]["status"] == "completed"
                     assert state["quality_warnings"] == [{"issue": "independent"}]
-                repaired = json.loads(report_path.read_text())
+                repaired = json.loads(report_path.read_text(encoding="utf-8"))
                 module.reconcile_maintenance_report(report_path)
-                assert json.loads(report_path.read_text()) == repaired
+                assert json.loads(report_path.read_text(encoding="utf-8")) == repaired
 
 
 def test_maintenance_separates_warning_history_from_unresolved_quality():

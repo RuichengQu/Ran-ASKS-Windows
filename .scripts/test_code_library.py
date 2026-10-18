@@ -39,7 +39,7 @@ class CatalogTests(unittest.TestCase):
     def source(self, kind, name, path, locator, content):
         target = self.root / path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        target.write_text(content, encoding="utf-8", newline="\n")
         return {"kind": kind, "title": name, "path": path, "locator": locator,
                 "sha256": hashlib.sha256(target.read_bytes()).hexdigest()}
 
@@ -128,7 +128,7 @@ class CatalogTests(unittest.TestCase):
 
     def test_source_staleness_does_not_spread_to_other_relation(self):
         path = self.root / self.data["evidence"]["raw.first"]["path"]
-        path.write_text("## Method\n\nChanged Alpha.\n", encoding="utf-8")
+        path.write_text("## Method\n\nChanged Alpha.\n", encoding="utf-8", newline="\n")
         result = code_library.context(self.data, "implementation.shared")
         states = {item["scope"]: item["evidence_status"] for item in result["relations"]}
         self.assertEqual(states, {"Alpha assumptions": "needs_review", "Beta assumptions": "current"})
@@ -196,10 +196,10 @@ class CatalogTests(unittest.TestCase):
             code_library.validate_structure(changed)
 
     def test_duplicate_yaml_keys_aliases_and_arbitrary_catalog_rejected(self):
-        self.catalog.write_text("schema: one\nschema: two\n", encoding="utf-8")
+        self.catalog.write_text("schema: one\nschema: two\n", encoding="utf-8", newline="\n")
         with self.assertRaises(code_library.CatalogError):
             code_library.load_catalog()
-        self.catalog.write_text("value: &anchor []\nother: *anchor\n", encoding="utf-8")
+        self.catalog.write_text("value: &anchor []\nother: *anchor\n", encoding="utf-8", newline="\n")
         with self.assertRaises(code_library.CatalogError):
             code_library.load_catalog()
         with patch.object(code_library, "CATALOG_PATH", self.root / "other.yaml"), self.assertRaises(code_library.CatalogError):
@@ -207,7 +207,7 @@ class CatalogTests(unittest.TestCase):
 
     def test_excerpt_budget_refuses_without_partial_content(self):
         path = self.root / "academic/raw/alpha/paper.md"
-        path.write_text("## Method\n\n" + "long text " * 1000, encoding="utf-8")
+        path.write_text("## Method\n\n" + "long text " * 1000, encoding="utf-8", newline="\n")
         self.data["evidence"]["raw.first"]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
         result = code_library.read_evidence(self.data, "raw.first")
         self.assertFalse(result["ok"])
@@ -225,7 +225,7 @@ class CatalogTests(unittest.TestCase):
 
 class HostIntegrationTests(unittest.TestCase):
     def run_json(self, *arguments):
-        completed = subprocess.run([sys.executable, *arguments], cwd=REPO, capture_output=True, text=True)
+        completed = subprocess.run([sys.executable, *arguments], cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         return json.loads(completed.stdout)
 
@@ -245,10 +245,10 @@ class HostIntegrationTests(unittest.TestCase):
     def test_public_query_routes_code_evidence_private_does_not(self):
         for stage in ["start", "evidence"]:
             public = subprocess.run([sys.executable, ".scripts/route.py", "--task", "query", "--query-stage", stage],
-                                    cwd=REPO, capture_output=True, text=True, check=True)
+                                    cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
             self.assertIn("## 科研代码证据", public.stdout)
             private = subprocess.run([sys.executable, ".scripts/route.py", "--task", "query", "--query-stage", stage,
-                                      "--subproject", "private"], cwd=REPO, capture_output=True, text=True, check=True)
+                                      "--subproject", "private"], cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
             self.assertNotIn("## 科研代码证据", private.stdout)
 
     def test_registry_exposes_read_only_agent_function(self):

@@ -130,7 +130,7 @@ class RunTests(unittest.TestCase):
         self.run_case()
         self.register_run()
         source = self.root / "computing/code-library/src/tensor_train.py"
-        source.write_text(source.read_text() + "\n", encoding="utf-8")
+        source.write_text(source.read_text(encoding="utf-8") + "\n", encoding="utf-8")
         inspection = code_run.inspect_record(self.metadata_path)
         self.assertEqual(inspection["status"], "stale")
         self.assertEqual(inspection["snapshot_integrity"], "current")
@@ -149,7 +149,7 @@ class RunTests(unittest.TestCase):
     def test_runner_version_change_is_stale(self):
         self.run_case()
         source = self.root / ".scripts/code_run.py"
-        source.write_text(source.read_text() + "\n", encoding="utf-8")
+        source.write_text(source.read_text(encoding="utf-8") + "\n", encoding="utf-8")
         self.assertEqual(code_run.inspect_record(self.metadata_path)["status"], "stale")
 
     def test_worker_error_and_timeout_are_archived_without_success_results(self):
@@ -197,7 +197,7 @@ class RunTests(unittest.TestCase):
 
     def test_preflight_stale_source_does_not_create_run(self):
         source = self.root / "computing/code-library/src/tensor_train.py"
-        source.write_text(source.read_text() + "\n", encoding="utf-8")
+        source.write_text(source.read_text(encoding="utf-8") + "\n", encoding="utf-8")
         with patch.object(code_run, "execute_worker", side_effect=AssertionError("preflight executed")), self.assertRaises(code_run.RunError):
             self.run_case()
         self.assertFalse((self.root / f"projects/{self.project}/outputs/code-runs").exists())
@@ -207,7 +207,7 @@ class RunTests(unittest.TestCase):
             with self.subTest(seed=seed, timeout=timeout), self.assertRaises(code_run.RunError):
                 code_run.run_validation(self.project, seed=seed, timeout=timeout)
         schema = self.root / f"projects/{self.project}/schema.yaml"
-        schema.write_text("project:\n  type: research\ncompute:\n  policy: ssh_gpu\n  backend: local\n", encoding="utf-8")
+        schema.write_text("project:\n  type: research\ncompute:\n  policy: ssh_gpu\n  backend: local\n", encoding="utf-8", newline="\n")
         with self.assertRaises(code_run.RunError):
             self.run_case()
 

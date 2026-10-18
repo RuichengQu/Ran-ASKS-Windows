@@ -183,12 +183,12 @@ def render(run: Path) -> dict:
     run = guarded(run)
     for name in ('request.json', 'brief.json', 'candidate.json', 'artwork.svg', 'artwork.fragment.html', 'artwork.html', 'receipt.json'):
         guarded(run / name)
-    request = json.loads((run / 'request.json').read_text())
+    request = json.loads((run / 'request.json').read_text(encoding="utf-8"))
     brief_bytes = (run / 'brief.json').read_bytes()
     if digest(brief_bytes) != request['brief_sha256']:
         raise ValueError("Brief changed; start a new artwork request")
     brief = validate_brief(json.loads(brief_bytes))
-    candidate = json.loads((run / 'candidate.json').read_text())
+    candidate = json.loads((run / 'candidate.json').read_text(encoding="utf-8"))
     obj = validate_artwork(candidate, brief)
     if request['creator'] == 'api' and digest((run / 'candidate.json').read_bytes()) != request.get('api_candidate_sha256'):
         raise ValueError("API candidate changed; do not attribute host edits to the model")

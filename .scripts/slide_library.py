@@ -122,7 +122,7 @@ def export(source,pages,target,name,layout_report=None):
     data=st.extract(source);selected=qa.parse_page_selector(pages,len(data['pages']))
     require(selected,'Explicit pages required');layout={}
     if layout_report:
-        report=json.loads(Path(layout_report).read_text())
+        report=json.loads(Path(layout_report).read_text(encoding="utf-8"))
         require(report.get('source_sha256')==data['source_sha256'] and report.get('mode')=='layout','Wrong layout source/mode')
         for r in report.get('pages',[]):
             if r['page'] not in selected: continue
@@ -157,7 +157,7 @@ def export(source,pages,target,name,layout_report=None):
 def verify_bundle(folder):
     require(not folder.is_symlink() and folder.is_dir(),'Invalid bundle path')
     require(not (folder/'receipt.json').is_symlink(),'Receipt symlink not allowed')
-    receipt=json.loads((folder/'receipt.json').read_text())
+    receipt=json.loads((folder/'receipt.json').read_text(encoding="utf-8"))
     require(receipt.get('schema') in {SCHEMA, REUSE_SCHEMA},'Unsupported bundle')
     files={p.name for p in folder.iterdir()}
     require(files==set(receipt['files'])|{'receipt.json'},'Bundle file set changed')
@@ -185,7 +185,7 @@ def lock(root):
 def rebuild_index(root):
     path=root/'_index.md'
     require(not path.is_symlink() and not (root/'._index.pending.md').is_symlink(),'Index symlink not allowed')
-    old=path.read_text() if path.exists() else '# Slide Library\n'
+    old=path.read_text(encoding="utf-8") if path.exists() else '# Slide Library\n'
     marker='\n<!-- managed-components -->\n'
     old=old.split(marker)[0]
     lines=[marker,'## 受管收藏组件','', '| 名称 | 复用类型 | 原始页码 | 说明 |','|---|---|---|---|']
@@ -232,7 +232,7 @@ def collect(prepared,name,instruction,layout_report=None):
                     result=page['result'];notes.append(f"第 {page['page']} 页（{result['verdict']}）：{result['summary']}")
                     notes.extend('- '+x['description']+'；建议：'+x['suggestion'] for x in result['issues'])
                     notes.extend('- 限制：'+x['detail'] for x in result['limitations'])
-                doc.write_text(doc.read_text()+'\n'.join(notes)+'\n',encoding='utf-8')
+                doc.write_text(doc.read_text(encoding="utf-8")+'\n'.join(notes)+'\n',encoding='utf-8')
                 r['layout_analysis']='api'
                 r['files']={p.name:vision.digest(p) for p in pending.iterdir() if p.is_file() and p.name!='receipt.json'}
             vision.write(pending/'receipt.json',r);verify_bundle(pending)
@@ -254,7 +254,7 @@ def search(query, kind=None):
         receipt=verify_bundle(p.parent) if p.name=='component.md' and (p.parent/'receipt.json').exists() else None
         entry_kind=receipt.get('reuse_kind','unclassified') if receipt else 'unclassified'
         if kind is not None and entry_kind!=kind: continue
-        content=p.read_text();score=sum(token in content.lower() for token in tokens) if tokens else 1
+        content=p.read_text(encoding="utf-8");score=sum(token in content.lower() for token in tokens) if tokens else 1
         if score: results.append({'path':str(p),'score':score,'title':content.splitlines()[0].lstrip('# '),
                                  'kind':entry_kind,'pptx':str(p.parent/'component.pptx' if receipt else p.with_suffix('.pptx'))})
     return sorted(results,key=lambda r:-r['score'])[:30]

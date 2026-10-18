@@ -672,7 +672,7 @@ print(result.document.export_to_markdown())
         result = subprocess.run(
             [str(docling_python), "-c", script],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=300,
             cwd=str(PROJECT_ROOT),
         )

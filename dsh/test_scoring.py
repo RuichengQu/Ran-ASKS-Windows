@@ -199,7 +199,7 @@ def test_a_truncated_transcript_still_loads():
         t.append(grade(rubric(), "虚部取反", judge_contains, question="Q1"))
         t.append(grade(rubric(), "关于实轴对称", judge_contains, question="Q2"))
         text = p.read_text(encoding="utf-8")
-        p.write_text(text[:-12], encoding="utf-8")       # 砍掉最后一行的尾巴
+        p.write_text(text[:-12], encoding="utf-8", newline="\n")       # 砍掉最后一行的尾巴
         back = Transcript.load(p)
         assert len(back.exchanges) == 1 and back.exchanges[0].question == "Q1"
         assert back.damaged == [3], "丢了哪一行必须说出来，不能静默跳过"

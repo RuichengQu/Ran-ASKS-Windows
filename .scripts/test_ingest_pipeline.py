@@ -1220,7 +1220,7 @@ def test_inbox_state_forward_graph_receipts_and_operation_view():
         repo = Path(directory)
         artifact = repo / "academic/wiki/demo.md"
         artifact.parent.mkdir(parents=True)
-        artifact.write_text("stable artifact\n", encoding="utf-8")
+        artifact.write_text("stable artifact\n", encoding="utf-8", newline="\n")
         original_repo = inbox_state.REPO
         inbox_state.REPO = repo
         try:
@@ -1257,7 +1257,7 @@ def test_inbox_state_forward_graph_receipts_and_operation_view():
             assert len(receipt["transitions_sha256"]) == 64
             assert inbox_state.verify_receipt(stored, repo)["status"] == "PASS"
 
-            artifact.write_text("tampered artifact\n", encoding="utf-8")
+            artifact.write_text("tampered artifact\n", encoding="utf-8", newline="\n")
             mismatch = inbox_state.verify_receipt(stored, repo)
             assert mismatch["status"] == "FAILED"
             assert mismatch["error"] == "verification receipt mismatch"
@@ -2644,11 +2644,11 @@ def test_subprocess_stdout_honors_quiet_log_without_hiding_stderr():
             root = Path(directory)
             log_file = root / "transaction.log"
             output, errors = StringIO(), StringIO()
-            ingest_common.set_progress_file(log_file.open("w", encoding="utf-8"))
+            ingest_common.set_progress_file(log_file.open("w", encoding="utf-8", newline="\n"))
             with redirect_stdout(output), redirect_stderr(errors):
                 returned = ingest_common.run_tracked(["local-command"], root)
             ingest_common.close_progress_file()
-            assert returned == body and log_file.read_text() == body
+            assert returned == body and log_file.read_text(encoding="utf-8") == body
             assert output.getvalue() == ""
             assert "WARN remains visible" in errors.getvalue()
             with redirect_stdout(output), redirect_stderr(errors):

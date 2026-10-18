@@ -5,7 +5,7 @@
 
 1. 文件锁：POSIX 用 fcntl.flock，Windows 用 msvcrt.locking。
 2. 子进程：统一用 sys.executable 而非 sys.executable，并强制 UTF-8 编解码。
-   中文 Windows 的 locale 编码是 cp936，subprocess(text=True) 默认按 cp936
+   中文 Windows 的 locale 编码是 cp936，subprocess(text=True, encoding="utf-8", errors="replace") 默认按 cp936
    解码子进程输出，会把本项目的 UTF-8 中文输出解成乱码或直接抛
    UnicodeDecodeError。因此这里显式指定 encoding 并给子进程设 PYTHONUTF8。
 3. 桌面集成：打开文件、外部工具查找(LibreOffice 等)的平台路径差异。
@@ -107,7 +107,7 @@ def utf8_env(extra: dict | None = None) -> dict:
 def run_text(cmd, **kwargs):
     """subprocess.run 的跨平台文本包装：强制 UTF-8 编解码。
 
-    默认 text=True、encoding=utf-8、errors=replace，并把 PYTHONUTF8 传给子进程。
+    默认 text=True, encoding="utf-8", errors="replace"、encoding=utf-8、errors=replace，并把 PYTHONUTF8 传给子进程。
     调用方可以照常传 cwd/timeout/capture_output/check 等参数。
     """
     kwargs.setdefault("text", True)

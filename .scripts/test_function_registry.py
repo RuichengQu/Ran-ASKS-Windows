@@ -153,7 +153,7 @@ def test_library_and_visualization_are_functions_with_discoverable_entries():
     assert set(data['states']) == {'workspace','research','frontier','oral_exam'}
     proc = subprocess.run([sys.executable,str(SCRIPTS/'wg.py'),'slide-library','show',
                            '--template','temp/nonexistent-template-test-only'],
-                          cwd=REPO,capture_output=True,text=True,check=True)
+                          cwd=REPO,capture_output=True,text=True, encoding="utf-8", errors="replace",check=True)
     result = json.loads(proc.stdout)
     assert result['ok'] is False and result['status'] == 'error'
 
@@ -168,14 +168,14 @@ def test_runtime_drift_is_reported():
 def test_route_and_wg_use_registry_discovery():
     route = subprocess.run(
         [sys.executable, str(SCRIPTS / "route.py"), "--list"],
-        cwd=REPO, capture_output=True, text=True, check=True,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
     ).stdout
     assert "工作状态:" in route and "可路由任务:" in route and "按需能力:" in route
     assert "task/state" not in route
 
     proc = subprocess.run(
         [sys.executable, str(SCRIPTS / "wg.py"), "functions", "show", "knowledge.query"],
-        cwd=REPO, capture_output=True, text=True, check=True,
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
     )
     payload = json.loads(proc.stdout)
     assert payload["ok"] is True

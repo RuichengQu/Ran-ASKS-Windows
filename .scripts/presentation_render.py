@@ -39,7 +39,7 @@ def fingerprint():
     if not fc:
         raise ValueError('fc-list required to fingerprint local font files')
     proc = subprocess.run([fc, '--format=%{file}\n'], env=env, capture_output=True,
-                          text=True, timeout=30, check=True)
+                          text=True, encoding="utf-8", errors="replace", timeout=30, check=True)
     font_paths = sorted(set(proc.stdout.splitlines()))
     if not font_paths:
         raise ValueError('Font inventory is empty; cannot bind a render snapshot')
@@ -50,7 +50,7 @@ def fingerprint():
             'qa_sha256': file_hash(qa.__file__), 'runtime_sha256': file_hash(runtime.__file__),
             'dependencies': info['dependencies'], 'soffice_sha256': file_hash(soffice),
             'soffice_version': subprocess.run([str(soffice), '--version'], env=env,
-                capture_output=True, text=True, timeout=30, check=True).stdout.strip(),
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, check=True).stdout.strip(),
             'font_inventory_sha256': digest(fonts),
             'fontconfig_sha256': file_hash(config) if config else None}
 

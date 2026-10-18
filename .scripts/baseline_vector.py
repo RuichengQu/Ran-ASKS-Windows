@@ -61,7 +61,7 @@ def get_embeddings(texts, batch_size=16):
     
     cache_file = CACHE_DIR / f"corpus_{len(texts)}_chunks.json"
     if cache_file.exists():
-        return json.loads(cache_file.read_text())
+        return json.loads(cache_file.read_text(encoding="utf-8"))
     
     all_embeddings = []
     for i in range(0, len(texts), batch_size):

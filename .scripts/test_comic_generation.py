@@ -162,7 +162,7 @@ class ComicGenerationTest(unittest.TestCase):
         self.assertTrue(after - before)
         self.assertTrue(all(p.is_relative_to("private/outputs") for p in after - before))
         directory = Path(result["output_path"]).parent
-        self.assertIn("synthetic private prompt", (directory / "prompts.jsonl").read_text())
+        self.assertIn("synthetic private prompt", (directory / "prompts.jsonl").read_text(encoding="utf-8"))
         self.assertEqual(len(list((directory / "receipts").glob("*.json"))), 1)
 
     def test_private_output_rejects_aliases_and_protected_paths(self):
@@ -206,7 +206,7 @@ class ComicGenerationTest(unittest.TestCase):
         private = self.repo / "private" / "outputs"
         private.mkdir(parents=True)
         prompt = private / "prompt.txt"
-        prompt.write_text("synthetic private prompt", encoding="utf-8")
+        prompt.write_text("synthetic private prompt", encoding="utf-8", newline="\n")
         destination = cg.output_directory(None, "avatar", self.repo, private)
         self.assertEqual(cg.read_prompt_file(prompt, destination, self.repo), "synthetic private prompt")
         public_destination = cg.output_directory("demo", "article-01", self.repo)

@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parent.parent
 
 def route(*args):
     return subprocess.run([sys.executable, str(REPO / ".scripts/route.py"), *args],
-                          cwd=REPO, capture_output=True, text=True)
+                          cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
 class CapabilityTests(unittest.TestCase):
@@ -121,15 +121,15 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(result["visual_review"], "not_checked")
             self.assertEqual(result["user_approval"], "not_requested")
             self.assertNotIn("artifacts", result)
-            self.assertEqual(json.loads(Path(result["receipt"]).read_text()), result)
+            self.assertEqual(json.loads(Path(result["receipt"]).read_text(encoding="utf-8")), result)
 
     def test_probe_does_not_register_model_or_material_inputs(self):
         import ast
-        tree = ast.parse(Path(probe.__file__).read_text())
+        tree = ast.parse(Path(probe.__file__).read_text(encoding="utf-8"))
         imports = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
         imports.update(alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names)
         self.assertFalse(any(name and name.split(".")[0] in {"dsh", "llm_structured"} for name in imports))
-        source = Path(probe.__file__).read_text()
+        source = Path(probe.__file__).read_text(encoding="utf-8")
         self.assertNotIn("run_visual_qa(", source)
         self.assertNotIn("load_visual_env(", source)
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
@@ -152,7 +152,7 @@ class RealRenderTests(unittest.TestCase):
         self.assertFalse(result["authoring_available"])
         for artifact in result["artifacts"].values():
             self.assertEqual(probe._hash(Path(artifact["path"])), artifact["sha256"])
-        self.assertEqual(json.loads(Path(result["receipt"]).read_text()), result)
+        self.assertEqual(json.loads(Path(result["receipt"]).read_text(encoding="utf-8")), result)
         print(f"\nReal render receipt: {result['receipt']}")
 
 

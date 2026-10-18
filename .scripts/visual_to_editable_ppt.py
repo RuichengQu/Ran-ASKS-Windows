@@ -467,7 +467,7 @@ def _find_tesseract() -> str | None:
 def _tesseract_languages(binary: str) -> set[str]:
     try:
         process = subprocess.run(
-            [binary, "--list-langs"], capture_output=True, text=True, timeout=15, check=False
+            [binary, "--list-langs"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, check=False
         )
     except (OSError, subprocess.SubprocessError):
         return set()
@@ -490,7 +490,7 @@ def _ocr_lines(image_path: Path, requested_language: str) -> tuple[list[dict[str
     command = [binary, str(image_path), "stdout", "-l", language, "--psm", "11", "tsv"]
     try:
         process = subprocess.run(
-            command, capture_output=True, text=True, timeout=120, check=False
+            command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120, check=False
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return [], {"status": "error", "reason": f"{type(exc).__name__}: {exc}"}
@@ -1391,7 +1391,7 @@ def _render_pptx_for_comparison(output: Path, target_dir: Path, dpi: int) -> lis
     target_dir.mkdir(parents=True, exist_ok=True)
     process = subprocess.run(
         [soffice, "--headless", "--convert-to", "pdf", "--outdir", str(target_dir), str(output)],
-        capture_output=True, text=True, timeout=180, check=False,
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180, check=False,
     )
     pdf = target_dir / f"{output.stem}.pdf"
     if process.returncode != 0 or not pdf.is_file():

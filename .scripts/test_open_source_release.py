@@ -21,7 +21,7 @@ SCRIPT = REPO / ".scripts/open_source_release.py"
 
 
 def run(*args: str, expected: int = 0) -> subprocess.CompletedProcess:
-    result = subprocess.run([sys.executable, str(SCRIPT), *args], cwd=REPO, text=True,
+    result = subprocess.run([sys.executable, str(SCRIPT), *args], cwd=REPO, text=True, encoding="utf-8", errors="replace",
                             capture_output=True)
     assert result.returncode == expected, result.stdout + result.stderr
     return result
@@ -106,9 +106,9 @@ def check_version_preparation() -> None:
             assert all(item.read_bytes() == content for item, content in snapshot.items())
             applied = release.prepare_version(**arguments, apply=True)
             assert applied["status"] == "applied"
-            assert version_path.read_text() == "0.5.0\n"
+            assert version_path.read_text(encoding="utf-8") == "0.5.0\n"
             assert mirror.read_bytes() == changelog.read_bytes()
-            updated = changelog.read_text()
+            updated = changelog.read_text(encoding="utf-8")
             assert "## [Unreleased]\n\n## [0.5.0] - 2026-09-08" in updated
             assert "- MINOR: Compatible image ingestion capability" in updated
             assert "- MINOR（中文）：新增向后兼容的图片摄入能力" in updated
@@ -128,7 +128,7 @@ def check_version_progression() -> None:
         repository = Path(temporary)
 
         def git(*arguments):
-            return subprocess.run(["git", *arguments], cwd=repository, check=True, capture_output=True, text=True)
+            return subprocess.run(["git", *arguments], cwd=repository, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
         assert release.git_publication_diff(repository) == (set(), None)
         git("init", "-q")
@@ -226,7 +226,7 @@ def check_private_release_boundary() -> None:
                         pass
                     else:
                         raise AssertionError(f'private boundary accepted: {changes}')
-                assert sentinel.read_text() == 'unchanged', 'preflight must precede cleanup'
+                assert sentinel.read_text(encoding="utf-8") == 'unchanged', 'preflight must precede cleanup'
                 assert sorted(p.name for p in destination.iterdir()) == ['keep.txt']
 
 
@@ -285,7 +285,7 @@ def main() -> None:
         assert all(record["path"].startswith("computing/code-library/") for record in catalog["evidence"].values())
         checked = subprocess.run(
             [sys.executable, ".scripts/code_library.py", "validate"],
-            cwd=destination, text=True, capture_output=True, check=True,
+            cwd=destination, text=True, encoding="utf-8", errors="replace", capture_output=True, check=True,
         )
         assert json.loads(checked.stdout)["ok"]
         assert (destination / "computing/code-library/src/tensor_train.py").is_file()
@@ -305,12 +305,12 @@ def main() -> None:
         assert not (destination / "projects").exists()
         private_ignored = subprocess.run(
             ["git", "check-ignore", "projects/local-input/manuscript.pdf"],
-            cwd=destination, text=True, capture_output=True,
+            cwd=destination, text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
         assert private_ignored.returncode == 0, private_ignored.stderr
         skill_check = subprocess.run(
             [sys.executable, "-B", str(skill / "scripts/test_diagnosis_preflight.py")],
-            cwd=destination, text=True, capture_output=True,
+            cwd=destination, text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
         assert skill_check.returncode == 0, skill_check.stdout + skill_check.stderr
         readme_path = destination / "README.md"
@@ -418,7 +418,7 @@ def main() -> None:
             assert (destination / registry_path).is_file(), registry_path
         registry_check = subprocess.run(
             [sys.executable, "-B", ".scripts/function_registry.py", "validate", "--runtime"],
-            cwd=destination, text=True, capture_output=True,
+            cwd=destination, text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
         assert registry_check.returncode == 0, registry_check.stdout + registry_check.stderr
         for presentation_path in (
@@ -432,7 +432,7 @@ def main() -> None:
         presentation_route = subprocess.run(
             [sys.executable, "-B", ".scripts/route.py", "--capability", "presentation",
              "--capability-profile", "create"],
-            cwd=destination, text=True, capture_output=True,
+            cwd=destination, text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
         assert presentation_route.returncode == 0, presentation_route.stderr
         assert "当前阶段：1B" in presentation_route.stdout
@@ -440,7 +440,7 @@ def main() -> None:
                                ("citation-redact", "PPT引用脱敏")):
             optional_route = subprocess.run(
                 [sys.executable, "-B", ".scripts/route.py", "--capability", "presentation",
-                 "--capability-profile", profile], cwd=destination, text=True, capture_output=True)
+                 "--capability-profile", profile], cwd=destination, text=True, encoding="utf-8", errors="replace", capture_output=True)
             assert optional_route.returncode == 0, optional_route.stderr
             assert label in optional_route.stdout
         assert not (destination / "temp/presentation-runtime").exists()
@@ -462,14 +462,14 @@ def main() -> None:
                 "verify",
                 "paper-artifacts/v0.2.0",
             ],
-            cwd=destination, text=True, capture_output=True,
+            cwd=destination, text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
         assert artifact_check.returncode == 0, artifact_check.stdout + artifact_check.stderr
         assert (destination / "paper-artifacts/v0.2.1/metadata.json").is_file()
         audit_artifact_check = subprocess.run(
             [sys.executable, "verify.py"],
             cwd=destination / "paper-artifacts/v0.2.1",
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
         )
         assert audit_artifact_check.returncode == 0, (
@@ -511,7 +511,7 @@ def main() -> None:
         assert "path: projects/ForBetterScience" not in graph_text
         graph_check = subprocess.run(
             [sys.executable, ".scripts/engineering_graph.py", "validate"],
-            cwd=destination, text=True, capture_output=True,
+            cwd=destination, text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
         assert graph_check.returncode == 0, graph_check.stdout + graph_check.stderr
 

@@ -118,7 +118,7 @@ def test_answer_adapters_receive_previous_answer_without_extra_model_call():
         frontier.agent_task.query_backend = lambda: "agent"
         task = frontier.run_answer(p, transaction_id="frontier-comparison-test")["agent_task"]
         assert "change" in task["protocol"]["optional_fields"]
-        payload = json.loads((REPO / task["inputs"][0]["path"]).read_text())
+        payload = json.loads((REPO / task["inputs"][0]["path"]).read_text(encoding="utf-8"))
         assert payload["previous_answer"] == p["previous_answer"]
         frontier.agent_task.query_backend = lambda: "api"
         def fake_model(prompt, schema, **kwargs):
@@ -653,7 +653,7 @@ def test_capture_related_question_never_marks_stale_or_auto_answers_it():
         original_answer = frontier.answer_question
         calls = []
         try:
-            wiki.write_text(wiki.read_text() + "\n## Navigation\n\nquantum tensor entanglement bounds\n")
+            wiki.write_text(wiki.read_text(encoding="utf-8") + "\n## Navigation\n\nquantum tensor entanglement bounds\n")
             q = frontier.new_question("quantum tensor entanglement bounds?", "user_proposed", packet())
             frontier.apply_answer(root, q, packet(), good_answer())
             path = frontier.record_path(root, "question", q["id"])
@@ -735,7 +735,7 @@ def test_answer_history_preserves_evidence_gaps_and_semantic_review():
         assert record["answer_history"][1]["evidence_scope"]["cited_raw_locators"] == [added]
         assert record["scientific_state"] == "unverified"
         assert record["anchors"]["raw"] == [added]
-        assert "回答版本" in path.read_text()
+        assert "回答版本" in path.read_text(encoding="utf-8")
         repeated = frontier.answer_question(root, question["id"], packet=expanded,
                                             answer_fn=lambda _: {"ok": True, "parsed": updated})
         assert not repeated["revision_added"]
@@ -957,7 +957,7 @@ def test_answer_prompt_preserves_priority_source_beyond_old_limits():
             "The alternative approach is human review of risky actions; "
             "it was not implemented because human response limits throughput."
         )
-        source.write_text(paragraph, encoding="utf-8")
+        source.write_text(paragraph, encoding="utf-8", newline="\n")
         locator = source.relative_to(REPO).as_posix() + "#L1"
         result = frontier.build_kb_packet(
             "Which alternative approach?", root,

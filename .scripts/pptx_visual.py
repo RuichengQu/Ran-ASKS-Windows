@@ -106,11 +106,11 @@ def analyze_image(image, *, mode, source_sha256, page, allow_remote=False, refer
     identity=cache_identity(base)
     key=structure.stable_hash(identity); path=root/source_sha256/mode/(key+'.json')
     for candidate in sorted((root/source_sha256/mode).glob('*.json')):
-        cached=json.loads(candidate.read_text())
+        cached=json.loads(candidate.read_text(encoding="utf-8"))
         if cached.get('status')=='complete' and cache_identity(cached)==identity:
             return validate_receipt(cached,image=image,mode=mode,source_sha256=source_sha256,page=page,reference=reference)
     if path.exists():
-        cached=json.loads(path.read_text())
+        cached=json.loads(path.read_text(encoding="utf-8"))
         if cached.get('status')=='complete': return validate_receipt(cached,image=image,mode=mode,source_sha256=source_sha256,page=page,reference=reference)
         if not retry_failed and cached.get('status')=='error': return cached
     receipt={**base,'backend':'api','model':None,'status':'not_checked','attempts':[],'receipt_path':str(path)}

@@ -43,7 +43,7 @@ def _load(txn: str) -> tuple[Path, dict]:
     if not re.fullmatch(r"[0-9]{8}T[0-9]{6}-[a-f0-9]{8}", txn):
         raise ValueError("invalid transaction id")
     workspace = _safe(_root() / txn)
-    state = json.loads(_safe(workspace / "state.json").read_text())
+    state = json.loads(_safe(workspace / "state.json").read_text(encoding="utf-8"))
     if state.get("schema") != SCHEMA or state.get("transaction_id") != txn:
         raise ValueError("invalid transaction state")
     return workspace, state
@@ -156,7 +156,7 @@ def prepare(page: str, title: str, page_type: str, date: str, assertion: Path | 
         }
     else:
         assertion = _safe(assertion.resolve())
-        if assertion.suffix.lower() != ".md" or not assertion.read_text().strip():
+        if assertion.suffix.lower() != ".md" or not assertion.read_text(encoding="utf-8").strip():
             raise ValueError("assertion must be nonempty private Markdown")
         inputs = {str(assertion): pr._file_sha(assertion)}
         bundle = {assertion.name: assertion.read_bytes()}
@@ -275,9 +275,9 @@ def _preflight(workspace: Path, state: dict) -> tuple[Path, list[tuple[Path, byt
         receipt = image_ocr.load_receipt(_safe(Path(state["ocr"])), source)
         if image_ocr.review_blockers(receipt):
             raise ValueError("image review has blockers")
-        if source.with_suffix(".md").read_text() != receipt["markdown"]:
+        if source.with_suffix(".md").read_text(encoding="utf-8") != receipt["markdown"]:
             raise ValueError("image companion mismatch")
-        context = json.loads(source.with_name(source.name + ".source.json").read_text())
+        context = json.loads(source.with_name(source.name + ".source.json").read_text(encoding="utf-8"))
         if context != _sidecar(source, receipt, state.get("companion")):
             raise ValueError("image source sidecar mismatch")
         binding = sl.companion_record_status(

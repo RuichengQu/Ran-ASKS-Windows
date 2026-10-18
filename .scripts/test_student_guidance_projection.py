@@ -32,7 +32,7 @@ def _repo() -> tuple[tempfile.TemporaryDirectory, Path]:
         "- 更新日期：2026-09-02\n",
         encoding="utf-8",
     )
-    (people / "cnu-test.md").write_text("# 测试生\n", encoding="utf-8")
+    (people / "cnu-test.md").write_text("# 测试生\n", encoding="utf-8", newline="\n")
     (notes / "status.md").write_text(
         "# 总览\n\n- 更新日期：2026-09-02\n\n"
         "| 学生 | 指导类型 | 阶段 | 最新进展 | 下一步 | 更新日期 |\n"
@@ -97,7 +97,7 @@ def test_projection_updates_record_and_status_idempotently():
         assert ok, error
         assert (repo / "projects/学生指导/students/测试生.md").read_text(encoding="utf-8") == first_record
         assert (repo / "projects/学生指导/notes/status.md").read_text(encoding="utf-8") == first_status
-        report = json.loads((repo / state["student_guidance_report_path"]).read_text())
+        report = json.loads((repo / state["student_guidance_report_path"]).read_text(encoding="utf-8"))
         assert report["unchanged_records"] == ["projects/学生指导/students/测试生.md"]
     finally:
         temporary.cleanup()
@@ -124,7 +124,7 @@ def test_missing_status_row_rolls_back_before_record_write():
         state = _state()
         projection.prepare_candidate_catalog(state, repo)
         status_path = repo / "projects/学生指导/notes/status.md"
-        status_path.write_text(status_path.read_text().replace(
+        status_path.write_text(status_path.read_text(encoding="utf-8").replace(
             "| [测试生](../students/测试生.md) | 科研 | 验证 | 旧进展 | 旧下一步 | 2026-09-01 |\n", ""
         ), encoding="utf-8")
         record_path = repo / "projects/学生指导/students/测试生.md"

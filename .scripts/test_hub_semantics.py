@@ -984,7 +984,7 @@ def test_split_requires_agent_scopes_and_passes_code_route_probe():
         scope_content = scope_path.read_text(encoding="utf-8")
         scope_path.write_text(scope_content.replace("## Scope", "## Legacy Scope"), encoding="utf-8")
         assert hs.completed_split_resolution(conn, candidate) is None
-        scope_path.write_text(scope_content, encoding="utf-8")
+        scope_path.write_text(scope_content, encoding="utf-8", newline="\n")
         assert hs.completed_split_resolution(conn, candidate) == resolution
         assert hs.completed_split_resolution(conn, {"hub": parent, "clusters": []}) is None
         assert hs.completed_split_resolution(conn, {

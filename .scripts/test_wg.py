@@ -559,10 +559,10 @@ def test_raw_footnote_wrappers_preserve_evidence_and_query_locators():
     raw, wiki = setup_locator_wiki()
     try:
         original = wiki.read_text(encoding="utf-8")
-        address = str(raw.relative_to(REPO)) + "#L3"
+        address = raw.relative_to(REPO).as_posix() + "#L3"
         for wrapped in (f"[[{address}]]", f"`{address}`", f"<{address}>"):
             text = original.replace(address, wrapped)
-            wiki.write_text(text, encoding="utf-8")
+            wiki.write_text(text, encoding="utf-8", newline="\n")
             assert module.wl.validate_wiki_page(wiki, require_citations=True) == []
             section = module.wl.get_wiki_section(wiki, "retrieval-control")
             assert section.raw_citations[0] == address
@@ -575,7 +575,7 @@ def test_raw_footnote_wrappers_preserve_evidence_and_query_locators():
         ):
             wiki.write_text(original.replace(address, invalid), encoding="utf-8")
             assert module.wl.validate_wiki_page(wiki, require_citations=True), invalid
-        wiki.write_text(original + f"[^r1]: `{'missing/raw/file.md#L1'}`\n", encoding="utf-8")
+        wiki.write_text(original + f"[^r1]: `{'missing/raw/file.md#L1'}`\n", encoding="utf-8", newline="\n")
         assert any("脚注定义重复" in error for error in module.wl.validate_wiki_page(wiki))
     finally:
         cleanup()

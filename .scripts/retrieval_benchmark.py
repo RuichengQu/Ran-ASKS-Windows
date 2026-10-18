@@ -100,12 +100,12 @@ def validate_manifest(manifest, suite="curated"):
 
 def input_fingerprints(manifest_path=None):
     manifest_path = MANIFEST if manifest_path is None else manifest_path
-    files = {str(manifest_path.relative_to(REPO)): digest(manifest_path.read_bytes())}
+    files = {manifest_path.relative_to(REPO).as_posix(): digest(manifest_path.read_bytes())}
     for relative in SOURCE_FILES:
         files[relative] = digest((REPO / relative).read_bytes())
     for suffix in ("", "-wal"):
         target = REPO / f"cross-domain/graph.db{suffix}"
-        files[str(target.relative_to(REPO))] = digest(target.read_bytes()) if target.exists() else None
+        files[target.relative_to(REPO).as_posix()] = digest(target.read_bytes()) if target.exists() else None
     wiki = {}
     for domain in sorted(DOMAINS):
         for target in sorted((REPO / domain / "wiki").rglob("*.md")):
@@ -113,7 +113,7 @@ def input_fingerprints(manifest_path=None):
                 continue
             if not target.resolve().is_relative_to(REPO / domain / "wiki"):
                 raise ValueError("Wiki symlink escapes domain")
-            wiki[str(target.relative_to(REPO))] = digest(target.read_bytes())
+            wiki[target.relative_to(REPO).as_posix()] = digest(target.read_bytes())
     files["wiki_corpus"] = digest(json.dumps(wiki, sort_keys=True).encode())
     return {"files": files, "wiki_files": len(wiki), "wiki": wiki,
             "runtime_query_graph": {"file": str(Path(qg.__file__).relative_to(REPO)),

@@ -80,14 +80,14 @@ class GraphVisualizationTests(unittest.TestCase):
     def test_html_manifest_readonly_and_no_overwrite(self):
         before=hashlib.sha256(self.db.read_bytes()).hexdigest()
         args=gv.parser().parse_args(['--html','--node',self.a,'--output',str(self.repo/'temp/graph.html')])
-        result=gv.run(args);data=json.loads(Path(result['manifest']).read_text())
+        result=gv.run(args);data=json.loads(Path(result['manifest']).read_text(encoding="utf-8"))
         self.assertEqual(data['schema'],'graph-visualization-v1')
         self.assertEqual(len(data['edges']),4)
-        html=Path(result['artifact']).read_text()
+        html=Path(result['artifact']).read_text(encoding="utf-8")
         self.assertIn('marker-end',html);self.assertIn('academic/raw/proof.md#result',html)
         self.assertEqual(before,hashlib.sha256(self.db.read_bytes()).hexdigest())
         with self.assertRaises(ValueError):gv.run(args)
-        self.assertEqual(Path(result['artifact']).read_text(),html)
+        self.assertEqual(Path(result['artifact']).read_text(encoding="utf-8"),html)
 
     def test_private_output_and_symlink_guard(self):
         for target,scope in [('temp/private.html','private'),('academic/raw/g.html','main')]:
@@ -117,7 +117,7 @@ class GraphVisualizationTests(unittest.TestCase):
             return original(*args)
         with patch.object(gv,'payload',side_effect=race):
             with self.assertRaises(FileExistsError):gv.run(gv.parser().parse_args(['--html','--output',str(out)]))
-        self.assertEqual(out.read_text(),'other process')
+        self.assertEqual(out.read_text(encoding="utf-8"),'other process')
 
     def test_png_and_wg_forwarding(self):
         result=gv.run(gv.parser().parse_args(['--node',self.a,'--output',str(self.repo/'temp/test.png')]))

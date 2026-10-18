@@ -589,7 +589,7 @@ def _write_runtime_status(state: dict) -> Path:
     payload = _runtime_status_document(state)
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())

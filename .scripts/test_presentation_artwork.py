@@ -39,8 +39,8 @@ class ArtworkTests(unittest.TestCase):
         self.assertEqual(receipt['creator'], 'agent')
         self.assertIsNone(receipt['model'])
         self.assertEqual(receipt['visual_review'], 'not_checked')
-        self.assertIn('&lt;script&gt;', (run / 'artwork.fragment.html').read_text())
-        self.assertNotIn('<script>', (run / 'artwork.svg').read_text())
+        self.assertIn('&lt;script&gt;', (run / 'artwork.fragment.html').read_text(encoding="utf-8"))
+        self.assertNotIn('<script>', (run / 'artwork.svg').read_text(encoding="utf-8"))
 
     def test_api_requires_remote_consent_and_public_input(self):
         with patch.object(art.qa, 'call_json_vision') as remote:
@@ -67,7 +67,7 @@ class ArtworkTests(unittest.TestCase):
 
     def test_api_provenance_rejects_host_redrawing(self):
         run = self.api_run()
-        receipt = json.loads((run / 'receipt.json').read_text())
+        receipt = json.loads((run / 'receipt.json').read_text(encoding="utf-8"))
         self.assertEqual(receipt['model'], 'GLM-5.3-FlashX')
         self.assertEqual(receipt['creator'], 'api')
         obj = copy.deepcopy(self.candidate)
@@ -106,7 +106,7 @@ class ArtworkTests(unittest.TestCase):
         (run / 'artwork.svg').symlink_to(victim)
         with self.assertRaises(ValueError):
             art.render(run)
-        self.assertEqual(victim.read_text(), 'keep')
+        self.assertEqual(victim.read_text(encoding="utf-8"), 'keep')
         (run / 'artwork.svg').unlink()
         art.write_json(run / 'brief.json', {**self.brief, 'brief': 'changed'})
         with self.assertRaisesRegex(ValueError, 'Brief changed'):

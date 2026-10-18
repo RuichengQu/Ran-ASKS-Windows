@@ -380,8 +380,8 @@ def test_guarded_existing_wiki_update_and_rollback():
             wiki.write_bytes(b"old wiki")
             log = root / "admin/wiki/log.md"
             log.write_bytes(b"old log")
-            (extract / "demo.md").write_text("extracted", encoding="utf-8")
-            (extract / "wiki.md").write_text("new wiki", encoding="utf-8")
+            (extract / "demo.md").write_text("extracted", encoding="utf-8", newline="\n")
+            (extract / "wiki.md").write_text("new wiki", encoding="utf-8", newline="\n")
             manifest_v2(extract, [("demo.md", "raw")])
             original_write_text = Path.write_text
 
@@ -421,8 +421,8 @@ def test_guarded_update_rejects_stale_input():
         source = raw / "demo.xls"
         source.write_bytes(b"source")
         wiki.write_bytes(b"old wiki")
-        (extract / "demo.md").write_text("text", encoding="utf-8")
-        (extract / "wiki.md").write_text("new wiki", encoding="utf-8")
+        (extract / "demo.md").write_text("text", encoding="utf-8", newline="\n")
+        (extract / "wiki.md").write_text("new wiki", encoding="utf-8", newline="\n")
         manifest_v2(extract, [("demo.md", "raw")])
         for wiki_hash, raw_hash in (("0" * 64, module.sha256_file(source)),
                                     (module.sha256_file(wiki), "0" * 64)):

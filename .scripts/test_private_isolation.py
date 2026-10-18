@@ -143,7 +143,7 @@ class PrivateIsolationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ska.resolve_abbreviation_todo(self.connect())
         self.assertEqual(public_cache.read_bytes(), b'synthetic sentinel')
-        self.assertEqual(public_todo.read_text(), '{}\n')
+        self.assertEqual(public_todo.read_text(encoding="utf-8"), '{}\n')
 
     def test_graph_scope_is_concurrent_task_local(self):
         import asyncio
@@ -199,7 +199,7 @@ class PrivateIsolationTests(unittest.TestCase):
         before = digest(public_todo)
         self.assertEqual(ska.resolve_abbreviation_todo(conn), (1, 0))
         self.assertEqual(digest(public_todo), before)
-        self.assertEqual(private_todo.read_text(), '')
+        self.assertEqual(private_todo.read_text(encoding="utf-8"), '')
 
     def test_private_arxiv_and_catch_all_rejected(self):
         conn = self.connect()
@@ -256,7 +256,7 @@ class PrivateIsolationTests(unittest.TestCase):
         consumer.write_text('[[hubs/synthetic-legacy]]')
         self.assertFalse(pm.retire(hub)['eligible'])
         consumer.unlink()
-        file.write_text(file.read_text() + '\n## Scope\n\nSynthetic scope\n')
+        file.write_text(file.read_text(encoding="utf-8") + '\n## Scope\n\nSynthetic scope\n')
         self.assertFalse(pm.retire(hub)['eligible'])
 
     def test_retirement_rollback_restores_graph_wiki_log_and_raw(self):
@@ -272,7 +272,7 @@ class PrivateIsolationTests(unittest.TestCase):
         with gl.connect(self.private, read_only=True) as conn:
             self.assertIsNotNone(conn.execute('SELECT path FROM nodes WHERE path=?', (hub,)).fetchone())
         receipts = list((self.private.parent / 'outputs/maintenance').glob('*/receipt.json'))
-        self.assertEqual(json.loads(receipts[0].read_text())['status'], 'rolled_back')
+        self.assertEqual(json.loads(receipts[0].read_text(encoding="utf-8"))['status'], 'rolled_back')
 
     def test_readonly_connection_never_migrates_or_creates_missing_db(self):
         old = self.private.parent / 'old.db'
@@ -331,7 +331,7 @@ class PrivateIsolationTests(unittest.TestCase):
             pm.quarantine_public_cache(apply=True, expected_hash=plan['plan_hash'])
         self.assertEqual(pm.quarantine_public_cache()['plan_hash'], plan['plan_hash'])
         receipts = list((self.private.parent / 'outputs/maintenance').glob('cache-*/receipt.json'))
-        self.assertEqual(json.loads(receipts[0].read_text())['status'], 'rolled_back')
+        self.assertEqual(json.loads(receipts[0].read_text(encoding="utf-8"))['status'], 'rolled_back')
 
     def test_mixed_cache_quarantine_truncates_wal(self):
         cache = self.make_mixed_cache(wal=True)

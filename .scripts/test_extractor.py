@@ -198,7 +198,7 @@ def test_paddleocr_failure_stops_chain_and_private_is_never_uploaded():
                 blsc.assert_not_called()
                 pymupdf.assert_not_called()
                 assert not (paper_dir / "paper.md").exists()
-                (paper_dir / "paper.md").write_text("old text", encoding="utf-8")
+                (paper_dir / "paper.md").write_text("old text", encoding="utf-8", newline="\n")
                 extractor.save_parse_meta(paper_dir, {"preferred": "pymupdf"})
                 assert not extractor.extract_paper("demo", papers_dir=paper_dir.parent, allow_paddleocr=True)
                 assert (paper_dir / "paper.md").read_text(encoding="utf-8") == "old text"
