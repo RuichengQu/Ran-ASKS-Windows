@@ -139,7 +139,7 @@ class PaddleOCRTests(unittest.TestCase):
     def test_unsafe_or_missing_image_reference_never_downloads(self):
         for text in ("![x](../figure.png)", "![x](https://evil.example/x.png)",
                      "![x](missing.png)", '<img src="https://evil.example/x">', ""):
-            with self.subTest(text=text, encoding="utf-8", errors="replace"), patch.object(requests, "get") as remote:
+            with self.subTest(text=text), patch.object(requests, "get") as remote:
                 with self.assertRaises(api.PaddleOCRError):
                     api._materialize_pages(records(text), self.root, timeout=60)
                 remote.assert_not_called()

@@ -454,26 +454,26 @@ class OralExam:
                 raise ValueError("请先 /oral prepare")
             if not binding.get("session_id"):
                 plan = self._plan(state, client)
-                event = self._event(plan, "message", role=role, text=content, encoding="utf-8", errors="replace", phase="preparation", purpose=purpose)
+                event = self._event(plan, "message", role=role, text=content, phase="preparation", purpose=purpose)
                 return {"message_id": event["id"], "next": "继续讨论；整理草稿后 save/confirm"}
             session = self._session(state, client)
             if purpose == "notice":
-                event = self._event(session, "message", role=role, text=content, encoding="utf-8", errors="replace", phase="notice", purpose=purpose)
+                event = self._event(session, "message", role=role, text=content, phase="notice", purpose=purpose)
                 return {"message_id": event["id"], "counted": False}
             if session["status"] == "finished":
-                event = self._event(session, "message", role=role, text=content, encoding="utf-8", errors="replace", phase="review")
+                event = self._event(session, "message", role=role, text=content, phase="review")
                 return {"message_id": event["id"], "counted": False}
             if role != "user":
                 raise ValueError("正式口试的考官发言必须经 task/check/commit")
             if session["status"] == "paused":
-                event = self._event(session, "message", role=role, text=content, encoding="utf-8", errors="replace", phase="paused")
+                event = self._event(session, "message", role=role, text=content, phase="paused")
                 return {"message_id": event["id"], "counted": False, "next": "/oral resume"}
             if session["phase"] not in {"awaiting_answer", "awaiting_evaluation"} or session["pending"]["delivery"] != "delivered":
-                event = self._event(session, "message", role=role, text=content, encoding="utf-8", errors="replace", phase="coordination")
+                event = self._event(session, "message", role=role, text=content, phase="coordination")
                 return {"message_id": event["id"], "counted": False,
                         "next": "须先提交并确认送达考官问题，再接收答案"}
             previously_counted = session["pending"].get("counted", session["phase"] == "awaiting_evaluation")
-            event = self._event(session, "message", role=role, text=content, encoding="utf-8", errors="replace", phase="exam",
+            event = self._event(session, "message", role=role, text=content, phase="exam",
                                 question_id=session["pending"]["message_id"], intent=intent,
                                 objective_id=session["pending"]["objective_id"],
                                 assisted=session["pending"]["objective_id"] in session["hinted_objectives"])
@@ -913,7 +913,7 @@ class OralExam:
             if action in {"save", "confirm", "pause", "resume", "end"} and len(parts) == 2:
                 return self.execute(client, action, request_id=request_id, command_text=content)
             raise ValueError("未知指令或多余参数")
-        return self.execute(client, "message", request_id=request_id, text=content, encoding="utf-8", errors="replace", role="user", intent=intent)
+        return self.execute(client, "message", request_id=request_id, text=content, role="user", intent=intent)
 
 
 def build_parser():

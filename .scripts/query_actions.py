@@ -401,7 +401,7 @@ def _wiki_recall_data(conn, query: str, domain: str, limit: int,
             if not graph_registered:
                 item["status"] = item["page_status"]
             item["navigation"] = match.group(1).strip() if match else ""
-            profile = hs.read_paper_profile(rel, text=text, encoding="utf-8", errors="replace")
+            profile = hs.read_paper_profile(rel, text=text)
             if profile is not None:
                 item["profile"] = profile.text
     direction_profile_hits = sum(

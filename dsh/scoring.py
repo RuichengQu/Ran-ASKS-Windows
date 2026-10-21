@@ -64,7 +64,7 @@ class RubricPoint:
     @classmethod
     def from_any(cls, data) -> "RubricPoint":
         if isinstance(data, str):
-            return cls(text=data, encoding="utf-8", errors="replace")
+            return cls(text=data)
         if isinstance(data, dict):
             return cls(text=data.get("text", ""),
                        weight=float(data.get("weight", 1.0)),

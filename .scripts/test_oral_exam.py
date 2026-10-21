@@ -82,7 +82,7 @@ class OralExamTests(unittest.TestCase):
         return self.kernel.execute(self.client, "delivered", message_id=result["message_id"])
 
     def answer(self, content="没有外界交换时总量不变。", **params):
-        return self.kernel.execute(self.client, "message", text=content, encoding="utf-8", errors="replace", **params)
+        return self.kernel.execute(self.client, "message", text=content, **params)
 
     def test_prepare_discussion_save_and_confirmation_gate(self):
         result = self.kernel.chat(self.client, "/oral prepare 守恒概念", request_id="prepare")

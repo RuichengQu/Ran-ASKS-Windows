@@ -311,7 +311,7 @@ class WikiRecallTests(unittest.TestCase):
         text = (self.root / f"{page}.md").read_text(encoding="utf-8")
         expected = hs.read_paper_profile(page)
         with patch.object(Path, "read_text", side_effect=AssertionError("second read")):
-            actual = hs.read_paper_profile(page, text=text, encoding="utf-8", errors="replace")
+            actual = hs.read_paper_profile(page, text=text)
             self.assertIsNone(hs.read_paper_profile(page, text="# no direction section"))
         self.assertEqual(expected, actual)
         self.assertEqual(actual.raw_citations, ("academic/raw/example.md#L2",))
