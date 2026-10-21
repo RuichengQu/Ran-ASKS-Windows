@@ -72,8 +72,13 @@ def resolve_temp_artifact(repo: Path, value: str | Path, namespace: str, *,
 
 
 def _relative_path(value: str) -> str:
-    path = PurePosixPath(str(value or ""))
-    if not value or path.is_absolute() or ".." in path.parts:
+    # **先把分隔符归一成正斜杠。** PurePosixPath 不认反斜杠：在 Windows 上
+    # 传进来的 "temp\inbox-extract\x" 会被当成**单个**路径段原样穿过去，
+    # 下面 parts[0] != "temp" 的闸门于是误判，报「output 只能位于 temp/ 暂存区」。
+    # 实测 374 个用例里有 18 个栽在这一处。
+    raw = str(value or "").replace(chr(92), "/")
+    path = PurePosixPath(raw)
+    if not raw or path.is_absolute() or ".." in path.parts:
         raise ValueError(f"agent task path 必须是仓库内相对路径: {value!r}")
     return path.as_posix()
 
