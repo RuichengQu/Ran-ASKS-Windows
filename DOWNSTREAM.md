@@ -46,10 +46,10 @@ endorsement by the Ran-ASKS maintainer.
 | Previous baseline | 0.15.0 |
 
 Earlier baselines: v0.6.0 (initial port, branch `backup-v0.6.0-port`),
-v0.8.0 (branch `backup-v0.8.0-port`), v0.10.0, v0.15.0.
+v0.8.0 (branch `backup-v0.8.0-port`), v0.10.0, v0.15.0, v0.17.0, v0.17.0.
 The `upstream` remote points at the Ran-ASKS public tree.
 
-**Every upstream commit on `upstream/main` at v0.16.0 is merged into this
+**Every upstream commit on `upstream/main` at v0.17.0 is merged into this
 port's `main`.** The port is kept in step with upstream release by release;
 it never forks the method. Merges use a real `git merge` so that hand-written
 Windows fixes in non-conflicting files are preserved — only conflicting files
@@ -62,8 +62,8 @@ Same Windows machine, same command
 
 | Tree | Tests | Failing |
 | --- | --- | --- |
-| Clean upstream v0.16.0 | 292 | 102 |
-| This port, v0.16.0 | 340 | 52 |
+| Clean upstream v0.17.0 | 305 | 115 |
+| This port, v0.17.0 | 340 | 52 |
 
 `graph_validate.py`: **0 ERROR** (171 WARN are upstream's own
 `missing_semantic_description`, unrelated to portability).

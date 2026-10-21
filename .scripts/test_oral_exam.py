@@ -69,7 +69,9 @@ class OralExamTests(unittest.TestCase):
         elif action in {"hint", "probe"}:
             question = {"objective_id": packet["pending"]["objective_id"], "text": question_text}
         else:
-            question = {"objective_id": packet["cards"][-1]["id"], "text": question_text}
+            selected = next((card for card in packet["cards"] if not packet["pending"] or
+                             card["id"] != packet["pending"]["objective_id"]), packet["cards"][0])
+            question = {"objective_id": selected["id"], "text": question_text}
         return {"task_id": packet["task_id"], "action": action, "question": question, "observation": observation}
 
     def question(self, *, action="ask", judgement="demonstrated", request_id=None):
@@ -83,6 +85,26 @@ class OralExamTests(unittest.TestCase):
 
     def answer(self, content="没有外界交换时总量不变。", **params):
         return self.kernel.execute(self.client, "message", text=content, **params)
+
+    def session_record(self):
+        with self.kernel._locked() as state:
+            return deepcopy(self.kernel._session(state, self.client))
+
+    def scoped_draft(self):
+        wiki = self.repo / "academic/wiki/test.md"
+        wiki.parent.mkdir(parents=True, exist_ok=True)
+        wiki.write_text("# 备选导航\n未装载的备选正文-WIKI。\n", encoding="utf-8", newline="\n")
+        backup = self.repo / "academic/raw/backup.md"
+        backup.write_text("# 备选来源\n未装载的备选正文-RAW。\n", encoding="utf-8", newline="\n")
+        draft = deepcopy(self.draft)
+        card = draft["objectives"][0]
+        card.pop("probes")
+        card["exploration_axes"] = ["系统边界的选择", "外部交换条件的变化"]
+        card["navigation"] = [
+            {"locator": "academic/wiki/test.md#L2", "purpose": "定位另一种边界表述及其 Raw 入口"},
+            {"locator": "academic/raw/backup.md#L2", "purpose": "核验核心材料未覆盖的替代表述"},
+        ]
+        return draft
 
     def test_prepare_discussion_save_and_confirmation_gate(self):
         result = self.kernel.chat(self.client, "/oral prepare 守恒概念", request_id="prepare")
@@ -814,6 +836,312 @@ class OralExamTests(unittest.TestCase):
             self.kernel.check(self.client, invalid)
         result = self.kernel.execute(self.client, "commit", proposal=proposal)
         self.assertNotIn(unsent["message_id"], result["report"]["assessment"]["help_message_ids"])
+
+    def test_preparation_specifies_retrieval_scope_not_a_question_bank(self):
+        self.kernel.chat(self.client, "/oral prepare 守恒理解")
+        packet = self.kernel.packet(self.client)
+        contract = packet["preparation_contract"]
+        self.assertEqual(contract["question_generation"], "live_from_student_response")
+        self.assertIn("navigation", contract["optional_card_fields"])
+        self.assertIn("exploration_axes", contract["optional_card_fields"])
+        self.assertNotIn("probes", contract["required_card_fields"])
+        self.assertEqual(packet["draft"]["objectives"], [])
+        self.assertIn("不预先编写题库", "\n".join(packet["instructions"]))
+
+    def test_navigation_and_exploration_axes_are_optional_and_versioned(self):
+        draft = self.scoped_draft()
+        self.start(draft=draft)
+        frozen = self.session_record()["plan"]["objectives"][0]
+        self.assertEqual(frozen["navigation"], draft["objectives"][0]["navigation"])
+        self.assertEqual(frozen["exploration_axes"], draft["objectives"][0]["exploration_axes"])
+        self.assertNotIn("probes", frozen)
+        legacy = self.kernel.validate_plan(self.draft, complete=True)
+        self.assertNotIn("navigation", legacy["objectives"][0])
+        self.assertNotIn("exploration_axes", legacy["objectives"][0])
+
+    def test_navigation_is_not_preloaded_or_read_during_formal_turn(self):
+        self.start(draft=self.scoped_draft())
+        with patch.object(oral_exam.source_locator, "read_locator_text",
+                          wraps=oral_exam.source_locator.read_locator_text) as reader:
+            packet = self.kernel.packet(self.client)
+        self.assertEqual({call.args[0] for call in reader.call_args_list}, {self.raw.resolve()})
+        serialized = json.dumps(packet, ensure_ascii=False)
+        self.assertNotIn("未装载的备选正文", serialized)
+        self.assertIn("academic/wiki/test.md#L2", serialized)
+        self.assertEqual(packet["retrieval_policy"]["priority"],
+                         ["reference_regions", "cards.navigation", "gap_bounded_lookup"])
+        self.assertFalse(packet["retrieval_policy"]["navigation_is_evidence"])
+        (self.repo / "academic/wiki/test.md").unlink()
+        self.assertTrue(self.kernel.packet(self.client)["cards"])
+
+    def test_navigation_rejects_unsafe_whole_missing_or_ambiguous_targets(self):
+        draft = self.scoped_draft()
+        for locator in ("https://example.invalid/source#L1", "temp/notes.md#L1", "../secret.md#L1",
+                        str(self.raw) + "#L2", "academic/wiki/test.md", "academic/wiki/test.md#全篇",
+                        "academic/wiki/test.md#L99", "academic/wiki/missing.md#L1"):
+            with self.subTest(locator=locator):
+                invalid = deepcopy(draft)
+                invalid["objectives"][0]["navigation"][0]["locator"] = locator
+                with self.assertRaises(ValueError):
+                    self.kernel.validate_plan(invalid, complete=True)
+        escape = self.repo / "academic/wiki/escape.md"
+        escape.symlink_to(self.raw)
+        invalid = deepcopy(draft)
+        invalid["objectives"][0]["navigation"][0]["locator"] = "academic/wiki/escape.md#L2"
+        with self.assertRaises(ValueError):
+            self.kernel.validate_plan(invalid, complete=True)
+
+    def test_navigation_and_axes_reject_extra_fields_duplicates_and_unbounded_lists(self):
+        draft = self.scoped_draft()
+        entry = draft["objectives"][0]["navigation"][0]
+        for navigation in ([entry] * 2, [entry] * 5, [dict(entry, text="不应内联的正文")],
+                           [{"locator": entry["locator"]}], "not-a-list"):
+            invalid = deepcopy(draft)
+            invalid["objectives"][0]["navigation"] = navigation
+            with self.assertRaises(ValueError):
+                self.kernel.validate_plan(invalid, complete=True)
+        for field in ("questions", "question_order", "question_bank"):
+            invalid = deepcopy(draft)
+            invalid["objectives"][0][field] = ["预先写死的问题"]
+            with self.assertRaises(ValueError):
+                self.kernel.validate_plan(invalid, complete=True)
+        invalid = deepcopy(draft)
+        invalid["objectives"][0]["exploration_axes"] = ["维度"] * 9
+        with self.assertRaises(ValueError):
+            self.kernel.validate_plan(invalid, complete=True)
+
+    def test_legacy_probes_are_preserved_but_not_given_to_live_examiner(self):
+        draft = deepcopy(self.draft)
+        draft["objectives"][0]["probes"] = ["LEGACY_FIXED_QUESTION_DO_NOT_EXECUTE"]
+        self.start(draft=draft)
+        self.assertIn("LEGACY_FIXED_QUESTION_DO_NOT_EXECUTE", json.dumps(self.session_record()["plan"]))
+        packet = self.kernel.packet(self.client)
+        self.assertNotIn("LEGACY_FIXED_QUESTION_DO_NOT_EXECUTE", json.dumps(packet))
+        self.assertTrue(all("probes" not in card for card in packet["cards"]))
+        self.assertEqual(packet["retrieval_policy"]["question_generation"], "live_from_student_response")
+
+    def test_frozen_assessment_does_not_reintroduce_legacy_fixed_questions(self):
+        draft = self.dialogue_draft()
+        draft["objectives"][0]["probes"] = ["LEGACY_ASSESSMENT_QUESTION_DO_NOT_EXECUTE"]
+        self.start(draft=draft)
+        self.kernel.execute(self.client, "end")
+        packet = self.kernel.packet(self.client)
+        self.assertNotIn("LEGACY_ASSESSMENT_QUESTION_DO_NOT_EXECUTE", json.dumps(packet))
+        self.assertIn("LEGACY_ASSESSMENT_QUESTION_DO_NOT_EXECUTE", json.dumps(self.session_record()["plan"]))
+
+    def test_backup_navigation_cannot_be_promoted_to_observation_or_help_evidence(self):
+        draft = self.scoped_draft()
+        draft.update(style="discussion-diagnostic", allow_hints=True)
+        self.start(draft=draft)
+        packet = self.kernel.packet(self.client)
+        first = self.dialogue_proposal(packet)
+        committed = self.kernel.execute(self.client, "commit", proposal=first)
+        self.deliver(committed)
+        self.answer()
+        packet = self.kernel.packet(self.client)
+        proposal = self.dialogue_proposal(packet, action="respond", help_type="explanation")
+        invalid = deepcopy(proposal)
+        invalid["observation"]["evidence"] = ["academic/raw/backup.md#L2"]
+        with self.assertRaises(ValueError):
+            self.kernel.check(self.client, invalid)
+        invalid = deepcopy(proposal)
+        invalid["question"]["evidence"] = ["academic/raw/backup.md#L2"]
+        with self.assertRaises(ValueError):
+            self.kernel.execute(self.client, "commit", proposal=invalid)
+
+    def test_api_receives_navigation_policy_without_loading_backup_or_question_scripts(self):
+        self.start(draft=self.scoped_draft())
+        calls = []
+
+        def caller(prompt, validator, **kwargs):
+            calls.append(prompt)
+            packet = json.loads(prompt)
+            self.assertIn("navigation", packet["cards"][0])
+            self.assertNotIn("未装载的备选正文", prompt)
+            self.assertTrue(all("probes" not in card for card in packet["cards"]))
+            self.assertIn("API 回合没有自动检索能力", "\n".join(packet["instructions"]))
+            proposal = self.proposal(packet)
+            self.assertTrue(validator(proposal))
+            return {"status": "ok", "parsed": proposal}
+
+        with patch("agent_task.backend", return_value="api"):
+            result = oral_exam_api.advance(self.kernel, self.client, allow_api_sharing=True, caller=caller)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result["delivery"], "pending")
+
+    def test_receive_start_inline_task_and_direct_managed_commit(self):
+        self.ready()
+        result = self.kernel.receive(self.client, "/oral start", request_id="host-start")
+        self.assertEqual(result["input"]["kind"], "turn")
+        task = result["agent_task"]
+        self.assertEqual(task["transaction_id"], result["input"]["task_id"])
+        output = self.repo / task["outputs"][0]["path"]
+        output.write_text(json.dumps(self.proposal(result["input"])), encoding="utf-8")
+        args = oral_exam.build_parser().parse_args(
+            ["commit", "--client", self.client, "--file", str(output), "--request-id", "first-commit"])
+        with patch.object(self.kernel, "check", side_effect=AssertionError("no separate check")):
+            committed = oral_exam.run(args, repo=self.repo)
+        self.assertEqual(committed["delivery"], "pending")
+        events = self.session_record()["events"]
+        commands = [event for event in events if event["kind"] == "command"]
+        self.assertEqual(commands[-1]["text"], "/oral start")
+        self.assertNotIn("receive", [event["action"] for event in commands])
+
+    def test_receive_explicit_final_display_ack_and_input_are_idempotent(self):
+        self.start()
+        committed = self.question()
+        result = self.kernel.receive(self.client, "没有外界交换。", request_id="host-answer",
+                                     displayed_message_id=committed["message_id"])
+        self.assertEqual(result["input"]["answer"]["text"], "没有外界交换。")
+        self.assertEqual(result["input"]["progress"]["answers_used"], 1)
+        self.assertEqual(result["input"]["pending"]["delivery"], "delivered")
+        saved = self.kernel.state_path.read_bytes()
+        repeated = self.kernel.receive(self.client, "没有外界交换。", request_id="host-answer",
+                                       displayed_message_id=committed["message_id"])
+        self.assertEqual(result, repeated)
+        self.assertEqual(saved, self.kernel.state_path.read_bytes())
+        stored = json.loads(saved)
+        self.assertNotIn("input", stored["requests"][f"{self.client}:host-answer"]["result"])
+        events = self.session_record()["events"]
+        delivery = next(event for event in events if event["kind"] == "delivery")
+        answer = next(event for event in events if event["id"] == result["message_id"])
+        self.assertLess(delivery["seq"], answer["seq"])
+
+    def test_receive_does_not_infer_delivery_from_student_message(self):
+        self.start()
+        committed = self.question()
+        result = self.kernel.receive(self.client, "我没看到问题。", request_id="not-visible", intent="clarification")
+        self.assertFalse(result["counted"])
+        self.assertNotIn("agent_task", result)
+        self.assertEqual(result["state"]["pending_question"]["delivery"], "pending")
+        self.assertEqual(result["state"]["pending_question"]["message_id"], committed["message_id"])
+        self.assertEqual(self.session_record()["answers"], 0)
+
+    def test_receive_pure_clarification_keeps_budget_and_original_text(self):
+        self.start()
+        committed = self.question()
+        result = self.kernel.receive(self.client, "请问你要我用哪种记号？", intent="clarification",
+                                     request_id="clarify", displayed_message_id=committed["message_id"])
+        self.assertFalse(result["counted"])
+        self.assertEqual(result["input"]["progress"]["answers_used"], 0)
+        self.assertEqual(result["input"]["answer"]["intent"], "clarification")
+        self.assertEqual(result["input"]["answer"]["text"], "请问你要我用哪种记号？")
+
+    def test_receive_bad_ack_or_input_rolls_back_delivery_and_message(self):
+        self.start()
+        committed = self.question()
+        original = self.kernel.state_path.read_bytes()
+        for displayed, intent in (("wrong-message", "answer"), (committed["message_id"], "invalid")):
+            with self.assertRaises(ValueError):
+                self.kernel.receive(self.client, "回答。", request_id="invalid-input", intent=intent,
+                                    displayed_message_id=displayed)
+            self.assertEqual(original, self.kernel.state_path.read_bytes())
+        self.start(client="other-client")
+        original = self.kernel.state_path.read_bytes()
+        with self.assertRaises(ValueError):
+            self.kernel.receive("other-client", "回答。", request_id="cross-client",
+                                displayed_message_id=committed["message_id"])
+        self.assertEqual(original, self.kernel.state_path.read_bytes())
+
+    def test_receive_read_only_commands_do_not_ack_or_prepare_tasks(self):
+        result = self.kernel.receive(self.client, "/oral help", request_id="no-state")
+        self.assertIn("智能口试使用帮助", result["text"])
+        self.assertFalse(self.kernel.root.exists())
+        self.start()
+        committed = self.question()
+        original = self.kernel.state_path.read_bytes()
+        for action in ("help", "status", "styles"):
+            result = self.kernel.receive(self.client, f"/oral {action}", request_id=f"read-{action}",
+                                         displayed_message_id=committed["message_id"])
+            self.assertNotIn("agent_task", result)
+            self.assertEqual(original, self.kernel.state_path.read_bytes())
+
+    def test_receive_end_freezes_delivery_and_returns_full_assessment_task(self):
+        self.start(draft=self.dialogue_draft())
+        committed = self.dialogue_turn()
+        result = self.kernel.receive(self.client, "/oral end", request_id="host-end",
+                                     displayed_message_id=committed["message_id"])
+        self.assertEqual(result["state"]["status"], "finished")
+        self.assertEqual(result["agent_task"]["protocol"]["name"], "oral-exam-assessment-v1")
+        self.assertEqual(result["input"]["kind"], "assessment")
+        self.assertTrue(any(event["kind"] == "delivery" for event in result["input"]["transcript"]))
+        self.assertIn("reference_regions", result["input"])
+
+    def test_receive_keeps_accepted_answer_when_raw_invalidates_task(self):
+        self.start()
+        committed = self.question()
+        self.raw.write_text("# 修改\n新的依据。\n新的边界。\n", encoding="utf-8", newline="\n")
+        result = self.kernel.receive(self.client, "保留原始回答。", request_id="changed-raw",
+                                     displayed_message_id=committed["message_id"])
+        self.assertIn("task_error", result)
+        self.assertNotIn("agent_task", result)
+        record = self.session_record()
+        self.assertEqual(record["answers"], 1)
+        self.assertTrue(any(event.get("text") == "保留原始回答。" for event in record["events"]))
+
+    def test_prepared_raw_regions_are_complete_deduplicated_and_checked(self):
+        draft = deepcopy(self.draft)
+        for card in draft["objectives"]:
+            card["evidence"][0]["locator"] = "academic/raw/test.md#L2-L3"
+        regions = {}
+        with patch.object(oral_exam.source_locator, "read_locator_text",
+                          wraps=oral_exam.source_locator.read_locator_text) as reader:
+            self.kernel.validate_plan(draft, complete=True, regions=regions)
+        self.assertEqual(reader.call_count, 1)
+        self.assertEqual(len(regions), 1)
+        self.assertIn("边界交换会改变", next(iter(regions.values()))["text"])
+        self.start(draft=draft)
+        packet = self.kernel.packet(self.client)
+        self.assertEqual(packet["reference_regions"], list(regions.values()))
+        record = self.session_record()
+        self.assertEqual(record["reference_regions"], regions)
+        with self.kernel._locked() as state:
+            version = state["plans"][record["plan_id"]]["versions"][-1]
+            self.assertEqual(version["reference_regions"], regions)
+        self.raw.write_text("# 守恒\n改变后的原文。\n改变后的边界。\n", encoding="utf-8", newline="\n")
+        with self.assertRaises(ValueError):
+            self.kernel.packet(self.client)
+
+    def test_professor_guidance_candidates_and_budget_shared_across_styles(self):
+        for style_id in ("strict-examination", "discussion-diagnostic"):
+            with self.subTest(style=style_id):
+                draft = deepcopy(self.draft)
+                draft["style"] = style_id
+                draft["objectives"] += [dict(deepcopy(draft["objectives"][0]), id=f"extra-{index}")
+                                         for index in range(3)]
+                client = f"professor-{style_id}"
+                self.ready(client=client, plan_id=client, draft=draft)
+                result = self.kernel.receive(client, "/oral start", request_id="start")
+                packet = result["input"]
+                self.assertEqual(len(packet["cards"]), 3)
+                self.assertEqual(len(packet["objectives"]), 5)
+                self.assertEqual(packet["style"]["id"], style_id)
+                self.assertEqual(packet["progress"]["answers_remaining"], 2)
+                instructions = "\n".join(packet["instructions"])
+                for expected in ("教授", "物理图像", "可观测后果", "转到另一角度", "严格测评式"):
+                    self.assertIn(expected, instructions)
+
+    def test_receive_cli_entry(self):
+        self.ready()
+        args = oral_exam.build_parser().parse_args(
+            ["receive", "--client", self.client, "--request-id", "cli-start", "--text", "/oral start"])
+        result = oral_exam.run(args, repo=self.repo)
+        self.assertEqual(result["input"]["kind"], "turn")
+        self.assertEqual(result["state"]["status"], "active")
+
+    def test_receive_legacy_active_session_needs_no_region_migration(self):
+        self.start()
+        committed = self.question()
+        with self.kernel._locked() as state:
+            session = self.kernel._session(state, self.client)
+            session.pop("reference_regions")
+            frozen = self.kernel._plan(state, self.client)["versions"][-1]
+            frozen.pop("reference_regions")
+            oral_exam.atomic_json(self.kernel.state_path, state)
+        result = self.kernel.receive(self.client, "原有场次继续。", request_id="legacy-continue",
+                                     displayed_message_id=committed["message_id"])
+        self.assertEqual(result["input"]["style"]["id"], "strict-examination")
+        self.assertTrue(result["input"]["reference_regions"])
 
     def test_cli_and_wg_parser_have_oral_entry(self):
         path = oral_exam.REPO / ".scripts/wg.py"

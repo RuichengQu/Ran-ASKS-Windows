@@ -16,6 +16,8 @@
 
 研究论文仍以 `research` 作为工作状态。Agent 真正开始起草、改写或润色论文正文时，在该状态内调用 `write` 的 academic profile；讨论研究问题、核对数据和运行实验时继续保持 `research`，无需加载写作能力。
 
+用户要求进入“论文到科普展板”创作或先讨论主题/受众/需求时，加载 `python3 .scripts/route.py --capability science-exhibit --capability-profile discuss`；这是可持续的协作创作流程，底层复用 writing 工作区或已有 research 状态。接续展板先读取目标项目 notes/status.md，再加载该能力的 resume profile 并调用 `wg.py science-exhibit resume --store <store>`；以当前受管记录恢复，不重新假设需求、批准方案或直接生成成品。精确边界见 `operations/SCIENCE_EXHIBIT.md`。
+
 先判定工作模式，而非机械依赖单个触发词：
 
 | 模式 | 判定信号 | 行为 |
@@ -98,6 +100,8 @@
 - 学术论文正文：保持 `research` 工作状态，调用 academic write profile，并同时应用 `operations/research/physics-manuscript-editing.md` 等相应学科写作 overlay。
 
 ### 3. 形成内容稿
+
+需要科普插图时，按需组合 `illustration` capability（`operations/ILLUSTRATION.md`），不切换写作状态。先确定要解释的段落、受众和唯一重点，再设计图意/类比、写提示词并制作；复用既有漫画 API 或原生绘画，不因普通写作自动联网。公众号按手机端图文配对检查，展板按观看距离检查，复用图意与素材而非固定版式。图注、替代文本、来源与科学边界随素材保存，科学标签优先可编辑层；API 成功不等于内容正确。
 
 - 先完成结构化内容，再压缩到用户要求的字数、页数或时长；
 - 每个原则性或能力性结论至少由一个具体事实锚定；

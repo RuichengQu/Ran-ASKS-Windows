@@ -68,6 +68,10 @@ temp/visual-qa/<artifact-sha>/<profile>/<check-key>/
 
 可以用 `--receipt-root` 指定仓库外缓存目录；若指定仓库内路径，则必须位于 `temp/` 下。程序会在建目录前拒绝把 receipt 写入 `raw/`、`wiki/`、`private/` 或其他源码/知识库目录。
 
+## 与模拟读者评审的区别
+
+布局、清晰度检查不能证明读者理解研究内容。科普展板需要检验理解时，使用 `operations/SCIENCE_EXHIBIT.md` 的可选 API 模拟读者评审：复用本模块的 `call_json_vision` 传输，但采用独立的盲读角色、先复述后建议的结构，不沿用视觉 QA 的分数或通过结论。显式远程授权后只发送选定的实际 PNG；不发送论文、预期答案或项目上下文。模拟反馈不是科学认证、真人调查或用户验收。
+
 ## 调用边界
 
 API backend 通过 DSH 注册的独立工具 `visual_check` 执行；当前宿主 Agent 按同一判据直接调用底层能力。以下两类情形需要视觉检查：

@@ -20,6 +20,32 @@ TASK_OBJECT_PREDICATES = {"待办"}
 DEICTIC_PAGE_ENDPOINTS = {"本会议", "本论文", "本文", "本文件", "本文档", "$meeting"}
 
 
+def parse_semantic_triple_line(line: str) -> list[str] | None:
+    text = line.strip()
+    if text.startswith(("- ", "* ", "+ ")):
+        text = text[2:].lstrip()
+    text = text.replace("｜", "|")
+    if text.startswith("<") and text.endswith(">") and text.count("|") == 2:
+        text = text[1:-1].strip()
+    parts = [part.strip() for part in text.split("|")]
+    return parts if len(parts) == 3 and all(parts) else None
+
+
+def semantic_endpoint_errors(relation: dict) -> list[str]:
+    errors = []
+    for role in ("subject", "object"):
+        value = str(relation.get(role) or "").strip()
+        if value in DEICTIC_PAGE_ENDPOINTS:
+            errors.append(f"unresolved page endpoint {role}={value}")
+        elif (relation_endpoint_kind(str(relation.get("predicate") or ""), role)
+              not in {"proposition", "task"}
+              and value and (value[0] in "<>" or value[-1] in "<>")):
+            errors.append(f"semantic endpoint has residual wrapper {role}={value}")
+        elif value.strip("`<> \t-*+") in DEICTIC_PAGE_ENDPOINTS:
+            errors.append(f"unresolved wrapped page endpoint {role}={value}")
+    return errors
+
+
 def relation_endpoint_kind(predicate: str, role: str) -> str:
     """Return the shared semantic identity class for a relation endpoint."""
     if role == "object" and predicate in PROPOSITION_OBJECT_PREDICATES:
@@ -244,6 +270,9 @@ def validate_knowledge_ir(ir: Any) -> list[str]:
         for field in ("relation_id", "subject", "predicate", "object"):
             if not str(relation.get(field) or "").strip():
                 errors.append(f"relations[{index}].{field} is required")
+        errors.extend(
+            f"relations[{index}] {error}" for error in semantic_endpoint_errors(relation)
+        )
         if strict_meeting:
             if relation.get("subject") in DEICTIC_PAGE_ENDPOINTS or relation.get("object") in DEICTIC_PAGE_ENDPOINTS:
                 errors.append(f"relations[{index}] has an unresolved meeting deictic endpoint")

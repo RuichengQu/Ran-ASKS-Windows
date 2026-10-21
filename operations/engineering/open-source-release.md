@@ -31,6 +31,10 @@ or erase Git history; do not publish the source repository. History cleanup requ
 separately reviewed migration. Private maintenance receipts and backups stay under
 `private/outputs/`, never in a release or shared temporary directory.
 
+## Pending reader-facing updates
+
+- [x] 2026-10-15：v0.17.0 中英文 README 已说明本仓库为 Shi-Ju Ran 开发的 macOS 版本，并加入其他合作者开发维护的 Windows 版本入口：<https://github.com/RuichengQu/Ran-ASKS-Windows>。归属依据用户提供的信息，不据此宣称兼容性认证或官方 Reference Distribution 身份。
+
 ## Public-tree version and immutable tags
 
 - The canonical moving-main version is the root `VERSION` file, formatted as `MAJOR.MINOR.PATCH`; documentation must not duplicate a current-version constant.

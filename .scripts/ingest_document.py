@@ -184,6 +184,14 @@ def presentation_ingest_principles() -> str:
     return "[演示文稿（PPTX）]\n" + match.group(1).strip()
 
 
+def document_navigation_principles() -> str:
+    text = (Path(__file__).resolve().parent.parent / "operations/INGEST.md").read_text(encoding="utf-8")
+    match = re.search(r"^## 核心导航判据\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    if not match:
+        raise ValueError("缺少 INGEST 核心导航判据")
+    return "[核心导航判据]\n" + match.group(1).strip()
+
+
 def extract_spreadsheet_text(source_path: Path) -> str:
     def encode(value):
         return json.dumps(value, ensure_ascii=False, default=str)
@@ -1120,6 +1128,7 @@ def build_doc_wiki_prompt(doc_text: str, doc_id: str, date_str: str,
     return f"""你是知识库摄入组件。基于以下{cfg["domain_name"]}文档上下文，撰写自然、简洁的{cfg["domain_name"]} wiki 页面。
 
 {tabular_ingest_principles()}
+{document_navigation_principles()}
 {presentation_ingest_principles() if doc_text.startswith("# PPTX") else ""}
 
 [{cfg["domain_name"]}文档上下文]
@@ -1174,6 +1183,7 @@ def build_doc_wiki_slots_prompt(doc_text: str, doc_id: str, date_str: str,
     return f"""你是知识库摄入组件。请一次性完成{cfg["domain_name"]} wiki 页面撰写 + 语义槽抽取。
 
 {tabular_ingest_principles()}
+{document_navigation_principles()}
 {presentation_ingest_principles() if doc_text.startswith("# PPTX") else ""}
 
 [{cfg["domain_name"]}文档上下文]
@@ -1233,6 +1243,12 @@ def prepare_document_agent_task(state: dict, doc_path: Path, output_path: Path,
             "path": "operations/INGEST.md",
             "role": "instructions",
             "locator": "表格型清单与台账",
+            "read": "section",
+        }, {
+            "name": "document_navigation_principles",
+            "path": "operations/INGEST.md",
+            "role": "instructions",
+            "locator": "核心导航判据",
             "read": "section",
         }] + ([{"name": "presentation_principles", "path": "operations/INGEST.md",
                 "locator": "演示文稿（PPTX）", "read": "section"}] if state.get("pptx") else []),
@@ -1673,6 +1689,7 @@ def build_doc_slots_prompt(wiki_content: str, subproject: str = "admin",
     return f"""基于你刚写好的 wiki 页面，为这份{cfg["domain_name"]}文档抽取语义槽。
 
 {tabular_ingest_principles()}
+{document_navigation_principles()}
 
 [已写好的 wiki 页面]
 <<<WIKI>>>
@@ -1729,6 +1746,12 @@ def step_write_slots(state: dict) -> tuple[bool, str]:
                 "name": "validated_wiki", "path": str(
                     (REPO / state["extract_dir"] / "wiki.md").relative_to(REPO)
                 ), "role": "semantic_source",
+            }, {
+                "name": "document_navigation_principles",
+                "path": "operations/INGEST.md",
+                "role": "instructions",
+                "locator": "核心导航判据",
+                "read": "section",
             }],
             outputs=[{
                 "name": "semantic_slots", "path": slots_file.relative_to(REPO).as_posix(),

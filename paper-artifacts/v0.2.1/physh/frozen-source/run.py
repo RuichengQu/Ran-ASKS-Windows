@@ -119,7 +119,7 @@ def write_checkpoint(
     for output in outputs:
         output_rows.append(
             {
-                "path": str(output.relative_to(EXPERIMENT_ROOT)),
+                "path": output.relative_to(EXPERIMENT_ROOT).as_posix(),
                 "sha256": sha256_file(output),
                 "size": output.stat().st_size,
             }
@@ -249,7 +249,7 @@ def stage_audit() -> dict[str, Any]:
         "files": checks,
         "fusion_report_count": len(reports),
         "fusion_reports_digest": report_digest.hexdigest(),
-        "arxiv_v1_pdf": str(arxiv_pdf.relative_to(REPO_ROOT)),
+        "arxiv_v1_pdf": arxiv_pdf.relative_to(REPO_ROOT).as_posix(),
         "arxiv_v1_pdf_sha256": sha256_file(arxiv_pdf),
     }
     atomic_write_json(output, result)
@@ -697,7 +697,7 @@ def analysis_digest() -> str:
     ]
     digest = hashlib.sha256()
     for path in paths:
-        digest.update(str(path.relative_to(REPO_ROOT)).encode("utf-8"))
+        digest.update(path.relative_to(REPO_ROOT).as_posix().encode("utf-8"))
         digest.update(bytes.fromhex(sha256_file(path)))
     return digest.hexdigest()
 
@@ -1068,9 +1068,9 @@ def stage_figure() -> dict[str, Any]:
         ],
     )
     result = {
-        "pdf": str(pdf_path.relative_to(EXPERIMENT_ROOT)),
-        "png": str(png_path.relative_to(EXPERIMENT_ROOT)),
-        "data": str(data_path.relative_to(EXPERIMENT_ROOT)),
+        "pdf": pdf_path.relative_to(EXPERIMENT_ROOT).as_posix(),
+        "png": png_path.relative_to(EXPERIMENT_ROOT).as_posix(),
+        "data": data_path.relative_to(EXPERIMENT_ROOT).as_posix(),
     }
     write_checkpoint("figure", [pdf_path, png_path, data_path], result)
     return result

@@ -568,8 +568,8 @@ def _read_staged_agent_context(state: dict, repo: Path) -> tuple[str, str]:
 
 
 def _split_triple(line: str) -> list[str] | None:
-    parts = [part.strip() for part in line.split("|")]
-    return parts if len(parts) == 3 else None
+    import knowledge_ir
+    return knowledge_ir.parse_semantic_triple_line(line)
 
 
 def apply_semantic_recovery_proposal(semantic_text: str, proposal: dict,
@@ -972,6 +972,7 @@ def validate_semantics(state: dict, REPO: Path, allowed_predicates: set[str],
                     and diagnostics.get("semantic_triple_count", 0) == 0):
                 hard_errors.append("语义槽非空但解析出 0 条三元组，拒绝进入 finalize")
         triples, keywords, *_ = graph_ingest.parse_semantic_text(sem_text, page_path)
+        triples = graph_ingest.normalize_page_subjects(triples, page_path)
         # 谓词校验
         for t in triples:
             pred = t.get("predicate", "")

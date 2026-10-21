@@ -7,6 +7,39 @@ manifests and checksums.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-15
+
+### Version decision / 版本判断
+
+- MINOR: Add backward-compatible public-science poster collaboration and shared illustration creation; retain explicit authorization and existing engine contracts
+- MINOR（中文）：新增向后兼容的科普展板协作与共享插图能力，保持显式授权、既有绘图接口及事实隔离边界
+
+### Highlights
+
+- Added preview, evidence-bound public-science poster collaboration with explicit
+  audience/plan/production/preview boundaries, motivation-first storytelling,
+  visible-acronym checks and optional independent simulated-reader feedback.
+  Native A1/A0 layouts remain bounded; mixed-raster draft compositions are not
+  misrepresented as supported formal editable exports or approved publications.
+- Added shared illustration briefs and local native SVG/HTML or explicitly
+  authorized raster rendering for posters and mobile articles, reusing existing
+  engines and preserving comic/storyboard compatibility and private isolation.
+- Clarified macOS ownership and linked the independently maintained Windows
+  version in both READMEs. Updated the introduction and printable PDF; preserved
+  oral-exam fast-path availability in the public allowlist and tightened
+  evidence/ingestion and interaction guidance without publishing personal data.
+
+### 主要更新
+
+- 新增 preview 科普展板协作：明确受众、方案、制作授权和实际预览边界，从动机组织
+  故事，校验可见缩写，并可显式调用独立模拟读者。原生 A1/A0 渲染仍受限，不把混合
+  位图讨论稿冒充正式可编辑导出或已获公开许可的成品。
+- 新增共享插图 brief 与本地原生 SVG/HTML、显式授权位图制作，供展板和手机文章
+  复用既有引擎，保留漫画/storyboard 兼容性和私有隔离，不隐式联网。
+- 中英文 README 明确 macOS 开发归属并加入独立维护的 Windows 版本入口，同步
+  介绍文档和打印 PDF；精确白名单保留公开口试快路径，并改进来源摄入及交互指引，
+  不发布个人知识库或项目数据。
+
 ## [0.16.0] - 2026-10-13
 
 ### Version decision / 版本判断
@@ -482,5 +515,7 @@ manifests and checksums.
 
 [0.15.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.15.0
 
-[Unreleased]: https://github.com/ranshiju/Ran-ASKS/compare/v0.16.0...HEAD
 [0.16.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.16.0
+
+[Unreleased]: https://github.com/ranshiju/Ran-ASKS/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.17.0

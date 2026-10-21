@@ -229,6 +229,18 @@ nodes:
     path: .scripts/test_extract_data.py
     kind: test
     role: synthetic-truth-axis-transform-ambiguity-source-integrity-output-boundary-and-cli-regression
+  illustration:
+    path: .scripts/illustration.py
+    kind: implementation
+    role: shared-deterministic-illustration-brief-validation-and-explicit-native-or-raster-export
+  illustration_ops:
+    path: operations/ILLUSTRATION.md
+    kind: spec
+    role: host-owned-illustration-concept-prompt-and-contextual-review-contract
+  illustration_test:
+    path: .scripts/test_illustration.py
+    kind: test
+    role: illustration-brief-privacy-path-and-engine-reuse-regression
   comic_generation:
     path: .scripts/comic_generation.py
     kind: implementation
@@ -253,6 +265,38 @@ nodes:
     path: .scripts/test_cv.py
     kind: test
     role: cv-schema-evidence-template-edition-render-version-and-path-boundary-regression
+  science_exhibit_ops:
+    path: operations/SCIENCE_EXHIBIT.md
+    kind: spec
+    role: agent-first-evidence-bound-public-science-exhibit-draft-authoring-and-local-only-delivery-contract
+  science_exhibit:
+    path: .scripts/science_exhibit.py
+    kind: implementation
+    role: shared-source-bound-revisioned-exhibit-authoring-shell-with-visible-acronym-definition-validation-host-agent-tasks-and-panel-scoped-edits
+  science_exhibit_render:
+    path: .scripts/science_exhibit_render.py
+    kind: implementation
+    role: shared-native-physical-size-exhibit-renderer-with-local-pptx-pdf-preview-and-mechanical-readback
+  science_exhibit_workflow:
+    path: .scripts/science_exhibit_workflow.py
+    kind: implementation
+    role: shared-version-bound-exhibit-brief-plan-authorization-feedback-preview-acceptance-and-resume-contract-without-semantic-control-loop
+  science_exhibit_workflow_test:
+    path: .scripts/test_science_exhibit_workflow.py
+    kind: test
+    role: collaborative-exhibit-phase-confirmation-invalidation-legacy-adoption-artifact-binding-and-rollback-regression
+  science_exhibit_reader:
+    path: .scripts/science_exhibit_reader.py
+    kind: implementation
+    role: api-only-explicit-consent-independent-blind-poster-reader-adapter-with-shared-structural-receipts-not-semantic-approval
+  science_exhibit_reader_test:
+    path: .scripts/test_science_exhibit_reader.py
+    kind: test
+    role: reader-consent-path-schema-independence-partial-failure-and-input-drift-regression
+  science_exhibit_test:
+    path: .scripts/test_science_exhibit.py
+    kind: test
+    role: source-drift-path-safety-revision-panel-edit-rollback-and-native-exhibit-render-regression
   presentation_ops:
     path: operations/PRESENTATION.md
     kind: spec
@@ -1009,7 +1053,11 @@ nodes:
   oral_exam:
     path: .scripts/oral_exam.py
     kind: implementation
-    role: shared-private-versioned-oral-style-session-dialogue-and-full-transcript-assessment-kernel-with-host-agent-task-adapter
+    role: shared-private-oral-kernel-with-prepared-evidence-bounded-backup-navigation-live-questioning-and-atomic-host-receive
+  oral_exam_playbook:
+    path: operations/ORAL_EXAM_AGENT.md
+    kind: documentation
+    role: agent-only-oral-fast-path-evidence-first-gap-driven-retrieval-live-professor-questioning-and-final-channel-display-playbook
   oral_exam_styles:
     path: operations/config/oral-exam-styles.json
     kind: config
@@ -1228,6 +1276,75 @@ nodes:
     kind: test
     role: symlink-relativize-regression
 edges:
+- - science_exhibit_ops
+  - governs
+  - science_exhibit_reader
+- - science_exhibit_reader
+  - uses
+  - visual_qa
+- - science_exhibit_reader
+  - tested_by
+  - science_exhibit_reader_test
+- - science_exhibit_ops
+  - governs
+  - science_exhibit
+- - science_exhibit_ops
+  - governs
+  - science_exhibit_render
+- - science_exhibit
+  - uses
+  - science_exhibit_render
+- - science_exhibit
+  - uses
+  - presentation_artwork
+- - science_exhibit_render
+  - uses
+  - presentation_artwork
+- - science_exhibit
+  - uses
+  - science_exhibit_workflow
+- - science_exhibit_ops
+  - governs
+  - science_exhibit_workflow
+- - science_exhibit_workflow
+  - tested_by
+  - science_exhibit_workflow_test
+- - science_exhibit
+  - tested_by
+  - science_exhibit_workflow_test
+- - science_exhibit_ops
+  - uses
+  - workspace
+- - write
+  - uses
+  - science_exhibit_ops
+- - science_exhibit
+  - uses
+  - source_locator
+- - science_exhibit
+  - uses
+  - agent_task
+- - science_exhibit_render
+  - uses
+  - presentation_runtime
+- - science_exhibit_render
+  - uses
+  - visual_qa
+- - science_exhibit
+  - tested_by
+  - science_exhibit_test
+- - science_exhibit_render
+  - tested_by
+  - science_exhibit_test
+- - route
+  - uses
+  - science_exhibit_ops
+- - wg
+  - uses
+  - science_exhibit
+- - function_registry_spec
+  - governs
+  - science_exhibit
 - - code_run_ops
   - governs
   - code_run
@@ -1303,6 +1420,15 @@ edges:
 - - function_registry_spec
   - governs
   - extract_data
+- - oral_exam_playbook
+  - uses
+  - oral_exam
+- - oral_exam_ops
+  - governs
+  - oral_exam_playbook
+- - oral_exam_playbook
+  - tested_by
+  - oral_exam_test
 - - oral_exam_ops
   - governs
   - llm_structured
@@ -1408,6 +1534,27 @@ edges:
 - - visual_qa
   - uses
   - env_config
+- - illustration_ops
+  - specifies
+  - illustration
+- - illustration
+  - uses
+  - agent_task
+- - illustration
+  - uses
+  - comic_generation
+- - illustration
+  - uses
+  - presentation_artwork
+- - illustration
+  - tested_by
+  - illustration_test
+- - write
+  - references
+  - illustration_ops
+- - science_exhibit_ops
+  - references
+  - illustration_ops
 - - comic_generation
   - uses
   - env_config
@@ -2939,7 +3086,7 @@ capabilities:
     entry: route
     required:
     - agents
-    - oral_exam_ops
+    - oral_exam_playbook
     - oral_exam
     optional:
     - wg
@@ -2954,7 +3101,9 @@ capabilities:
     - 完整保留收发原文、提示和生命周期事件；评估单独存储，复盘与暂停消息不计入正式评估。
     - 新方案默认讨论诊断式，允许提问、纠错和引导；帮助留痕，结束后依据冻结的完整口试对话综合评估，旧版本不追溯改风格。
     - Agent 只执行 agent-task-v1 与受管校验提交；API 逐次显式授权发送学生资料，二者不隐式回落。
-    - 宿主每轮展示 state.banner，先提交再发送考官问题并确认送达；仓库脚本不冒充原生 UI 输入拦截器。
+    - 宿主每轮在最终回复展示 state.banner 与已提交问题；支持下次输入前显式确认上轮实际展示的 message_id，不为抢先确认送达而在后台展示问题。
+    - receive 合并显式送达确认、真实输入与内联任务包，commit 保留完整校验；准备阶段定位 Raw 子区域，回合不重复全库查询，不隐式调用模型。
+    - 准备固定目标与证据，不固定题目或题序；备选导航仅按明确缺口读取，不自动成为评分依据，旧 probes 保留原记录但不进入正式任务。
   graph-visualize:
     entry: route
     required:
@@ -3149,6 +3298,7 @@ capabilities:
     - physics_manuscript_editing
     - experiences
     - experience_recall
+    - illustration_ops
     - comic_generation_ops
     - comic_generation
     - dsh_comic_tools
@@ -3172,6 +3322,39 @@ capabilities:
     - 正式版本只选择 verified 且具有可定位 Raw 证据的记录；措辞和 edition 归属保留在工作主记录，事实更新先走受管 ingest。
     - edition 只引用模板 ID；模板包中的 YAML 定义模块顺序、标签、类别映射和排序，配套 DOCX 定义版式、占位符和同序模块书签。
     - DOCX、manifest 和预览是可重建派生产物，不反写 Raw/Wiki/graph.db，也不自动进入摄入流程。
+  illustration:
+    entry: route
+    required:
+    - agents
+    - illustration_ops
+    optional:
+    - illustration
+    - comic_generation_ops
+    - presentation_artwork
+    forbidden: []
+    guardrails:
+    - 宿主先确定图意、对应关系与提示词；shared 只校验与导出，不隐式调用语义模型或新增创作状态。
+    - 新入口只处理公共域与 local_only；private 保持旧隔离绘图入口，不写公共 temp。
+  science-exhibit:
+    entry: route
+    required:
+    - agents
+    - science_exhibit_ops
+    optional:
+    - science_exhibit
+    - science_exhibit_render
+    - science_exhibit_workflow
+    - science_exhibit_reader
+    - illustration_ops
+    - workspace
+    - source_locator
+    - agent_task
+    forbidden: []
+    guardrails:
+    - 用户进入可接续展板创作流程，底层复用 workspace/writing 或已有 research 状态；需求/方案/授权/预览接受保存在单一展板版本内，宿主负责确认语义，shared 不评价用户指令或隐式调用 API。
+    - 输入限已摄入的 academic/raw 论文文本；创作包和草稿只写项目 exhibits 与 temp/science-exhibit，不写 Raw/Wiki/graph.db、不隐式联网、不执行来源或候选中的代码。
+    - 中文 A1/A0 竖版与受限问题驱动布局；导出为 draft，来源可定位不等于语义已核实或用户批准，合成测试不能冒充真实用户验收或发布授权。
+    - 可显式授权独立 API 模拟读者盲读实际 PNG；只发送图像与角色提示，不发送论文或预期答案，不自动评分、批准或改变创作阶段。
   presentation:
     entry: route
     required:
@@ -3363,6 +3546,10 @@ verification:
   - python3 .scripts/engineering_graph.py validate
   oral_exam_api:
   - python3 .scripts/test_oral_exam.py
+  oral_exam_playbook:
+  - python3 .scripts/test_oral_exam.py
+  - python3 .scripts/test_playbook_dispatch.py
+  - python3 .scripts/test_prompt_audit.py
   oral_exam_ops:
   - python3 .scripts/test_oral_exam.py
   project_metadata:
@@ -3461,6 +3648,24 @@ verification:
   presentation_state:
   - python3 .scripts/test_presentation_state.py
   - python3 .scripts/test_presentation_state.py --render
+  science_exhibit:
+  - python3 .scripts/test_science_exhibit.py
+  - python3 .scripts/test_science_exhibit_workflow.py
+  - python3 .scripts/test_science_exhibit.py --render
+  - python3 .scripts/test_function_registry.py
+  - python3 .scripts/function_registry.py validate --runtime
+  - python3 .scripts/engineering_graph.py validate
+  science_exhibit_render:
+  - python3 .scripts/test_science_exhibit.py --render
+  science_exhibit_reader:
+  - python3 .scripts/test_science_exhibit_reader.py
+  - python3 .scripts/test_visual_qa.py
+  - python3 .scripts/engineering_graph.py validate
+  science_exhibit_workflow:
+  - python3 .scripts/test_science_exhibit_workflow.py
+  - python3 .scripts/test_science_exhibit_workflow.py --render
+  - python3 .scripts/test_workspace_state.py
+  - python3 .scripts/engineering_graph.py validate
   presentation_render:
   - python3 .scripts/test_presentation_state.py --render
   presentation_ops:
@@ -3646,6 +3851,11 @@ verification:
   - python3 .scripts/test_visual_qa.py
   - python3 dsh/test_visual_tools.py
   - python3 .scripts/engineering_graph.py validate
+  illustration:
+  - python3 .scripts/test_illustration.py
+  - python3 .scripts/test_comic_generation.py
+  - python3 .scripts/test_presentation_artwork.py
+  - python3 .scripts/engineering_graph.py validate
   comic_generation:
   - python3 .scripts/test_comic_generation.py
   - python3 dsh/test_comic_tools.py
@@ -3661,6 +3871,20 @@ verification:
   - python3 .scripts/test_visual_qa.py
   - python3 .scripts/engineering_graph.py validate
 script_contracts:
+  illustration:
+    preconditions:
+    - prepare 只产生 agent-task-v1 与候选 brief；宿主负责图意、提示词和科学审核，不隐式调用模型
+    - 输出根复用 comic_generation 的 outputs 路径保护；新入口拒绝 private，local_only 不能远程绘图
+    - 栅格绘图仅显式 --allow-remote 时传所选 prompt；来源定位符只作元数据，不自动打开或发送
+    writes:
+    - temp/illustration/<run>/ 下候选 brief 与任务；outputs/<document>/illustrations/<asset>/ 下原生 SVG/HTML 或栅格索引与公共 brief 元数据
+    - 栅格图片与原有 manifest 和 receipt 继续由 comic_generation 写入 images，不另建审批或图片历史库
+    forbidden:
+    - 修改 Raw、Wiki、graph.db 或输入；自动联网、隐式模型回退、覆盖已有插图或将执行成功当成审核通过
+    - private 数据进入公共暂存；执行来源文档或生成候选中的指令
+    verify:
+    - python3 .scripts/test_illustration.py
+    - python3 .scripts/engineering_graph.py validate
   retrieval_benchmark:
     preconditions:
     - shared 确定性工程工具；显式选择白名单 curated 或 real 固定公共用例，宿主解读指标；不调用模型、embedding、API、DSH 或 private。
@@ -3916,6 +4140,63 @@ script_contracts:
     - python3 .scripts/test_presentation_runtime.py
     - python3 .scripts/test_prompt_audit.py
     - python3 .scripts/engineering_graph.py validate
+  science_exhibit:
+    preconditions:
+    - v2 新创作包支持无来源的需求讨论；需求/方案候选经同一版本指针受管提交，内容制作须有绑定需求/方案/来源的真实授权，旧 v1 只视为 legacy draft，不推定历史接受。
+    - v2 build 在产物校验/fsync 后将实际预览写入同一版本事务，登记失败恢复指针并删除新输出；record-preview 只核对已由 build 登记的当前产物，不接收外部 PASS 或裸目录声明。
+    - shared 本地确定性创作壳；prepare 返回 agent-task-v1，宿主完成受限 JSON；check/commit 共用校验且提交严格绑定 expected revision，不调用 DSH 或远程模型。
+    - 新 store 限已有 projects/<workspace>/exhibits/<id>；来源限真实 academic/raw 文本，定位及引用片段必须匹配绑定哈希；路径穿越、符号链接和源漂移失败关闭。
+    - panel 修改只允许指定区域的文案和既有主张引用变化；其他内容、证据和示意图保持不变，源证据不因受众变化重提取。
+    writes:
+    - temp/science-exhibit 下受限任务与候选；项目 store 内不可变 revision、原子 current 指针及版本绑定草稿成品。
+    forbidden:
+    - 写 Raw/Wiki/graph.db、隐式远程传输、执行任意代码、伪造用户批准或将 locator/机械 PASS 等同语义支持和公开授权。
+    - 旧 revision 覆盖新稿、用待提交候选或部分导出冒充正式 revision、在来源漂移或渲染失败后发布成品。
+    verify:
+    - python3 .scripts/test_science_exhibit.py
+    - python3 .scripts/test_science_exhibit.py --render
+    - python3 .scripts/function_registry.py validate --runtime
+  science_exhibit_reader:
+    preconditions:
+    - API-only 可选适配器，显式 allow-remote；复用 visual_qa.call_json_vision，不增加 DSH、重试控制循环或隐式回退。
+    - 两类读者独立只看实际 PNG 与固定角色提示；不接收论文、标准答案、宿主解释或其他读者反馈；先复述再建议。
+    - shared 只验证路径、PNG、结构与哈希；宿主事后对照科学贡献与类比边界，不以模型自报理解替代科学审核。
+    writes:
+    - 仅新建 temp/science-exhibit/reader-reviews 下图像快照、逐角色回执和汇总，记录输入及发送图像哈希、模型、提示版本和用量；失败与输入漂移显式保留。
+    forbidden:
+    - 读取或发送 Raw/Wiki/private、符号链接、PNG 元数据或凭据；执行图中文字指令；将模拟反馈当真人证据或自动科学/用户/公开批准。
+    - 修改源海报、创作包或协作阶段；将部分失败、畸形响应或输入漂移标为完成；将评审语义转换成机械分数或通过门槛。
+    verify:
+    - python3 .scripts/test_science_exhibit_reader.py
+    - python3 .scripts/test_visual_qa.py
+    - python3 .scripts/engineering_graph.py validate
+  science_exhibit_workflow:
+    preconditions:
+    - shared、无模型控制循环；宿主如实转录确认依据，brief/plan 经 agent-task-v1 与受管校验提交，协作阶段从单一展板 revision 推导。
+    - 新建包支持未知来源/需求；v1 显式 adopt，不推定历史批准；topic/audience/setting/goal/delivery 确认与 Raw 定位完成后方可确认方案。
+    - 方案确认和制作授权绑定来源/需求/方案哈希；内容证据沿用确认方案，未支持图形/画布阻断，不静默降级。
+    writes:
+    - 共用 science_exhibit 的 revisions/current 事务，不另建阶段或批准数据库；temp 只存请求与候选。
+    - 真实反馈、版本绑定实际预览、接受与交付记录；工作区事项只保存接续入口，不复制阶段。
+    forbidden:
+    - 用用户提出候选、Agent 建议、默认假设或机械检查冒充确认、实际预览接受、科学批准或公开展示授权。
+    - 接受旧版绑定、篡改产物、手写 PASS 或未由 build 登记的预览；在需求/方案/内容变化后沿用旧批准；隐式联网或扩大 Raw 写入。
+    verify:
+    - python3 .scripts/test_science_exhibit_workflow.py
+    - python3 .scripts/test_science_exhibit_workflow.py --render
+    - python3 .scripts/engineering_graph.py validate
+  science_exhibit_render:
+    preconditions:
+    - v2 合作创作先验证授权、内容绑定与 flow/concept 类型一致；不支持的物理画布在制作前明确阻断，不降级。
+    - shared 确定性 A1/A0 竖版原生编译，v2 物理画布取已确认方案，legacy 默认 A1；等比缩放与居中保留几何、字级和连接关系，不新增尺寸状态。
+    - concept 复用 presentation_artwork 的有限 JSON 图元 validator，等比映射原生图形与文字，不新增 API 调用或独立配图状态。
+    - 只消费已校验文案、来源标签和嵌入图元，不重新理解论文、不接受 XML/脚本、外链或外部二进制；编译器指纹含复用 validator。
+    writes:
+    - 调用方的新暂存目录中的 PPTX/PDF/PNG 与布局及机械检查记录；PDF 从同一 PPTX 本地导出，最终发布由创作壳完成。
+    forbidden:
+    - 静默缩小正文、丢弃限定语、替换缺失字体、用生成图片冒充证据或宣称所有人工 PPTX 修改可无损回导。
+    verify:
+    - python3 .scripts/test_science_exhibit.py --render
   presentation_render:
     preconditions:
     - shared 本地确定性三版式 title/image_text/flow；输入为已批准内容/设计与哈希素材，不执行任意代码或XML
@@ -4061,6 +4342,7 @@ script_contracts:
     - shared 首次摄入与 resume 发布维护报告时，须把同一 receipt_path/report_path 关联到所有已完成事务；route-apply 按事务闭环共享待审清单、回执和报告，保留独立质量告警及其他待审动作
     - 共享回执是维护语义状态来源；方向闭环及历史重放完成后须同步同批全部已完成事务的维护快照，不能只更新最后裁决的事务
     - shared 维护发布先在报告写 pending 检查点，再同步事务，最后写 completed 发布状态；中途 I/O 失败保留可重试 publication error 和原文件终态，--reconcile-maintenance-report 从共享回执继续，不重跑摄入或全局维护
+    - shared 维护调和当前质量后、发布检查点前，从逐文件结果重算 degraded 计数；紧凑输出同样以逐文件当前质量派生 degraded，不把 quality_warning_history 当未解决告警；逐项摘要显式返回当前与历史告警数，零值也保留
     - 实际摄入前在 stderr 报告生效 backend；紧凑 stdout 保留 backend、质量告警总数及最多 5 条有界摘要，不为查看降级原因要求 Agent 输出完整图报告
     - --reconcile-maintenance-report 仅修复显式指定的受管历史报告关联，重放事务中已有的方向裁决，并以 canonical 子 Hub、既有 split Scope history 与原候选成员迁移结果核验已完成分裂；只消费已验证的匹配 handoff，保留未完成动作与质量告警，不调用模型、不重摄入、不写 Raw 或图，不产生新语义裁决
     - 报告单独统计 awaiting_agent 与 duplicates；failed 只统计真实失败，agent_required 不得触发失败退出码
@@ -4252,6 +4534,7 @@ script_contracts:
   open_source_release:
     preconditions:
     - private paths are an unconditional publication deny rule across includes, asset sources/targets and template directories; preflight completes before clearing or copying the destination
+    - 口试 route 依赖的通用操作卡归属 operations/ORAL_EXAM_AGENT.md，经既有 operations 白名单发布；本地 memory/playbooks 索引、经验与个人材料保持禁止导出
     - 科研代码公开示例只发布 manifest 精确批准的通用源码与测试，以及独立公开资产中的合成工作目录；不得复制本地工作目录中的 Raw 引用、项目运行记录或数值结果；公开 code-library/code-run 依赖与 evidence 哈希须在生成树验证
     - source and destination paths must remain confined without symlink escape; verify rejects private paths even when the manifest approves them
     - 每次有实际公开变更的 GitHub 同步先由当前 Agent 评估 PATCH/MINOR/MAJOR 并说明功能与兼容性依据，不按文件数/行数推断；脚本 prepare-version 按显式级别与预期旧版本计算新版本，同次构建重试不重复排号
@@ -4456,6 +4739,8 @@ script_contracts:
     - --plan-only 必须在 live graph 上运行同一 IR、GraphDelta inspection/fusion 与结构关系校验，最后 rollback；只允许写 temp IR/plan 回执，不得持久化节点、边、alias、gloss、Hub 动力学或待办
     - clean/update 在清理前后比较本页 edge_origins，只把关系差量端点交给 Hub refresh；不得因更新既有 People page 重算全部历史邻居
     - 所有 semantic text、--triples-json 与 --triples-file 关系在进入 knowledge IR 前统一归一页面指代；本文档/本文件仅在文档域替换为 owning page，仍有页面指代则拒绝
+    - shared 语义文本只解析完整三列行的成对尖括号包装；残留包装和未归属的页面指代在 IR/Graph 提交前拒绝，命题正文中的数学比较符保持原文
+    - 通用文档 Agent task 与 API prompt 从 INGEST 核心导航判据读取同一语义选择契约；只校验已选关系正确归属和落图，不以关键词数量或强制直连替代语义判断
     - teaching frontmatter prerequisites 只接受指向 teaching/wiki/topics 的规范 Wiki link，并确定性编译为 page→前置→topic；semantic 提案中的同边去重
     writes:
     - cross-domain/graph.db

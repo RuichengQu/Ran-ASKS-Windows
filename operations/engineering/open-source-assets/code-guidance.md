@@ -78,6 +78,7 @@
 - **后续**：使用任务按派发的任务卡、执行纪律和规范推进：先执行明确的下一步，只有派发要求、参数无法判定或命令报错时才最小定向补读；达到验收条件即停止，不自动扩面。建设任务先运行 impact/contract，优先直接读取 impact 推荐的精确 locator；不足时才用其 filtered-list 入口。摄入预热后立即调用回执给出的受管入口；只有手动旧流程或程序任务明确要求时再加载完整当前 stage 卡。ingest 的 create 模式依次完成 stage 1 → 2 → 3，再调下一 stage。
 - **摄入执行效率**：普通 inbox 先运行只读 `inbox_plan.py`，以已分类的 domain/content/source-kind 和 batch eligibility 完成当前上下文唯一一次公共域 ingest warmup（create 带 `--stage 1`，batch 不带 stage），再调用统一入口；不得先猜 academic/ordinary 参数。入口先在 stderr 报告实际 backend；按 playbook 使用长等待和字段级报告读取，分别验收文件与维护终态。首次摄入与 resume 经 `ingest_inbox.publish_maintenance_report` 关联共享回执和事务；历史缺链只走 `--reconcile-maintenance-report`，不以重摄入或手改终态代替修复。
 - **维护发布恢复**：共享回执定义维护语义，报告承载 pending/completed/error 发布检查点；方向闭环同步所有关联事务快照。显式 reconcile 还只读核验 split handoff 对应的 canonical 子 Hub、split Scope history 和原簇完整迁移，消费已验证候选并更新 split_count；不调用模型、不写图，不能仅凭已有子 Hub 或手写 resolution 清除待审。发布失败保持文件成功状态，reconcile 或直接 resume 只恢复发布；未写出检查点时明确报告持久化失败。回归覆盖逐事务一致性、未完成候选和独立告警保留、只读图不变、重复对账、首/中途状态写入失败、报告写入失败及进程中断后重放。
+- **当前质量与历史告警**：shared `publish_maintenance_report` 调和逐项当前质量后、发布 pending 检查点前重算 `degraded`；`_compact_summary` 同样从逐项质量派生降级数，逐项显式返回当前/历史告警计数（含零值），历史不冒充未解决告警。历史误计数只通过指定报告的 reconcile 修正，不重摄入、不写 Raw 或图。运行等待、逻辑 Wiki locator 与实际文件路径、交付验收边界遵循 `operations/INBOX.md`「回执读取与交付」。
 - **research→write 组合**：进入 `research` 后保持该状态；只有实际起草、改写或润色论文标题、摘要、正文、图注、附录或补充材料时调用 academic write capability。同一连续写作回合加载一次即可；讨论、查询、数据核对、实验与状态汇报不调用。顶层 `--task write` 是 general write profile 的兼容入口。
 - **presentation 组合**：明确要求协作制作原生 PPT 时加载 `presentation/create`，不切换项目状态；阶段1B已提供整套原生组装与三项独立 Agent task/check/commit 入口，真实用户验收待完成；PPT形式检查、PPT引用脱敏仅明确指令触发，PPT证据核查仅用户有具体疑问时执行，三项独立且不是默认交付门禁；不得把合成测试确认冒充真实用户验收。只写讲稿/文字提纲仍用 write。Route task 与按需 capability 的覆盖关系由功能注册表声明，运行时校验再与 `ROUTES`、`CAPABILITY_ROUTES` 和工程能力包精确对账。
 - **学术报告创作经验**：`presentation/create` 同时派发 `operations/PRESENTATION.md` 的“学术论文报告的叙事与风格”，供宿主 Agent 规划背景故事、创新意义、页面可见引文与时间分配；按用途取舍，不增加 shared validator 或自动检查门禁。
@@ -120,6 +121,7 @@ python3 .scripts/ingest_meeting.py --resume <txn-id> --verbose
 
 ### 1.1d `.scripts/ingest_document.py`（通用文档摄入：academic/admin/teaching/business）
 
+- **关键发现入口（shared）**：Agent 的合并任务和独立语义任务均声明 `INGEST.md`「核心导航判据」输入；API 的 Wiki、合并、独立语义 prompt 从同一节读取原则。语义执行者按文档目的选择核心事项/决策/对象，不按词频凑主题，不以相关性充当别名身份；程序不模拟重要性判断，不增加模型调用。
 - **旧 Excel 证据桥修复（Agent 控制、shared 内核）**：`INGEST_BACKEND=agent python3 .scripts/ingest_document.py --repair-companion --file <已有公共域 Raw.xls|Raw.xlsx> --wiki-path <已有同域 Wiki.md> --subproject <domain>`。仅处理原件已在 Wiki `sources` 中、companion 和 sidecar 均缺失的情况；不经重复摄入创建第二页，不覆盖旧 Raw，不隐式调用 API。返回 `agent-task-v1`，宿主读取声明的忠实提取和旧页，在指定 `wiki.md` 只增加精确 Raw 脚注，再运行任务中的 `--resume`。
 - **修复提交约束**：程序重新提取并校验原件、暂存产物和双哈希绑定；Wiki 只允许增加脚注，旧事实、sources、标题、已有脚注及引用全部保留，`updated` 由程序写入。复用 v2 manifest/finalizer，哈希守卫原件和旧 Wiki；`ingest_check`、日志或回执失败时撤销本次新增 Raw 并恢复 Wiki/日志。正文语义不变，故不重建 Graph；completed resume 核对产物后幂等返回回执。需要事实修正或既有 companion 重建时不使用这一窄入口。
 
@@ -300,6 +302,9 @@ python3 .scripts/engineering_locator.py read '.scripts/route.py#L219-L250'
 - **机械门**：用户完整单行 /oral 指令控制生命周期；方案确认校验 Raw locator、原文摘录和源 hash；口试 task/check/commit 验证状态、schema、证据归属、提示与结束条件，提交后显示并确认 delivered。科学正确性由考官判断，程序不冒充语义裁判。
 - **风格与综合评估**：operations/config/oral-exam-styles.json 保存默认讨论诊断式及兼容严格测评式；风格随确认版本冻结。学生 intent 区分回答/提问/澄清，纠正/解释/引导有帮助标记和 Raw 依据。结束后以冻结完整对话执行独立 assessment task/check/commit；复盘不补分，API 综合评估仍逐次授权外发。旧方案不追溯换风格。
 - **宿主与隐私**：每轮显示权威 state.banner 并保存实际收发消息；仓库不声称安装原生 UI hook。API 回合逐次要求外发授权；client 不是身份认证，服务化须在宿主加访问控制。
+- **Agent 快路径**：operations/ORAL_EXAM_AGENT.md 只在当前口试上下文首次加载。receive 原子合并显式上轮展示确认与真实输入，返回 manifest 和内联 input；直接 commit 仍完整校验，常规回合仅需两次串行工具往返。正式 text/banner 只在最终回复展示，下一次 receive 用 displayed-message-id 确认实际展示，不猜测 UI 送达。两种风格共用教授式物理理解/迁移指引，不改变旧风格权限。通用操作卡归属公开工程规范，不依赖或发布本地 memory。
+- **准备子区域**：确认与开始收集可重建的 Raw reference_regions；任务每次仍核验当前 Raw hash、去重并内联精确原文，最多三张候选卡与进度用于广度/深度选择。缓存不是事实源，来源变化明确报错；任务失败不丢已接受原文，不隐式回落 API。
+- **检索范围而非题库**：目标卡可选 exploration_axes 与最多4条 locator/purpose 导航，准备阶段校验入口但正式回合不预装载正文；核心优先、有明确缺口才定向补查。旧 probes 保留原记录但从回合/评估任务剥离，问题按实际回应生成。导航不自动成为评分或帮助依据，正式 locator 白名单不放宽；API 不新增自动检索，Agent 复用现有工具。
 - **完整协议与验证**：operations/ORAL_EXAM.md；python3 .scripts/test_oral_exam.py、test_function_registry.py、test_wg.py、test_agent_task.py 与 engineering_graph.py validate。真实弱模型和教师评审未验收前保持 preview。
 
 ### 1.2 `.scripts/read_section.sh`
@@ -550,6 +555,7 @@ python3 .scripts/extract_citations.py prefill <paper.md>
 
 ### 2.5 图写入：`.scripts/graph_ingest.py`
 
+- **语义端点与包装（shared）**：`knowledge_ir.parse_semantic_triple_line` 只解析严格三列行及其完整成对尖括号包装；通用解析器与局部返修使用同一边界。`normalize_page_subjects` 和 IR validator 共同拒绝残留包装及未归属的页面指代，覆盖 semantic text、直接 triples 和 IR 提案；proposition/task 正文中的数学比较符保持原文。已有稀疏语义与零语义页仍合法，不强制添加关系。
 - **生命周期保护**：共享 `graph_lib.ensure_node` 对已有节点省略 `status` 时保留旧生命周期，新节点默认为 current；只有显式 status 才改变已有状态。普通引用复用不能把 deprecated 页恢复为 current。定向校正图与Wiki的生命周期差异时，经图写锁、事务与原 ensure_node，按已核对的Wiki元数据显式同步；保留节点身份、alias、边、来源及其他字段，不以重建全图代替局部同步。
 
 - **局部更新预检（2026-10-09，shared）**：`ingest --page <最终ID> --page-file <暂存Wiki> --metadata-only --validate-page --plan-only` 一次完成原页面结构/来源校验、IR/Graph 计划与未提交预期图的跨层检查；以最终 ID 核对作者、venue、Raw 直连，暂存路径不改变身份或绕过域枚举。失败集中返回 `page_validation.errors/warnings`，图回滚；通过仍不覆盖 Wiki。沿原更新事务备份、落位后，对正式页带 `--validate-page` 提交并记录日志/派生同步。`--metadata-only` 只同步机械元数据并复用旧语义关系和方向，不能与 `--clean` 或语义输入合用；关系变化仍用原语义增量/受管撤销流程。
@@ -712,7 +718,7 @@ python3 .scripts/ingest_plan.py \
 
 - **何时调用**：管道版本升级后，需对齐已入库论文的 wiki 与图边，或用户明确要求整篇重编译。raw 不可变（红线），只重生 wiki + 清旧图边 + 重建。`ingest_paper.py --raw` 兼容转交到本入口；摘要纠错、条件补充或引用修订等局部修改使用 ingest update，不因小改动要求整篇重编译。
 - **写入**：覆盖 `academic/wiki/papers/<id>.md`（旧版备份至 `temp/inbox-state/<txn>-wiki-old.md`）；`cross-domain/graph.db` 经 `graph_ingest.py --clean` 清旧边后重建；`page-catalog.md` 重建；`academic/wiki/log.md` 追加。
-- **管道版本戳**：`graph_lib.py` 的 `CURRENT_PIPELINE_VERSION` 控制版本号；影响输出的建设变更才 bump（纯改名不 bump）。v6 增加不可变旧 Raw 的运行时书目修正与 re-ingest 导航质量报告；v7 增加泛化双语身份门和同版本重复生成保护；v8 增加括号前完整混合名、复杂性缩写锚定归一、Hub 路由 margin 门禁及最少 4 条语义边的覆盖告警；v9 增加稀疏语义槽单次定向重抽取与 entity node-origin lineage；v11 增加逐来源 keyword gloss、Raw locator 和 semantic-only ambiguity 本地保留；v12 统一 API/Agent paper semantic contract 与 concept/proposition 边界；v13 阻断会被 Graph 编译静默退役的论文级方向/标签谓词，并要求概念关系链具有论文锚点；v14 用确定性 CJK bigram 覆盖率为非逐字相同的中文命题选择最匹配 Wiki section 与 Raw citation；v15 统一 `ingest-result-v1`、为 Hub `主要研究` 增加受管 authorization origin，并收紧论文 section/preamble 与占位内容门；v16 引入可恢复 MinerU 完整文档包、manifest v2 与 PDF layout-aware 书目候选；v17 引入带 Raw evidence ID 的 typed meeting IR、确定性 Wiki/semantic 投影、页面作用域 decision/task 与核心语义边 locator 全覆盖门。`graph_ingest.py` 的 `upsert_page_node` 写入 `ingest_version` 到 page 节点；现有 `--outdated` 只据此查落后论文，版本升级本身不自动执行 re-ingest，历史会议须经单独的受管重摄入/迁移流程。
+- **管道版本戳**：`graph_lib.py` 的 `CURRENT_PIPELINE_VERSION` 控制版本号；影响输出的建设变更才 bump（纯改名不 bump）。v6 增加不可变旧 Raw 的运行时书目修正与 re-ingest 导航质量报告；v7 增加泛化双语身份门和同版本重复生成保护；v8 增加括号前完整混合名、复杂性缩写锚定归一、Hub 路由 margin 门禁及最少 4 条语义边的覆盖告警；v9 增加稀疏语义槽单次定向重抽取与 entity node-origin lineage；v11 增加逐来源 keyword gloss、Raw locator 和 semantic-only ambiguity 本地保留；v12 统一 API/Agent paper semantic contract 与 concept/proposition 边界；v13 阻断会被 Graph 编译静默退役的论文级方向/标签谓词，并要求概念关系链具有论文锚点；v14 用确定性 CJK bigram 覆盖率为非逐字相同的中文命题选择最匹配 Wiki section 与 Raw citation；v15 统一 `ingest-result-v1`、为 Hub `主要研究` 增加受管 authorization origin，并收紧论文 section/preamble 与占位内容门；v16 引入可恢复 MinerU 完整文档包、manifest v2 与 PDF layout-aware 书目候选；v17 引入带 Raw evidence ID 的 typed meeting IR、确定性 Wiki/semantic 投影、页面作用域 decision/task 与核心语义边 locator 全覆盖门。`graph_ingest.py` 的 `upsert_page_node` 写入 `ingest_version` 到 page 节点；现有 `--outdated` 只据此查落后论文，版本升级本身不自动执行 re-ingest，历史会议须经单独的受管重摄入/迁移流程；v18 统一完整三列包装解析与跨 profile 的残留包装/页面指代拒绝，通用文档共用核心发现入口选择原则。
 - **最小调用**：
 
 ```bash
@@ -969,6 +975,8 @@ python3 .scripts/engineering_graph.py validate
 ```
 
 ### 5.6a `.scripts/comic_generation.py` — API 漫画图片生成
+
+上层插图创作入口为 `.scripts/illustration.py`（`operations/ILLUSTRATION.md`），通过 `route --capability illustration --capability-profile general` 加载。prepare 返回 Agent task，宿主填受众/单图立意/类比/边界/提示词；check/render 复用既有原生 validator/export 与本节位图 API。新入口只接公共域，默认 local_only，位图另需 public 与显式授权；私有仍走原 CLI。旧 artifact.comic ID、DSH 与 storyboard 不变。回归增加 `python3 .scripts/test_illustration.py`。
 
 - **何时调用**：用户明确要求生成漫画、插画、头像或文章配图时调用；不因普通写作、查询、摄入或视觉检查自动触发。
 - **模型目录**：只接受 `operations/config/llm-models.yaml` 的 `image_generation.candidates`。候选未经 API 探测时不得自动设为默认模型；Agent 必须显式传模型，或由受控 `COMIC_IMAGE_MODEL` 配置提供。
@@ -1237,3 +1245,17 @@ python3 .scripts/visual_to_editable_ppt.py <figure.png|document.pdf> \
 - `knowledge.visualize` 经 `wg.py graph-visualize` 及 `route.py --capability graph-visualize` 调用，契约见 `operations/GRAPH_VISUALIZE.md`。使用 `graph_lib.connect(read_only=True)` 读取已有图快照，保持多重有向边及 `edges.source` / `edge_evidence` 来源。
 - `--query <关键词>` 或 `--node <path>` 选种子，`--radius 0..4`、`--types`、`--predicates` 控制范围；默认80节点/200边，上限300/1200，显示省略种子/节点/关系数量。HTML 支持缩放、平移、按关系筛选和来源侧栏；PNG 带箭头和关系标签，同名 JSON 保存完整所选导航记录。
 - 公共输出限新 temp/项目 outputs 文件，private 限 private/temp；来源链接按物理域校验。派生视图不回写图、不升级为事实源；失败不覆盖已有文件。
+
+### 5.13 `.scripts/science_exhibit.py` — 论文到公众科普展板
+
+- **归属**：Agent-only 科学理解与公众叙事；shared 本地确定性 shell/renderer。`artifact.science_exhibit` 经 `route.py --capability science-exhibit --capability-profile create` 或 `wg.py science-exhibit` 发现，精确契约见 `operations/SCIENCE_EXHIBIT.md`。
+- **协作状态**：新包 v2；用户可进入/接续需求讨论 → 方案 → 制作 → 反馈 → 交付，底层复用 workspace/writing，不新增顶层 task/state。`science_exhibit_workflow.py` 通过同一 revisions/current 保存权威需求/方案/真实指令/反馈/产物选择；阶段从记录推导，工作区事项仅保存接续入口。
+- **创作**：init 可暂不选论文；prepare --kind brief/plan/content 返回 agent-task-v1。confirmed/proposed/assumption/unknown 明确区分；confirm-plan/start-making 绑定需求/来源/方案哈希，宿主如实转录用户指令，程序不认证人类语义。受众/方案变更清除下游授权，内容证据和 flow/concept 类型沿用确认方案；完整重提交后再支持 panel 修订。不支持的画布制作明确阻断，不能降级套版。
+- **绘画复用**：concept 嵌入原有 presentation-artwork-v1，直接复用有限图元 validator，等比映射为原生矩形/圆角矩形/椭圆/线/文字；主图占主要区域，四问答精简保留。标签至少 24 pt 且测量容量，不静默缩字。Agent 默认构图，不新增绘画服务/API 控制循环；现有 API 选项须用户选择及远程授权。联合 compiler 指纹包含 artwork validator，变化拒绝旧接受；草图不冒充正式成品。
+- **公众可读性**：shared `validate_display_acronyms` 在内容校验及原生布局入口检查首次可见使用处的缩写展开，覆盖图中文字与来源，忽略不展示的引文/rationale；compiler 指纹包含该规则实现。Agent另审阅释义正确性、混合大小写缩略语、图的独立立意和故事衔接。类比/比喻是可选创作建议，不是强制通过条件，默认不增模型调用。
+- **制作方法**：brief/plan/content 的 Agent task 指向 `operations/SCIENCE_EXHIBIT.md#公众叙事制作方法`：内部先准确获得贡献，面向读者的故事从动机出发，以帮助理解为目标，连起目标、困难、研究做法与意义；再明确类比关系与边界、按故事设计独立立意的图文。文字须明写对应关系及研究动作，不让读者猜；盲读关注动机复述和理解断点，不套固定分镜。
+- **模拟读者**：可选 API-only `science_exhibit_reader.py`，显式远程授权后复用 visual_qa 传输，两个独立角色只看去元数据的实际 PNG，先复述后建议；不提供论文、预期答案或其他评审意见。shared 只做路径/结构/哈希回执，宿主事后核对科学含义；不重试、不评分、不改变创作包或阶段，不等于真人测试或任何批准。部分失败和输入漂移不当成功；回执只写 temp。
+- **导出**：授权内容 → A1/A0 原生 PPTX → 本地 PDF/预览；画布取已确认方案，基准布局、字级及图元等比放大居中，不拉伸或静默缩字；清除默认主题效果以保留显式图形样式。v2 build 校验/fsync 后在同一版本事务登记实际预览，失败恢复指针并删除新输出，不额外问用户。record-preview 只读核对已由 build 登记的产物，拒绝裸目录/手写 PASS；revision 为新状态版本，output_revision 为编译内容版本。accept-preview 绑定实际文件哈希，deliver 仍不等于科学/公开授权。源、renderer、字体或成品变化拒绝旧接受；v1 显式 adopt，不推定历史确认。
+- **可靠性**：源定位、引文和版本哈希、符号链接/路径拒绝、expected revision、同一候选提交幂等、不可变 revision/原子 current、导出失败不发布；指针替换后目录 fsync 失败恢复前值，孤立快照不当成功。字体/对象/文本/实际尺寸回读为机械检查，不冒充科学或人类批准。
+- **交付**：成品及 manifest 为待审草稿，公开候选不默认带内部 Raw locator/原文。首版无图片复用、插画、自动公开授权和人工 PPTX 修改无损回导；不写 Raw/Wiki/graph.db，不隐式远程调用。真实样板与用户验收必须独立记录，合成测试只标 TEST-ONLY。
+- **验证**：`python3 .scripts/test_science_exhibit.py`、`python3 .scripts/test_science_exhibit.py --render`、`python3 .scripts/test_science_exhibit_workflow.py`、`python3 .scripts/test_science_exhibit_workflow.py --render`、`python3 .scripts/function_registry.py validate --runtime`、`python3 .scripts/engineering_graph.py validate`。

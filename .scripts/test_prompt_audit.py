@@ -437,6 +437,22 @@ def test_profiles():
     assert mixed["profiles"] == ["enumeration", "relation", "traceability"]
 
 
+def test_task_driven_query_clues_and_audited_feedback():
+    start = json.loads(run(
+        sys.executable, ".scripts/route.py", "--task", "query", "--query", "撤系建院经费报告",
+        "--format", "json",
+    ).stdout)
+    assert "从用户目标提取核心事项" in start["prompt"]
+    assert "title/aliases 无命中不等于正文无资料" in start["prompt"]
+    answer = json.loads(run(
+        sys.executable, ".scripts/route.py", "--task", "query", "--query-stage", "answer",
+        "--format", "json",
+    ).stdout)
+    assert "不以关键词出现触发写入" in answer["prompt"]
+    assert "先修责任组件" in answer["prompt"]
+    assert "回放原查询" in answer["prompt"]
+
+
 def test_query_stage_dispatch():
     start = json.loads(run(
         sys.executable, ".scripts/route.py", "--task", "query", "--query", "关系如何", "--format", "json"
@@ -1217,6 +1233,7 @@ if __name__ == "__main__":
     test_runtime_prompt_surface_boundaries()
     test_incremental_prompt_map_cache()
     test_profiles()
+    test_task_driven_query_clues_and_audited_feedback()
     test_query_stage_dispatch()
     test_private_query_uses_shared_stages_and_explicit_local_scope()
     test_private_metaphysics_topic_dispatch_and_followups()

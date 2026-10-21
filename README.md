@@ -1,5 +1,5 @@
 # Ran-ASKS: Agent-Driven Scientific Knowledge System
-> Current main version: v0.16.0
+> Current main version: v0.17.0
 
 ### ⬅️ Looking for the original?
 
@@ -7,13 +7,13 @@
 
 > ## 👉 https://github.com/ranshiju/Ran-ASKS
 
-Use the original on macOS / Linux. Use this port only on Windows. This port is based on upstream **v0.16.0**
-(commit `7a864aa33710`, synced 2026-10-14) and tracks upstream release by release.
+Use the original on macOS / Linux. Use this port only on Windows. This port is based on upstream **v0.17.0**
+(commit `8eef1cd0dbd8`, synced 2026-10-21) and tracks upstream release by release.
 
 > **Note:** This is a Windows-compatibility port of
 > [ranshiju/Ran-ASKS](https://github.com/ranshiju/Ran-ASKS). It changes
 > portability only — never the method, data contracts, or behaviour.
-> **Based on upstream v0.16.0** (commit `7a864aa33710`, synced
+> **Based on upstream v0.17.0** (commit `8eef1cd0dbd8`, synced
 > 2026-10-14); see [`DOWNSTREAM.md`](DOWNSTREAM.md) for the baseline record
 > and the per-release tracking policy. Cite the
 > upstream paper and repository, not this port. See
@@ -30,6 +30,12 @@ Use the original on macOS / Linux. Use this port only on Windows. This port is b
 **Repository:** [github.com/ranshiju/Ran-ASKS](https://github.com/ranshiju/Ran-ASKS)
 
 **Project updates:** [CHANGELOG.md](CHANGELOG.md)
+
+**Platform editions:** This repository is the macOS version developed by Shi-Ju
+Ran. A [Windows version](https://github.com/RuichengQu/Ran-ASKS-Windows) is
+developed and maintained by other collaborators. Consult each repository for its
+installation and support scope; this link does not certify cross-platform
+compatibility or grant Reference Distribution status.
 
 **Collaboration:** [Governance](GOVERNANCE.md) |
 [ASKS ecosystem](ECOSYSTEM.md) | [Contributing](CONTRIBUTING.md)
@@ -217,6 +223,35 @@ maintains persistent revisions, separates draft approval from locking, applies
 constrained layouts, and produces deterministic delivery copies while carrying
 forward source-sensitivity rules. Presentation ingestion and presentation
 authoring remain distinct functions with explicit contracts.
+
+## Public-science posters and reusable illustrations (preview)
+
+`wg.py science-exhibit` supports resumable collaboration around an ingested
+paper: discuss the audience and purpose, agree on a story and visual plan, then
+explicitly authorize production and review actual previews. First establish the
+paper's contribution accurately; tell the public-facing story from the
+motivation, helping readers connect the goal, difficulty, approach and value.
+Analogies are optional and must state their mappings and limits. Visible English
+acronyms require definitions. The current native renderer supports A1/A0 portrait
+layouts and bounded editable diagrams; it is not a general multi-image poster
+compositor. See the [poster contract](operations/SCIENCE_EXHIBIT.md).
+
+The shared [illustration capability](operations/ILLUSTRATION.md) reuses native
+SVG/HTML artwork and the existing explicitly authorized raster API. Define each
+image's single message, audience, analogy boundaries, placement, caption and alt
+text before drawing. Poster and mobile-article variants share meaning and assets,
+not a fixed layout. Existing comic/storyboard tools remain compatible. The new
+brief entry supports public/local-only work; private image generation stays on
+the existing isolated CLI. Neither ordinary writing nor preparation uploads
+content automatically.
+
+An optional, explicitly authorized poster-reader adapter asks two independent
+simulated audiences to read the actual PNG without the paper or expected answers.
+It checks what readers take away from the motivation and where understanding
+breaks down. Execution completion is not scientific approval, real-user evidence,
+preview acceptance or publication permission. Article feedback must use its own
+actual paragraph/image context, not claim the outdoor-poster prompt evaluates a
+mobile article. These workflows do not change frozen paper artifacts.
 
 ## Scientific-code and image-data workflows (preview)
 
