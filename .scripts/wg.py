@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -93,9 +94,22 @@ def run_script(args: list[str], **kw) -> tuple[int, str, str]:
     # 而且错误发生在读取线程里，栈里看不到这一行，很难定位）。
     #
     # 下面二进制那条路本来就用了 errors="replace"，只有文本这条漏了。
+    # **还要让子进程也按 UTF-8 写出来。** 上面只解决了「父进程怎么读」，
+    # 没解决「子进程怎么写」：管道里的 stdout 取的是系统区域编码，
+    # 中文 Windows 上就是 GBK（实测 sys.stdout.encoding == 'gbk'）。
+    # 父进程按 UTF-8 解、子进程按 GBK 写，中文一路是乱码 ——
+    # 之前那条「第 10 页API识读存在关键未决项；保留结果，需定向复核」
+    # 到了父进程里就只剩「第 10 页API识别存在关键未…需人工设定或复核」。
+    #
+    # 更糟的是它还会**硬崩**：转写里只要出现一个 U+FFFD（GBK 编不出），
+    # 子进程 print 结果时就 UnicodeEncodeError，整个事务失败，
+    # 而栈顶指向 json.dumps，看不出跟编码有关。
+    env = {**os.environ, **(kw.pop("env", None) or {})}
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("PYTHONUTF8", "1")
     p = subprocess.run(args, capture_output=True, text=not binary_input,
                        encoding=None if binary_input else "utf-8",
-                       errors=None if binary_input else "replace", **kw)
+                       errors=None if binary_input else "replace", env=env, **kw)
     if binary_input:
         return p.returncode, p.stdout.decode("utf-8", errors="replace"), p.stderr.decode("utf-8", errors="replace")
     return p.returncode, p.stdout, p.stderr
