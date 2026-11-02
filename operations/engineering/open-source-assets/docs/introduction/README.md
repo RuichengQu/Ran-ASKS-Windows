@@ -252,6 +252,80 @@ normalized PDF pages contain the same addendum; earlier reviewed pages remain.
 只新增精确批准的通用口试快路径，不包含个人记忆。Markdown 与 Word 导出并标准化的
 追加 PDF 页面同步，保留原已审阅页面；论文实验和冻结数据产物保持不变。
 
+The 2026-10-23 `v0.18.0` update adds generic advisory review over frozen
+text/static-image packets, independently versioned reviewer roles, bounded
+poster compositions, version-bound review decisions and before/after comparison.
+Local overview/detail preparation and slide conversion share a deterministic
+visual-material layer; host Agent viewing does not call the project's remote
+visual API, whose control loop remains independent. Material preparation and
+self-reported readability do not certify actual delivery or reader understanding.
+Editable-PowerPoint reconstruction and source-bound ingestion also improve.
+These compatible capabilities warrant a MINOR increment. The Markdown and newly
+appended, normalized PDF pages contain the same addendum; the earlier reviewed
+24 PDF pages and frozen paper artifacts remain unchanged.
+
+2026年10月23日的 `v0.18.0` 更新新增基于冻结文本／静态图片包的通用建议型审阅、
+独立版本化角色、有限展板混排、版本绑定的意见取舍与前后对比。本地转换和整图／
+局部材料共用确定性视觉底座；Agent 原生看图不转交项目远程视觉 API，两种控制循环
+保持独立。准备成功和自报可读性不认证实际交付或读者理解，同时改进可编辑
+PowerPoint 重建及来源绑定摄入。这是兼容新增能力，按 MINOR 排号；Markdown 与
+新增并标准化的 PDF 补充页同步，保留既有24页与冻结论文产物。
+
+The 2026-10-26 `v0.19.0` update improves ingestion source reading, matching,
+embedding transport and timing receipts, and adds bounded Frontier paper-answer
+concurrency. Independent answer validation, serial application and the managed
+ingestion transaction remain. A full ingestion-time halving and 20 seconds per
+knowledge page after high-quality Markdown extraction are not yet demonstrated.
+The Markdown and newly appended normalized PDF page contain the same addendum;
+the earlier reviewed pages and frozen paper artifacts remain unchanged.
+
+2026年10月26日的 `v0.19.0` 更新改进摄入来源读取、名称匹配、向量传输与耗时回执，
+并新增有界的 Frontier 论文回答并发。独立回答校验、串行应用和受管摄入事务继续执行。
+尚未证实完整摄入时间减半，也未达到高质量 Markdown 提取后每知识页 20 秒。
+Markdown 与新增并标准化的 PDF 补充页同步；原已审阅页面及冻结论文产物不变。
+
+The 2026-10-28 `v0.20.0` update adds compatible oral-exam scope design and
+offline complete-ingestion acceptance tooling, and improves source-qualified
+propositions, uncertainty, citations and intake recovery. Semantic Compiler v2
+remains an offline design; the 70% complete-ingestion latency target is not
+validated. Future work will evaluate ingestion requirements against downstream
+use with existing models and no model training. The Markdown and appended,
+normalized PDF addendum carry the same update; earlier reviewed pages and
+frozen paper artifacts retain their historical scope.
+
+2026年10月28日的 `v0.20.0` 更新新增兼容的口试范围设计与完整摄入离线验收，
+并改进带条件命题、不确定性、引用及摄入接续。Semantic Compiler v2仍是离线设计，
+70%完整摄入耗时目标尚未验收。下一轮以现有模型、不训练模型，按实际使用效果
+评估摄入要求。Markdown与新增并标准化的PDF补充页同步，原已审阅页面及冻结
+论文产物保留其历史范围。本次按兼容新增能力作MINOR发布。
+
+The 2026-10-29 `v0.20.1` documentation update introduces the curated Gallery,
+its MPE science-poster exhibit, and concise explanations of the capabilities
+used. Only exact-approved exhibition files are published; working projects and
+local provenance remain local. The Markdown and appended normalized PDF page
+carry the same update. Existing scientific capabilities and frozen paper
+artifacts retain their scope; this is a PATCH release.
+
+2026年10月29日的 `v0.20.1` 更新增加 Gallery 精选作品、MPE 科普展板及其功能介绍。
+作品成品按逐文件白名单公开，项目过程和本地来源记录保持隔离。Markdown 与新增并
+标准化的 PDF 补充页同步。本次为展示与使用文档更新，按 PATCH 发布，既有科学功能
+及冻结论文产物边界保持不变。[浏览 Gallery](../../gallery/README.md)。
+
+The 2026-11-01 `v0.21.0` update adds opt-in Source-first ingestion, bounded
+Agent/API compilation and versioned maintenance of draft KUs, source-only intake,
+purpose-aware artifacts and unified discovery. Default legacy ingestion remains.
+Source/KU search is lexical; completion means the bounded task was saved, not
+whole-document coverage or scientific certification. Large-corpus quality and
+end-to-end speedup remain unverified. This is a compatible MINOR release. The
+Markdown and appended normalized PDF page contain the same addendum; earlier
+reviewed pages and frozen paper artifacts retain their historical scope.
+
+2026年11月1日的 `v0.21.0` 更新新增显式 Source-first 摄入、Agent/API 有界 KU 编译与
+版本维护、纯事务材料的仅来源模式、产物用途标记及联合检索。默认仍为 legacy；
+Source/KU 使用词汇检索，任务完成不表示全文覆盖或科学认证。大语料质量与端到端
+提速尚未验收。本次为兼容新增能力，按 MINOR 发布。Markdown 与新增并标准化的
+PDF 补充页同步，原已审阅页面与冻结论文产物保留其历史范围。
+
 | 中文说明涉及的内容 | Ran-ASKS 边界 | 论文数据产物 | 状态 |
 | --- | --- | --- | --- |
 | 核心方法与56篇论文的时间序列展示 | `v0.2.0` | `1.0.0` | arXiv:2608.29612 v1 的冻结边界 |
@@ -261,3 +335,14 @@ normalized PDF pages contain the same addendum; earlier reviewed pages remain.
 这份中文说明是帮助理解项目的介绍材料，不替代论文，也不是复现实验所需的冻结
 数据产物。需要核对论文、代码和数据的精确边界时，请使用仓库 README 中列出的
 不可变 Release 与论文数据产物目录。
+
+
+The 2026-11-02 `v0.22.0` update adds explicit-target KU maintenance and a
+standalone Gallery with three selected works, filters, search, previews and
+full downloads. Source-confirmed complete names guide bounded candidate
+admission; unresolved lexical recall and semantic-quality limits remain explicit.
+Only exact-approved Gallery works and presentation files are public, while project
+sources, Raw, local provenance and runtime records remain excluded. The manual
+Pages workflow deploys the generated site. This is a compatible MINOR update;
+frozen paper artifacts stay unchanged. The PDF retains its 29 reviewed pages
+and appends the same dated update for printing.

@@ -158,7 +158,7 @@ def transform(source, output, profile, values=None):
                     ids = elements(shape, 'p', 'cNvPr')
                     if ids:
                         shapes[ids[0].getAttribute('id')] = shape
-            relpart = str(Path(page['part']).parent / '_rels' / (Path(page['part']).name + '.rels'))
+            relpart = (Path(page['part']).parent / '_rels' / (Path(page['part']).name + '.rels')).as_posix()  # 压缩包内路径必须是正斜杠（Windows 上 str() 会拼出反斜杠）
             rels = minidom.parseString(package[relpart]) if relpart in package else None
             for slot in profile['slots']:
                 if slot['page'] != page['number']:

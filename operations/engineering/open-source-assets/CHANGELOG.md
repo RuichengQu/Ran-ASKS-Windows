@@ -7,6 +7,141 @@ manifests and checksums.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-02
+
+### Version decision / 版本判断
+
+- MINOR: Adds backward-compatible explicit-target KU maintenance and a standalone curated Gallery with manual Pages deployment; existing ingestion and evidence contracts remain compatible.
+- MINOR（中文）：新增兼容的KU定向维护与独立精选作品Gallery及手动Pages部署，既有摄入和来源证据契约保持兼容。
+
+### Highlights
+
+- Added directed KU maintenance: an explicit existing target and selected current-source spans form a bounded packet with complete old evidence. Source/version checks and history remain authoritative.
+- Improved complete method-name recognition and focus-guided candidate admission to reduce unrelated compilation context. Automatic retrieval remains bounded and lexical; offline input reductions do not establish end-to-end speed or final semantic quality.
+- Added the 12-slide MPE academic report with full PDF and PPTX downloads, selected slide previews and validated related-work links to the MPE science poster.
+- Added a bilingual full academic CV exhibit with Chinese and English PDFs, labeled first-page previews and privacy-reviewed public copies. Multi-document previews remain accessible without JavaScript; source Word files and provenance stay local.
+- Added an independent responsive Gallery with capability/type filters, search, individual artifact pages and a manual-only Pages workflow. Only selected works and their presentation assets are published; project sources and runtime records stay local. Repository READMEs keep a top Gallery entry.
+
+### 主要更新
+
+- 新增KU定向维护：显式指定已有目标与当前来源片段，在原预算内提供完整旧依据，继续核验来源、版本并保留历史。
+- 改进完整方法名识别和focus引导的候选准入，减少无关编译上下文。自动召回仍是有界词汇检索，离线输入减少不等于端到端提速或最终语义质量验收。
+- 收录 12 页 MPE 学术报告，提供完整 PDF、PPTX、代表页预览，以及经目录校验的科普展板关联入口。
+- 收录中英文学术长简历，提供完整 PDF、标明页码的双语首页预览及经过信息清理的公开展示版；多文档预览无需 JavaScript 也可阅读，原始 Word 和来源记录保留在本地。
+- 新增独立 Gallery 网站，支持功能与作品类型筛选、搜索和独立作品详情页，并提供仅手动触发的 Pages 工作流。仅公开选定作品及展示资产，项目原件与运行记录保留本地；仓库 README 保留顶部入口。
+
+## [0.21.0] - 2026-11-01
+
+### Version decision / 版本判断
+
+- MINOR: Add opt-in Source-first ingestion, versioned draft Knowledge Units and purpose-aware unified retrieval while preserving default legacy ingestion and existing public contracts
+- MINOR（中文）：新增显式 Source-first 摄入、版本化知识草稿和按用途联合检索，保持默认 legacy 摄入及既有公开契约
+
+### Highlights
+
+- Added opt-in Source-first ingestion for academic PDF/Markdown/text: preserve immutable originals and parse versions, index sources independently, resume interrupted work and explicitly choose source-only intake for transactional material. The default remains `legacy`.
+- Added bounded Agent/API compilation of draft Knowledge Units, with source-bound statements, optional concept/method/finding roles, native Frontier questions, evidence attachment, versioned revision and deferred work. No fixed semantic-review loop or model training is required; task completion is not exhaustive coverage or scientific certification.
+- Added purpose-aware artifacts and unified Source/KU/Question/Wiki/Graph discovery with bounded API evidence reading. Improved local relevance, excerpts and duplicate-update handling; preserved Raw verification and private isolation. Source/KU retrieval remains lexical, and end-to-end quality or latency gains are not claimed.
+
+### 主要更新
+
+- 新增 academic PDF/Markdown/TXT 的 Source-first 显式试用流程：保存不可变原件和解析版本，独立建立来源索引，支持恢复及纯事务材料的仅来源摄入。默认仍为 `legacy`。
+- 新增 Agent/API 有界知识单元编译，支持来源绑定的知识草稿、可选概念/方法/发现角色、原生 Frontier 问题、补充依据、版本修订与暂缓处理。无需固定语义审核循环或模型训练；任务完成不等于全文覆盖或科学认证。
+- 新增按用途区分产物要求及 Source/KU/Question/Wiki/Graph 联合发现，支持有界 API 取证读取。改进本地相关性、摘录与重复更新处理，保留 Raw 核验和 private 隔离。Source/KU 仍为词汇检索，不宣称端到端质量或耗时收益已验收。
+
+## [0.20.1] - 2026-10-29
+
+### Version decision / 版本判断
+
+- PATCH: Add curated Gallery artwork and capability usage documentation without changing scientific functionality or public APIs
+- PATCH（中文）：新增精选作品展示和功能使用说明，不改变科学功能与公开接口
+
+### Highlights
+
+- Added a curated Gallery with the final MPE science poster, full preview and A0 PDF, plus concise guides to the ASKS capabilities used. Exact-file publication keeps project sources and local provenance separate; artwork rights remain distinct from the code license.
+
+### 主要更新
+
+- 新增 Gallery 精选作品区，收录 MPE 科普展板的最终展示版、完整预览与 A0 PDF，以简短说明介绍实际使用的系统功能。按逐文件白名单发布，项目源文件与本地来源记录保持隔离，作品权利与代码许可证分开。
+
+## [0.20.0] - 2026-10-28
+
+### Version decision / 版本判断
+
+- MINOR: Add compatible evidence-bound oral-exam scope design and offline complete-ingestion acceptance tooling while preserving legacy plans and managed ingestion contracts
+- MINOR（中文）：新增兼容的证据绑定口试范围设计与完整摄入离线验收工具，保持历史方案和受管摄入契约
+
+### Highlights
+
+- Added evidence-bound oral-exam scope design connecting knowledge points, observable competencies and objectives. New plans validate coverage before confirmation; existing plans remain supported, and graph coverage does not establish student mastery.
+- Added offline acceptance tooling for complete ingestion runs, binding saved outputs, source reviews, maintenance, continuous elapsed time and request usage. It checks evidence records, not scientific truth; the target of completing ingestion within 70% of a qualified baseline remains unverified.
+- Preserved source-qualified propositions instead of merging them by embedding similarity, retained uncertainty and attribution, and improved bibliography handling, citation checks, local PDF text fallback and resumable intake. Semantic Compiler v2 remains an offline design direction, with no production activation or validated speedup claim.
+
+### 主要更新
+
+- 新增证据绑定的口试范围设计，连接知识点、可观察能力与考查目标。新方案确认前检查覆盖，旧方案继续兼容；图覆盖不代表学生已经掌握。
+- 新增完整摄入的离线验收工具，绑定已保存产物、来源审阅、维护状态、连续耗时及请求用量。工具检查证据记录，不判断科学真伪；完整摄入耗时不超过合格基线70%的目标仍未验收。
+- 命题保留来源条件，不按向量相似度合并；保留不确定性与归属，并改进书目处理、引用检查、本地PDF文本回退和摄入接续。Semantic Compiler v2仍为离线设计方向，本版未生产启用，也未验证其提速收益。
+
+## [0.19.0] - 2026-10-26
+
+### Version decision / 版本判断
+
+- MINOR: Add backward-compatible bounded answer concurrency to public capture-paper while preserving ingestion validation and managed transactions
+- MINOR（中文）：公开 capture-paper 新增向后兼容的有界回答并发，保持摄入校验与受管事务契约
+
+### Highlights
+
+- Reduced repeated embedding transport and deterministic name matching in ingestion and Hub maintenance. Frontier uses equivalent safe YAML parsing and bounded `capture-paper --answer-workers` concurrency; answers still validate independently and apply serially.
+- Improved source reading, exact citation handling, workspace handoffs, and timing diagnostics across paper, meeting, and ordinary-document intake while preserving Agent/API controller separation, source evidence, validation, and rollback.
+- The full ingestion time has not been verified to halve, and the target of 20 seconds per knowledge page after high-quality Markdown extraction has not been met. Output reuse and input-sharing experiments remain disabled pending quality and net-benefit evidence.
+
+### 主要更新
+
+- 摄入与 Hub 维护减少重复向量传输和确定性名称匹配；Frontier 使用等价的安全 YAML 解析，并为 `capture-paper --answer-workers` 增加有界并发。回答仍逐条校验、串行应用。
+- 改进论文、会议和普通文档的来源读取、精确引用、工作区交接与耗时诊断，保持 Agent/API 控制循环、来源证据、校验和回滚边界。
+- 尚未证实完整摄入时间减半，也未达到高质量 Markdown 提取后每知识页 20 秒。输出复用与输入共享实验仍未启用，须先验证质量与净收益。
+
+## [0.18.0] - 2026-10-23
+
+### Version decision / 版本判断
+
+- MINOR: Add backward-compatible advisory review, bounded paper-to-poster composition and version-bound feedback with shared local visual materials; retain existing Agent/API contracts
+- MINOR（中文）：新增向后兼容的建议型审阅、有限论文展板混排与版本绑定反馈，共用本地视觉材料并保持既有 Agent/API 契约
+
+### Highlights
+
+- Added preview, host-owned advisory review with independently versioned reader
+  and argument reviewers, frozen text/image inputs, bounded feedback validation
+  and recoverable reports. Advice neither approves an artifact nor establishes
+  real-reader understanding; private inputs and implicit API fallback remain
+  unsupported.
+- Extended paper-to-poster collaboration with bounded editable text/graphics and
+  frozen raster compositions, version-bound review decisions and rebuildable
+  before/after comparisons. Existing layouts remain compatible; scientific,
+  visual, user-acceptance and publication decisions remain separate.
+- Shared local slide conversion and traceable overview/detail preparation across
+  visual tools and advisory review, with optional PDF-native details and explicit
+  per-image handoff/readability records. Material preparation calls no model;
+  Agent viewing and API visual QA retain separate control loops.
+- Improved editable-PowerPoint reconstruction, capability-registry consistency,
+  source-bound meeting ingestion and engineering guidance. Public exports contain
+  generic code and synthetic fixtures, not local knowledge or project artifacts.
+
+### 主要更新
+
+- 新增 preview 宿主子 Agent 建议型审阅：读者理解与论证结构角色独立版本化，冻结
+  文本／图片输入，校验有界反馈并生成可恢复报告。建议不代表作品批准或真人理解
+  效果；不支持 private 输入或隐式 API 回退。
+- 扩展论文到科普展板协作：支持有限可编辑文字／图形与冻结位图混排，审阅取舍绑定
+  实际版本，并可重建修改前后对比。旧布局保持兼容，科学、视觉、用户接受和公开
+  许可继续分别判断。
+- 视觉工具与审阅共用本地幻灯片转换及可追溯整图／局部材料准备，支持可选 PDF
+  原生局部与逐图交接／可读性记录。准备材料不调用模型，Agent 看图与 API 视觉
+  QA 保持独立控制循环。
+- 改进可编辑 PowerPoint 重建、功能目录一致性、来源绑定会议摄入及工程指引。
+  公开树只含通用代码和合成样例，不含本地知识或项目产物。
+
 ## [0.17.0] - 2026-10-15
 
 ### Version decision / 版本判断
@@ -517,5 +652,17 @@ manifests and checksums.
 
 [0.16.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.16.0
 
-[Unreleased]: https://github.com/ranshiju/Ran-ASKS/compare/v0.17.0...HEAD
 [0.17.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.17.0
+
+[0.18.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.18.0
+
+[0.19.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.19.0
+
+[0.20.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.20.0
+
+[0.20.1]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.20.1
+
+[0.21.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.21.0
+
+[Unreleased]: https://github.com/ranshiju/Ran-ASKS/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/ranshiju/Ran-ASKS/releases/tag/v0.22.0

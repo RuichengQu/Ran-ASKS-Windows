@@ -1083,6 +1083,34 @@ def test_cleanup_ghost_hubs_removes_orphan():
 
 
 
+def test_step_timings_preserve_retries_exceptions_and_subprocess_history():
+    import ingest_common as ic
+    state = {"status": "write_wiki"}
+
+    def step(current, fail=False):
+        if fail:
+            raise ValueError("expected failure")
+        return "unchanged result"
+
+    measured = ic.timed_ingest_step(step, "workspace")
+    assert ic.timed_ingest_step(measured) is measured
+    assert measured(state) == "unchanged result"
+    try:
+        measured(state, fail=True)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("timing swallowed the original exception")
+    spans = state["telemetry"]["step_spans"]
+    assert [span["outcome"] for span in spans] == ["returned", "exception"]
+    assert spans[1]["error_type"] == "ValueError"
+    assert all(span["duration_ms"] >= 0 and span["started_at"].endswith("+00:00") for span in spans)
+    ic.record_subprocess(state, "check", ["check"], 1, 15)
+    ic.record_subprocess(state, "check", ["check"], 0, 12)
+    assert state["telemetry"]["subprocesses"]["check"]["returncode"] == 0
+    assert [item["duration_ms"] for item in state["telemetry"]["subprocess_history"]] == [15, 12]
+
+
 def test_inbox_state_records_telemetry_events():
     """P0：inbox_state.save 记录 source_hash 与状态/重试时间线。"""
     import inbox_state
@@ -2378,6 +2406,8 @@ def main():
     test_fallback_single_hit_direction_not_promoted()
     test_free_edge_bare_abbreviation_report_accurate()
     test_cleanup_ghost_hubs_removes_orphan()
+    test_step_timings_preserve_retries_exceptions_and_subprocess_history()
+    test_runtime_performance_uses_first_completion_and_keeps_nested_attempts_separate()
     test_inbox_state_records_telemetry_events()
     test_inbox_state_writes_bounded_runtime_status_document()
     test_inbox_state_atomic_save_and_guarded_resume()
@@ -2599,6 +2629,48 @@ def test_resolve_abbreviations_list_reports_unresolved_warnings():
         conn.close()
 
 
+
+def test_exact_person_identity_is_not_a_global_abbreviation_exemption():
+    import resolve_abbreviations as ra
+    import ingest_common as ic
+    from unittest.mock import patch
+    gl = graph_ingest.gl
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "cross-domain").mkdir()
+        conn = gl.connect(root / "cross-domain/graph.db")
+        gl.init_schema(conn)
+        for path, name, kind in [("person/ada", "Ada LOVELACE", "person"),
+                                 ("person/grace", "Grace HOPPER", "person"),
+                                 ("concept/mpi", "Message Passing MPI", "keyword")]:
+            gl.ensure_node(conn, path, name, "entity", entity_subtype=kind)
+        conn.commit()
+        assert gl.exact_person_identity(conn, "Ada LOVELACE") == "person/ada"
+        assert gl.exact_person_identity(conn, "person/grace") == "person/grace"
+        for text in ("LOVELACE", "Ada LOVELACE discusses MPI", "Message Passing MPI", "Unknown PERSON"):
+            assert gl.exact_person_identity(conn, text) is None
+        ti, ai, si = gl.build_name_index(conn)
+        assert graph_ingest.bare_tokens_resolvable("Ada LOVELACE", conn, ti, ai, si)
+        assert not graph_ingest.bare_tokens_resolvable("Ada LOVELACE discusses MPI", conn, ti, ai, si)
+        entries = [{"token": "LOVELACE", "object": "Ada LOVELACE", "field": "object", "page": "demo"},
+                   {"token": "LOVELACE", "object": "LOVELACE algorithm", "field": "object", "page": "demo"}]
+        with patch.object(ra, "_raw_definitions", return_value={}):
+            pending = ra._collect_pending(conn, entries)
+        assert len(pending) == 1 and len(pending[0]["occurrences"]) == 1
+        assert pending[0]["occurrences"][0]["path"] == "LOVELACE algorithm"
+        todo = root / "cross-domain/abbreviation-todo.jsonl"
+        todo.write_text("".join(json.dumps(e) + "\n" for e in entries))
+        with patch.object(gl, "connect", return_value=conn):
+            result = ic.lightweight_abbr_resolve(root)
+        assert result["resolved"] == 1 and result["remaining"] == 1
+        assert result["details"][0]["method"] == "exact_person_identity"
+        assert "LOVELACE algorithm" in todo.read_text(encoding="utf-8") and "Ada LOVELACE" not in todo.read_text(encoding="utf-8")
+        assert conn.execute("SELECT COUNT(*) FROM aliases WHERE alias='LOVELACE'").fetchone()[0] == 0
+        gl.ensure_node(conn, "concept/collision", "Ada LOVELACE", "entity", entity_subtype="keyword")
+        assert gl.exact_person_identity(conn, "Ada LOVELACE") is None
+        conn.close()
+
+
 def test_runtime_summary_reports_api_breakdown_and_unmetered_costs():
     import inbox_state
     with tempfile.TemporaryDirectory() as directory:
@@ -2629,6 +2701,26 @@ def test_runtime_summary_reports_api_breakdown_and_unmetered_costs():
         assert result["api"]["usage_by_operation"]["frontier_answer"]["total_tokens"] == 1987
         assert result["cost_coverage"]["monetary_cost"] is None
         assert "host_agent" in result["cost_coverage"]["unmetered_components"]
+
+
+def test_runtime_performance_uses_first_completion_and_keeps_nested_attempts_separate():
+    import inbox_state
+    state = {"status": "completed", "pipeline_script": "ingest_paper.py", "semantic_backend": "api",
+             "telemetry": {"events": [
+                 {"at": "2026-10-23T10:00:00+00:00", "to": "extract"},
+                 {"at": "2026-10-23T10:02:00+00:00", "to": "completed"},
+                 {"at": "2026-10-23T11:00:00+00:00", "to": "completed"},
+             ], "step_spans": [
+                 {"name": "extract", "duration_ms": 30000},
+                 {"name": "extract", "duration_ms": 40000},
+                 {"name": "parse", "duration_ms": 20000},
+             ]}}
+    report = inbox_state.summarize_performance([state, {"status": "prepared"}])
+    assert report["transaction_wall"]["p50_sec"] == 120
+    assert report["by_pipeline_backend"]["ingest_paper.py:api"]["samples"] == 1
+    assert report["step_attempts"]["extract"]["samples"] == 2
+    assert report["step_attempts"]["extract"]["total_sec"] == 70
+    assert "not_end_to_end" in report["step_scope"]
 
 
 def test_subprocess_stdout_honors_quiet_log_without_hiding_stderr():

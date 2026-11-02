@@ -882,6 +882,8 @@ def _result_entry(file_name: str, file_type: str, parsed: dict, content: str = "
         ):
             if parsed.get(key) is not None:
                 entry[key] = parsed[key]
+        if parsed.get("schema") == agent_task.SCHEMA_VERSION:
+            entry["agent_task"] = agent_task.payload({"agent_task": parsed})
         return entry
     # **不能只取第一行。** 子进程吐的是 pretty-print 的 JSON，第一行就是
     # 孤零零一个「{」，真正的报错在后面几十行里，全被丢掉 ——
@@ -1786,6 +1788,9 @@ def publish_maintenance_report(report_path: Path, report: dict, *,
                 item_page = str(item.get("wiki_path") or "").removesuffix(".md")
                 if not state_page or state_page != item_page:
                     raise ValueError(f"maintenance transaction page mismatch: {transaction_id}")
+                if "quality_warnings" in state:
+                    item["quality_warnings"] = list(state["quality_warnings"])
+                    item["quality_warning_history"] = list(state.get("quality_warning_history", []))
                 _reconcile_quality_after_maintenance(item, maintenance)
                 _reconcile_quality_after_maintenance(state, maintenance)
                 state["maintenance"] = linked
@@ -1991,6 +1996,52 @@ def _compact_summary(report: dict, report_path: Path) -> dict:
     return compact
 
 
+def run_source_profile(args):
+    """Explicit shared source transaction, before either legacy semantic backend."""
+    import source_ingest as si
+    if args.subproject != "academic":
+        raise ValueError("source-first currently supports academic only")
+    unsupported = (args.stdin, args.import_name, args.download, args.classification_file,
+                   args.ocr_result, args.allow_remote_ocr, args.allow_remote_ppt,
+                   args.document_type, args.reconcile_maintenance_report)
+    if any(unsupported) or sum(bool(x) for x in (args.file, args.import_file, args.resume)) != 1:
+        raise ValueError("source-first requires exactly one --file/--import-file/--resume; legacy semantic options are unsupported")
+    if args.resume and args.keep_source:
+        raise ValueError("--keep-source applies to file reception, not resume")
+    if not args.run:
+        return {"profile": "source-first", "status": "dry_run", "input": args.file or args.import_file or args.resume,
+                "writes": False, "next": "repeat with --run"}
+    knowledge = getattr(args, "knowledge", "skip")
+    options = {"repo": REPO, "reuse_parse": args.reuse_parse, "refresh_parse": args.refresh_parse,
+               "allow_paddleocr": args.allow_paddleocr,
+               "knowledge_required": False if knowledge == "none" else (True if knowledge in {"agent", "api"} else None)}
+    if args.resume:
+        result = si.resume(args.resume, **options)
+        items = [result]
+    else:
+        result = si.ingest_many([args.file or args.import_file], **options)
+        items = result["files"]
+    if knowledge in {"agent", "api"}:
+        for item in items:
+            if item.get("source_status") != "source_ready":
+                continue
+            try:
+                if knowledge == "agent":
+                    from knowledge_compile import prepare
+                    compiled = prepare(item["source_id"], repo=REPO)
+                else:
+                    from knowledge_compile_api import run
+                    compiled = run(item["source_id"], repo=REPO)
+                item["knowledge"] = compiled
+                item["knowledge_status"] = compiled["status"]
+                item["knowledge_run"] = compiled["job_id"]
+                item["semantic_llm_calls"] = compiled.get("new_model_calls", 0)
+            except Exception as exc:
+                item["knowledge"] = {"status": "failed", "error": str(exc)[:700]}
+                item["knowledge_status"] = "failed"
+    return result
+
+
 def main():
     ap = argparse.ArgumentParser(description="inbox 统一摄入入口：确定性分流 + 双后端语义复核")
     ap.add_argument("--stdin", action="store_true", help="从 stdin 原样保存 UTF-8 文档正文后摄入")
@@ -2000,6 +2051,12 @@ def main():
     ap.add_argument("--import-name", default="", help="外部附件进入 inbox 时使用的安全文件名")
     ap.add_argument("--resume", help="经统一入口恢复既有摄入事务")
     ap.add_argument("--run", action="store_true", help="实际执行分发（默认 dry run）")
+    ap.add_argument("--profile", choices=("legacy", "source-first"), default="legacy")
+    ap.add_argument("--knowledge", choices=("skip", "none", "agent", "api"), default="skip",
+                    help="source-first: skip 暂缓；none 纯事务仅存来源；agent/api 整理可复用知识")
+    ap.add_argument("--reuse-parse", type=Path, help="source-first: 同原件 PDF+Markdown 解析目录")
+    ap.add_argument("--refresh-parse", action="store_true")
+    ap.add_argument("--allow-paddleocr", action="store_true")
     ap.add_argument("--subproject", default="academic",
                     choices=["academic", "admin", "teaching", "business"],
                     help="meeting/document 的存储域（默认 academic）")
@@ -2016,6 +2073,17 @@ def main():
     ap.add_argument("--reconcile-maintenance-report", type=Path,
                     help="修复指定历史摄入报告的维护关联并重放已有裁决（不重摄入）")
     args = ap.parse_args()
+    if args.profile == "source-first":
+        try:
+            result = run_source_profile(args)
+        except Exception as exc:
+            result = {"profile": "source-first", "status": "failed", "error": str(exc)[:700]}
+        print(json.dumps(result, ensure_ascii=False))
+        if result.get("status") not in {"source_ready", "dry_run"} or result.get("error"):
+            raise SystemExit(1)
+        return
+    if args.reuse_parse or args.refresh_parse or args.allow_paddleocr or args.knowledge != "skip":
+        ap.error("source parser options require --profile source-first")
     backend = agent_task.ingest_backend()
     if args.resume:
         if not args.run:

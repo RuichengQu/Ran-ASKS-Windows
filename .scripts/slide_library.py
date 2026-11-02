@@ -2,7 +2,10 @@
 """Source-preserving native slide extraction and atomic, explicitly scoped collection."""
 from __future__ import annotations
 import argparse
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows 没有 fcntl，用 platform_compat 的替身
+    from platform_compat import fcntl_shim as fcntl
 import json
 import os
 import posixpath
@@ -237,7 +240,7 @@ def collect(prepared,name,instruction,layout_report=None):
                 r['files']={p.name:vision.digest(p) for p in pending.iterdir() if p.is_file() and p.name!='receipt.json'}
             vision.write(pending/'receipt.json',r);verify_bundle(pending)
             for file in pending.iterdir():
-                with file.open('rb') as f: os.fsync(f.fileno())
+                with file.open('r+b') as f: os.fsync(f.fileno())
             os.rename(pending,target)
             rebuild_index(root)
         except BaseException:

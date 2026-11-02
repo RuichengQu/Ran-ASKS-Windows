@@ -69,6 +69,57 @@ def exclusive_lock(handle):
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+class _FcntlShim:
+    """Windows 上 `fcntl` 模块的替身 —— 只实现 `flock` 和它的四个常量。
+
+    为什么要有它（同步上游 v0.22.0 时加）：上游 v0.18–v0.22 新增的
+    presentation_state / review / science_exhibit / slide_library 在**文件顶部**
+    `import fcntl`，Windows 上没有这个模块，一导入就崩，整个模块连同依赖它的
+    测试都跑不起来。上面的 `exclusive_lock` 只收文件对象，而上游有的地方传的是
+    `os.open` 返回的**整数描述符**，所以这里按 `fcntl.flock` 原样的签名再给一个。
+    模块那边只改导入一行（`try: import fcntl / except ImportError: 用这个`），
+    上游代码其余一字不动；POSIX 上照旧是真的 fcntl。
+
+    语义对照：
+      LOCK_EX  -> msvcrt LK_LOCK，锁第 0 个字节；它约 10 秒超时，循环重试以得到
+                  flock 那种无限阻塞
+      LOCK_SH  -> **按独占处理**。msvcrt 没有共享锁；独占更严，互斥依然成立，
+                  只是并发读会排队
+      LOCK_NB  -> LK_NBLCK，拿不到锁抛 BlockingIOError（和 flock 一致）
+      LOCK_UN  -> LK_UNLCK
+    上游这几处锁的都是**专用锁文件**（.lock / .writer.lock / .collection.lock），
+    把文件位置挪到 0 不影响任何数据读写。
+    """
+    LOCK_SH, LOCK_EX, LOCK_NB, LOCK_UN = 1, 2, 4, 8
+
+    @staticmethod
+    def flock(target, operation):
+        import msvcrt
+        fd = target if isinstance(target, int) else target.fileno()
+        os.lseek(fd, 0, os.SEEK_SET)
+        if operation & _FcntlShim.LOCK_UN:
+            try:
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass                      # 本来就没锁上 —— flock(LOCK_UN) 也不报错
+            return
+        if operation & _FcntlShim.LOCK_NB:
+            try:
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise BlockingIOError(exc.errno, "lock is held") from exc
+            return
+        while True:
+            try:
+                msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+                return
+            except OSError:
+                continue                  # 10 秒超时后重试，等价于 flock 的无限阻塞
+
+
+fcntl_shim = _FcntlShim()
+
+
 # --------------------------------------------------------------------------
 # 2. 子进程
 # --------------------------------------------------------------------------
@@ -88,6 +139,33 @@ def fsync_directory(path) -> None:
     if IS_WINDOWS:
         return
     descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def fsync_path(path) -> None:
+    """把一个**文件或目录**刷到盘上。上游常写的这四行的跨平台版：
+
+        descriptor = os.open(path, os.O_RDONLY)
+        try: os.fsync(descriptor)
+        finally: os.close(descriptor)
+
+    同步上游 v0.22.0 时加：presentation_state / review / science_exhibit 里
+    这样写了 7 处，目标有目录也有文件。Windows 上两种都会失败 ——
+    目录打不开（PermissionError），文件只读句柄不许 fsync（EBADF）。
+
+      POSIX    和上面四行**完全一样**
+      Windows  目录 -> 跳过（同 fsync_directory，平台能力所限）
+               文件 -> 用读写方式打开再 fsync，持久性照样保住
+    """
+    if IS_WINDOWS:
+        if os.path.isdir(path):
+            return
+        descriptor = os.open(path, os.O_RDWR)
+    else:
+        descriptor = os.open(path, os.O_RDONLY)
     try:
         os.fsync(descriptor)
     finally:

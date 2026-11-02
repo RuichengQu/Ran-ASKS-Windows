@@ -110,6 +110,8 @@ python3 .scripts/wg.py task status <transaction-id> | jq '.result | {workflow_st
 
 执行授权后应连续完成当前文件的“落位 → 巩固 → 校验 → 清理”；只有校验失败、目标冲突、需要用户确认的高风险实体或用户主动插话时才暂停。状态更新只报告已完成阶段与下一项阻塞，不把正常阶段切换当作暂停点。
 
+**论文书目未决恢复**：combined workspace 返回 `bibliographic_review_required` 后，仍沿同一事务的 `--agent-workspace → --agent-check → --agent-commit` 接管。宿主只修正声明的 workspace 段；恢复重新检查输入哈希、书目 schema/证据及 Wiki、语义和 Graph preflight，不重跑 PDF 提取或新增模型调用。可选 DOI/arXiv 缺失继续保留空值和 `ambiguous`，不能猜补；整体是否可裁决须依据已核验字段判断。已完成或失败事务不能借此重新开启。
+
 ## 约束
 
 - inbox 受管副本仅作中转；用户原先放置的受保护原件不属于可清理队列
@@ -139,7 +141,7 @@ API 论文批次的每项结果在所有状态都保留 `transaction_id`、`sour
 - **每条事实带**：时间戳 + 申明原文 + 锚点（`{: #fact-<简写>-<日期>}`），供 wiki 引用精确定位
 - **source_type**：`user-assertion`（新增来源类型，属事实源，见 INGEST.md source_type 取值）；confidence 默认 medium（无第二来源，可质疑）
 - **摄入流程一致**：Agent 根据申明内容选择受管 Wiki 页面，在 proposal 的 `wiki_updates` 中提交带精确 Raw locator 的完整页面内容，并在独立 `relations` 中提交关系；程序分别校验页面与关系，再经 staged `graph_ingest` 写入 graph.db，不把关系嵌入 Wiki 正文
-- **受管事务**：proposal 必须逐条覆盖 manifest 的 fact ID，并为每条关系指定受管 Wiki 页；Wiki 正文须含 `cross-domain/raw/facts/user-assertions.md#fact-*` 精确引用。程序在副本图上执行 `graph_ingest --clean`，提交后逐页运行 `ingest_check --graph`，任何失败均补偿回滚并写 `temp/user-assertions/<transaction-id>/receipt.json`
+- **受管事务**：proposal 必须逐条覆盖 manifest 的 fact ID，并为每条关系指定受管 Wiki 页；Wiki 正文须含 `cross-domain/raw/facts/user-assertions.md#fact-*` 精确引用。程序在副本图上增量执行 `graph_ingest`，保留目标页既有语义边，不以本批申明清空重建全页关系；提交后逐页运行 `ingest_check --graph`，任何失败均补偿回滚并写 `temp/user-assertions/<transaction-id>/receipt.json`
 - **wiki 页类型按内容定**（按通用流程）：人物关系更新对应 people 页正文；新概念/项目建对应页；多条关联内容可建摘要页。关系仍单独进入 proposal `relations`，不因"事实"另建碎页
 
 **raw/facts/ 定位**：放 `cross-domain/raw/facts/`（跨域事实，cross-domain 跨域定位一致）。`user-assertions.md` 是累积型 raw，随用户申明持续追加，是事实来源之一。

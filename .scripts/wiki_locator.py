@@ -35,6 +35,62 @@ PLACEHOLDER_CLAIM_RE = re.compile(
 PLACEHOLDER_TOKEN_RE = re.compile(r"(?:tbd|todo|unknown)", re.I)
 
 
+_DRAFT_MARKER_RE = re.compile(
+    r"[（(]\s*此处(?:仅)?(?:为|是)(?:示例|占位)(?:文本|内容)?\s*[）)]"
+    r"|\[\s*待(?:填写|补充|替换)(?:[：:][^\]\n]{1,80})?\s*\]"
+    r"|\[\s*(?:insert|write|add)\s+[^\]\n]{1,80}?\s+here\s*\]",
+    re.IGNORECASE,
+)
+
+
+def _visible_prose(body):
+    """Mask fenced/inline code and comments while retaining body line positions."""
+    def mask(match):
+        return re.sub(r"[^\n]", " ", match.group())
+
+    # Keep newlines so diagnostics refer to the original body, not a compacted
+    # rendering. Fences may use tildes or longer runs around Markdown examples.
+    visible = []
+    fence = None
+    for line in body.splitlines(keepends=True):
+        if fence:
+            visible.append(re.sub(r"[^\n]", " ", line))
+            if re.fullmatch(r"[ \t]{0,3}" + re.escape(fence[0])
+                            + "{" + str(fence[1]) + r",}[ \t]*", line.rstrip("\r\n")):
+                fence = None
+            continue
+        opening = re.match(r"^[ \t]{0,3}(`{3,}|~{3,})", line)
+        if opening:
+            run = opening.group(1)
+            fence = (run[0], len(run))
+            visible.append(re.sub(r"[^\n]", " ", line))
+        else:
+            visible.append(line)
+    prose = "".join(visible)
+    prose = re.sub(r"(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)", mask, prose)
+    return re.sub(r"<!--[\s\S]*?-->", mask, prose)
+
+
+def _draft_markers_in_line(line):
+    for match in _DRAFT_MARKER_RE.finditer(line):
+        # A link named [待补充] is a reference, not an unfinished prose slot.
+        if match.group().startswith("[") and re.match(r"[ \t]*[\[(]", line[match.end():]):
+            continue
+        yield match.group()
+
+
+def check_drafting_markers(body):
+    """Reject explicit authoring placeholders in prose, not literal code examples."""
+    errors = []
+    for number, line in enumerate(_visible_prose(body).splitlines(), 1):
+        for marker in _draft_markers_in_line(line):
+            errors.append(
+                f"draft-marker: 正文第 {number} 行残留写作占位文本 {marker!r}；"
+                "请依据来源完成该段并复验"
+            )
+    return errors
+
+
 def semantic_overlap_tokens(value: str) -> set[str]:
     """Return stable Latin words and CJK bigrams for locator ranking."""
     text = str(value or "").casefold()
@@ -112,7 +168,8 @@ def normalize_raw_footnote_locator(value: str) -> str:
     return locator
 
 
-def normalize_raw_footnotes(text: str, *, reuse_inline: bool = False) -> str:
+def normalize_raw_footnotes(text: str, *, reuse_inline: bool = False,
+                            supplied_locators: tuple[str, ...] = ()) -> str:
     """Canonicalize definitions and optionally reuse exact inline Raw citations."""
     def replace(match):
         value = match.group("locator")
@@ -133,12 +190,11 @@ def normalize_raw_footnotes(text: str, *, reuse_inline: bool = False) -> str:
         raw_path, fragment = raw_locator.split_locator(locator)
         if "/raw/" in f"/{raw_path}" and re.fullmatch(r"L[1-9]\d*(?:-L[1-9]\d*)?", fragment):
             citations.setdefault(locator, footnote_id)
-    if not citations:
-        return normalized
-    addresses = "|".join(re.escape(locator) for locator in sorted(citations, key=len, reverse=True))
-    inline_pattern = re.compile(r"(?<![\w/`\[\(<\"'])" + f"(?:{addresses})" + r"(?![\w/#-]|\.[\w])")
     frontmatter_end = _frontmatter_end([line.rstrip("\r\n") for line in lines])
     fence_marker = ""
+    body_lines = []
+    source_sections = []
+    top_level_headings = []
     for index, line in enumerate(lines):
         if index < frontmatter_end:
             continue
@@ -151,10 +207,63 @@ def normalize_raw_footnotes(text: str, *, reuse_inline: bool = False) -> str:
                   and not line[fence.end():].strip()):
                 fence_marker = ""
             continue
-        if (fence_marker or FOOTNOTE_DEF_RE.fullmatch(line.strip())
+        if not fence_marker and line.strip() == "## Sources":
+            source_sections.append(index)
+        if not fence_marker and re.match(r"^#{1,2}\s+", line):
+            top_level_headings.append(index)
+        if (fence_marker or re.match(r"^(?: {4}|\t)", line)
+                or re.match(r"^[ \t]{0,3}\[[^\]\n]+\]:", line)
                 or HEADING_RE.fullmatch(line.strip()) or "`" in line or "[[" in line or "](" in line):
             continue
-        lines[index] = inline_pattern.sub(lambda match: f"[^{citations[match.group(0)]}]", line)
+        body_lines.append(index)
+    allowed = set()
+    if len(source_sections) == 1 and not fence_marker:
+        for locator in supplied_locators:
+            path, fragment = raw_locator.split_locator(locator)
+            if ("/raw/" in f"/{path}" and not any(char in locator for char in "`[]<>|\r\n ")
+                    and re.fullmatch(r"L[1-9]\d*(?:-L[1-9]\d*)?", fragment)):
+                allowed.add(locator)
+    if not citations and not allowed:
+        return normalized
+    addresses = "|".join(re.escape(locator) for locator in sorted(set(citations) | allowed, key=len, reverse=True))
+    inline_pattern = re.compile(
+        r"(?<![/`\[\]\(<\"'\\!])\[(?P<bracket>" + addresses + r")\](?![\[\](])"
+        r"|(?<![\w/`\[\(<\"'])(?P<bare>" + addresses + r")(?![\w/#-]|\.[\w])"
+    )
+    # A shortcut reference with a definition is a real Markdown link, even when
+    # its label happens to be an exact Raw locator. Preserve that interpretation.
+    visible_lines = _visible_prose(normalized).splitlines(keepends=True)
+    reference_labels = {
+        " ".join(match.group(1).split()).casefold()
+        for line in visible_lines
+        if (match := re.match(r"^[ \t]{0,3}\[([^\]^\n]+)\]:", line))
+    }
+    reserved = set(FOOTNOTE_REF_RE.findall(normalized))
+    created = []
+
+    def replace_inline(match):
+        locator = match.group("bracket") or match.group("bare")
+        if (visible_lines[index][match.start():match.end()] != match.group(0)
+                or (match.group("bracket") and " ".join(locator.split()).casefold() in reference_labels)):
+            return match.group(0)
+        if locator not in citations:
+            number = 1
+            while f"r{number}" in reserved:
+                number += 1
+            footnote_id = f"r{number}"
+            reserved.add(footnote_id)
+            citations[locator] = footnote_id
+            created.append(f"[^{footnote_id}]: {locator}\n")
+        return f"[^{citations[locator]}]"
+
+    for index in body_lines:
+        lines[index] = inline_pattern.sub(replace_inline, lines[index])
+    if created:
+        end = next((index for index in top_level_headings
+                    if index > source_sections[0]), len(lines))
+        if end and not lines[end - 1].endswith("\n"):
+            lines[end - 1] += "\n"
+        lines[end:end] = ["\n", *created, "\n"]
     return "".join(lines)
 
 
@@ -315,6 +424,20 @@ def validate_wiki_page(path: Path | str, *, require_citations: bool = False,
     return errors
 
 
+def placeholder_claim_line_numbers(body: str) -> list[int]:
+    """Locate empty placeholders without treating substantive uncertainty as one."""
+    found = []
+    for number, line in enumerate(_visible_prose(body).splitlines(), 1):
+        without_citations = FOOTNOTE_REF_RE.sub("", line)
+        statement = re.sub(r"^\s*(?:[-+*>]\s*|\d+[.)、]\s*)+", "", without_citations).strip()
+        token = re.sub(r"[\s`*_>#\[\](){}:;,.!?，。；：！？、\-]+", "", statement)
+        if (PLACEHOLDER_CLAIM_RE.fullmatch(token) or PLACEHOLDER_TOKEN_RE.fullmatch(token)
+                or re.fullmatch(r"[（(]\s*待(?:填写|补充|替换)[^（）()\n]*[）)][。.!！]?", statement)
+                or any(_draft_markers_in_line(without_citations))):
+            found.append(number)
+    return found
+
+
 def validate_claim_sections(path: Path | str, section_names: tuple[str, ...]) -> list[str]:
     """Reject mechanically empty or explicit placeholder claims.
 
@@ -340,12 +463,7 @@ def validate_claim_sections(path: Path | str, section_names: tuple[str, ...]) ->
         visible = re.sub(r"[\s`*_>#\[\](){}:;,.!?，。；：！？、\-]+", "", without_citations)
         if not re.search(r"[A-Za-z0-9\u3400-\u9fff]", visible):
             errors.append(f"{section.title} 只有脚注或格式标记，没有实质陈述")
-        token_lines = [
-            re.sub(r"[\s`*_>#\[\](){}:;,.!?，。；：！？、\-]+", "", line)
-            for line in without_citations.splitlines()
-        ]
-        if (PLACEHOLDER_CLAIM_RE.search(without_citations)
-                or any(PLACEHOLDER_TOKEN_RE.fullmatch(line) for line in token_lines)):
+        if placeholder_claim_line_numbers("\n".join(section.text.splitlines()[1:])):
             errors.append(f"{section.title} 含明确占位陈述")
     return errors
 

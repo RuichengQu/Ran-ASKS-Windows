@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+from platform_compat import fsync_path as _fsync_path  # Windows：目录不能 fsync、只读句柄不许 fsync
 from pathlib import Path
 import shutil
 import subprocess
@@ -68,11 +69,7 @@ def atomic_write(path, content):
         # 目录 fsync 是 POSIX 语义；Windows 不允许 os.open 打开目录，
         # 且 os.replace 在其上本身就是原子的 ReplaceFile，无需再同步目录。
         if os.name != "nt":
-            directory = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
+            _fsync_path(path.parent)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)

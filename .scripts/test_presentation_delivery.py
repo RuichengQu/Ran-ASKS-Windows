@@ -342,7 +342,7 @@ class DeliveryTests(unittest.TestCase):
             self.assertIn(pd.LABELS[kind], proc.stdout)
             self.assertNotIn('## 阶段1A 命令与数据协议', proc.stdout)
         scripts = self.repo / '.scripts'; scripts.mkdir()
-        for name in ('presentation_state.py', 'presentation_render.py', 'presentation_delivery.py', 'agent_task.py', 'env_config.py'):
+        for name in ('presentation_state.py', 'presentation_render.py', 'presentation_delivery.py', 'agent_task.py', 'env_config.py', 'platform_compat.py'):
             shutil.copy2(REPO / '.scripts' / name, scripts / name)
         proc = subprocess.run([sys.executable, str(scripts / 'presentation_delivery.py'), 'status', '--store', str(self.store.root)],
                               capture_output=True, text=True, encoding="utf-8", errors="replace")

@@ -509,6 +509,161 @@ def test_derived_concept_use_records_origin_and_survives_creator_cleanup():
     conn.close()
 
 
+def test_proposition_alignment_preserves_distinct_claims_even_at_high_similarity():
+    import embed_helper
+
+    pairs = [
+        ("作者推测在条件 X 下 A 可能成立", "作者证明 A 成立"),
+        ("当深度为对数且方差下界为逆多项式时可训练", "当深度为对数时可训练"),
+        ("实验未发现显著增益", "实验发现显著增益"),
+        ("实验中误差降低约百分之十", "实验中误差降低百分之五十"),
+    ]
+    for new, old, link_first in [(new, old, order) for new, old in pairs for order in (False, True)]:
+        conn = make_db()
+        gl.ensure_node(conn, "old", old, "entity", entity_subtype="proposition")
+        page = "academic/wiki/papers/demo"
+        triple = {"subject": page, "predicate": "核心创新点", "object": new}
+        triples = [dict(triple)]
+        with patch.object(embed_helper, "match_by_embedding", return_value={new: (old, 0.999)}):
+            result = module._align_propositions(triples, conn, page)
+        assert triples[0] == triple, "similarity must not replace the source claim"
+        assert result["merged"] == 0 and result["mapping"] == {}
+        assert result["linked"] == 1
+        assert triples[1] == {
+            "subject": new, "predicate": "关联", "object": old,
+            "confidence": "推断", "source": page, "is_sr": 0,
+        }
+        if link_first:
+            triples.reverse()
+        # Exercise the shared IR -> GraphDelta -> writer path, not just text output.
+        fm = {"type": "paper-summary", "sources": ["academic/raw/demo/paper.md"]}
+        ir = module.kir.build_knowledge_ir(page, fm, triples)
+        assert not module.kir.validate_knowledge_ir(ir)
+        assert ir["extensions"]["paper"]["propositions"] == [
+            {"kind": "核心创新点", "text": new},
+        ]
+        delta = module.gd.build_document_delta(page, fm, module.kir.relations_from_ir(ir))
+        gl.ensure_node(conn, page, "Demo", "page")
+        for raw in delta.raw_packages:
+            gl.ensure_node(conn, raw, "Demo source", "raw")
+            conn.execute(
+                "INSERT INTO edges(subject,predicate,object,confidence,source,is_sr) "
+                "VALUES(?, '来源', ?, '机械', '', 0)", (page, raw),
+            )
+        with patch.object(module.gd.ns, "_rank_with_embeddings", side_effect=AssertionError("unexpected identity embedding")):
+            plan = module.gd.plan_attachment(conn, delta)
+        module.gd.fuse_with_savepoint(
+            conn, delta,
+            lambda: module.add_knowledge_edges(
+                conn, page, module.gd.knowledge_edges(delta), attach_plan=plan,
+            ),
+            inspection=module.gd.inspect_delta(conn, delta, attach_plan=plan),
+        )
+        conn.commit()
+        saved = conn.execute(
+            "SELECT n.path, n.title, n.entity_subtype FROM edges e JOIN nodes n ON n.path=e.object "
+            "WHERE e.subject=? AND e.predicate='核心创新点'", (page,),
+        ).fetchone()
+        assert saved is not None and saved["path"] != "old"
+        assert saved["title"] == new and saved["entity_subtype"] == "proposition", (new, dict(saved))
+        assert conn.execute("SELECT title FROM nodes WHERE path='old'").fetchone()[0] == old
+        link = conn.execute(
+            "SELECT confidence FROM edges WHERE subject=? AND predicate='关联' AND object='old'",
+            (saved["path"],),
+        ).fetchone()
+        assert link is not None and link["confidence"].strip("[]") == "推断"
+        assert not gv.validate_graph(conn, gv.load_config())["errors"]
+        conn.close()
+
+
+def test_proposition_alignment_exact_match_does_not_create_self_link():
+    import embed_helper
+
+    conn = make_db()
+    claim = "作者预期该方法可能适用于其他架构"
+    gl.ensure_node(conn, "old", claim, "entity", entity_subtype="proposition")
+    page = "academic/wiki/papers/demo"
+    triple = {"subject": page, "predicate": "未来展望", "object": claim}
+    triples = [dict(triple)]
+    with patch.object(embed_helper, "match_by_embedding", return_value={claim: (claim, 1.0)}):
+        result = module._align_propositions(triples, conn, page)
+    assert triples == [triple]
+    assert result["merged"] == result["linked"] == 0
+    delta = module.gd.build_document_delta(page, {"type": "paper-summary"}, triples)
+    plan = module.gd.plan_attachment(conn, delta)
+    assert plan["merge_map"][claim] == "old"
+    assert not plan["new_nodes"]
+    conn.close()
+
+
+def test_proposition_alignment_shares_only_required_paper_route_texts():
+    from types import SimpleNamespace
+    import embed_helper
+
+    conn = make_db()
+    gl.ensure_node(conn, "old-merge", "Old merge", "entity", entity_subtype="proposition")
+    gl.ensure_node(conn, "old-link", "Old link", "entity", entity_subtype="proposition")
+    page = "academic/wiki/papers/demo"
+    triples = [
+        {"subject": page, "predicate": "核心创新点", "object": "New merge"},
+        {"subject": page, "predicate": "局限性", "object": "New link"},
+    ]
+    profile = SimpleNamespace(text="Direction profile")
+    hubs = [SimpleNamespace(scope="First scope"), SimpleNamespace(scope="Second scope")]
+    with patch.object(module.hs, "read_paper_profile", return_value=profile) as reader, \
+            patch.object(module.hs, "list_hubs", return_value=hubs), \
+            patch.object(embed_helper, "match_by_embedding", return_value={
+                "New merge": ("Old merge", 0.99), "New link": ("Old link", 0.95),
+            }) as match:
+        result = module._align_propositions(triples, conn, page, route_page_file=Path("temp/wiki.md"))
+        reader.assert_called_once_with(Path("temp/wiki.md"))
+        assert match.call_args.kwargs == {
+            "threshold": 0.9,
+            "extra_texts": ["Direction profile", "First scope", "Second scope"],
+        }
+        assert result["merged"] == 0 and result["linked"] == 2
+        assert triples[0]["object"] == "New merge"
+        assert all(t["confidence"] == "推断" for t in triples[2:])
+        assert triples[-1]["subject"] == "New link" and triples[-1]["object"] == "Old link"
+    with patch.object(module.hs, "read_paper_profile") as reader, \
+            patch.object(embed_helper, "match_by_embedding", return_value={}) as match:
+        module._align_propositions(triples, conn, page)
+        assert not reader.called
+        assert match.call_args.kwargs["extra_texts"] == []
+        module._align_propositions([], conn, page, route_page_file=Path("temp/wiki.md"))
+        assert not reader.called
+    with patch.object(module.hs, "read_paper_profile", return_value=None), \
+            patch.object(module.hs, "list_hubs") as hubs, \
+            patch.object(embed_helper, "match_by_embedding", return_value={}) as match:
+        module._align_propositions(triples, conn, page, route_page_file=Path("temp/wiki.md"))
+        assert not hubs.called
+        assert match.call_args.kwargs["extra_texts"] == []
+    conn.close()
+
+
+def test_sparse_surface_reuse_preserves_boundaries_and_confirmed_candidates():
+    confirmed = {
+        "矩阵乘积态matrix product state(MPS)": "mps",
+        "shared": "confirmed-shared",
+    }
+    existing = {"MPS": "mps", "C++": "cpp", "shared": "existing-shared", "单": "single", "café": "accent"}
+    cases = [
+        ("mPs and C++", {"mps", "cpp"}),
+        ("XMPS MPS2 C+++", {"cpp"}),
+        ("采用矩阵乘积态进行计算", {"mps"}),
+        ("matrix product state with MPS_extra", {"mps"}),
+        ("shared", {"confirmed-shared", "existing-shared"}),
+        ("CAFÉ 单", set()),
+        ("café", {"accent"}),
+    ]
+    surface_patterns = {}
+    for text, expected in cases:
+        assert module._sparse_proposition_targets(text, confirmed, existing) == expected
+        assert module._sparse_proposition_targets(
+            text, confirmed, existing, surface_patterns=surface_patterns,
+        ) == expected
+
+
 def main():
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_") and callable(value)]
     for test in tests:

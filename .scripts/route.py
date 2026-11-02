@@ -18,10 +18,10 @@ LLM 判断指令类型后,调本脚本截取对应规范 section,拼成 prompt�
   route.py --task build    # 建设:输出 WikiGraph 方法哲学与工程信息入口
   route.py --task research # 研究:输出 RESEARCH 规范
   route.py --task frontier # 研究前沿:输出 FRONTIER 规范
-  route.py --capability write --capability-profile academic # research 状态内按需加载论文落笔能力
-  route.py --capability cv --capability-profile general # workspace 状态内加载简历制作与维护契约
+  route.py --capability write --capability-profile academic # research 工作上下文内按需加载论文落笔能力
+  route.py --capability cv --capability-profile general # workspace 工作上下文内加载简历制作与维护契约
   route.py --capability presentation --capability-profile create # PPT 创作契约与当前可执行入口
-  route.py --list           # 分类列出工作状态、路由任务与按需能力
+  route.py --list           # 分类列出持续工作、路由任务与按需能力
 
 ingest 参数说明:
   --mode   create(默认)/update/batch
@@ -58,8 +58,8 @@ QUERY_PROFILE_SECTIONS = {
 }
 
 QUERY_STAGE_SECTIONS = {
-    "start": ["会话级总计划", "轻量检索策略", "触发方式", "全局规则", "section 读取", "第零层", "第一层", "第二层", "首轮定位步骤"],
-    "evidence": ["最小证据与披露", "Evidence Profile", "证据下钻步骤"],
+    "start": ["会话级总计划", "轻量检索策略", "触发方式", "全局规则", "第零层", "第一层", "第二层", "首轮定位步骤"],
+    "evidence": ["最小证据与披露", "Evidence Profile", "section 读取", "证据下钻步骤"],
     "continue": ["回环规则", "回环计数", "槽位清单与缺口回检", "stop_reason", "续查与停止步骤"],
     "answer": ["三种表述姿态", "高层摘要定位约束", "交付步骤"],
 }
@@ -178,7 +178,7 @@ ROUTES = {
             },
             "update": {
                 "sections": ["会话级总计划", "摄入操作类型", "更新模式", "冲突处理分支", "通用 raw 路径约束",
-                             "节点类型", "描述性短语校验",
+                             "节点类型",
                              "graph.db 边格式", "通用来源标记", "重要约束",
                              "Raw 文档包节点与 Wiki 直连"],
                 "schema": ["页面类型", "Frontmatter 模板", "标准 section 结构",
@@ -241,9 +241,10 @@ ROUTES = {
     },
 }
 
-# 能力是工作状态内按需加载的规范包；它不创建或切换工作状态。
+# 能力是持续工作内按需加载的规范包；它不创建或切换持续工作。
 # 顶层 --task write 继续作为 general profile 的兼容入口。
 CAPABILITY_ROUTES = {
+    "review": {"general": [("operations/REVIEW.md", None)]},
     "illustration": {"general": [("operations/ILLUSTRATION.md", None)]},
     "science-exhibit": {
         "create": [("operations/SCIENCE_EXHIBIT.md", None)],
@@ -564,7 +565,7 @@ def emit_ingest_context_warmup(args, content, mode, backend, output_format):
 
 
 def emit_capability(name: str, profile: str) -> None:
-    """输出可在当前工作状态内组合的能力规范，不创建或切换状态。"""
+    """输出可在当前工作上下文内组合的能力规范，不创建或切换工作上下文。"""
     profiles = CAPABILITY_ROUTES.get(name)
     if profiles is None or profile not in profiles:
         available = sorted(profiles or {})
@@ -605,7 +606,7 @@ def main():
     ap = argparse.ArgumentParser(description="按 task 分发规范 prompt")
     ap.add_argument("--task", help="任务类型(ingest/query/lint/sync/write/scan/inbox/hub/build/research/frontier)")
     ap.add_argument("--capability", choices=sorted(CAPABILITY_ROUTES),
-                    help="在当前工作状态内按需加载的能力")
+                    help="在当前工作上下文内按需加载的能力")
     ap.add_argument("--capability-profile", default="general",
                     help="能力 profile（write: general/academic；science-exhibit: create/discuss/resume；presentation: create/form-check/evidence-check/citation-redact）")
     ap.add_argument("--subproject", help="ingest 目标域或 query 范围；private 使用隔离图及本地 Agent，不继承公共 API backend")

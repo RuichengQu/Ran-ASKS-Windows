@@ -458,6 +458,7 @@ def test_query_stage_dispatch():
         sys.executable, ".scripts/route.py", "--task", "query", "--query", "关系如何", "--format", "json"
     ).stdout)
     assert "首轮定位步骤" in start["prompt"]
+    assert "## section 读取" not in start["prompt"]
     assert "证据下钻步骤" not in start["prompt"]
     assert "回环规则" not in start["prompt"]
     assert "交付步骤" not in start["prompt"]
@@ -468,6 +469,7 @@ def test_query_stage_dispatch():
         "--query-stage", "evidence", "--format", "json"
     ).stdout)
     assert "证据下钻步骤" in evidence["prompt"]
+    assert "## section 读取" in evidence["prompt"]
     assert "首轮定位步骤" not in evidence["prompt"]
     assert "回环规则" not in evidence["prompt"]
 
@@ -756,7 +758,7 @@ def test_task_specific_execution_guidance_is_dispatched():
 
 def test_state_capability_tool_dispatch_is_explicit():
     listing = run(sys.executable, ".scripts/route.py", "--list").stdout
-    assert "工作状态:" in listing
+    assert "持续工作:" in listing
     assert "research: 研究工作 route=research" in listing
     assert "可路由任务:" in listing
     assert "按需能力:" in listing
@@ -766,7 +768,7 @@ def test_state_capability_tool_dispatch_is_explicit():
     assert "task/state" not in listing
 
     research = run(sys.executable, ".scripts/route.py", "--task", "research").stdout
-    assert "research 是工作状态，write 是按需能力" in research
+    assert "research 是持续工作，write 是按需能力" in research
     assert "--capability write --capability-profile academic" in research
 
     academic_write = run(

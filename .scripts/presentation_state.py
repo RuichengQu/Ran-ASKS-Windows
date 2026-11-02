@@ -6,10 +6,14 @@ import argparse
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows 没有 fcntl，用 platform_compat 的替身
+    from platform_compat import fcntl_shim as fcntl
 import json
 import math
 import os
+from platform_compat import fsync_path as _fsync_path  # Windows：目录不能 fsync、只读句柄不许 fsync
 from pathlib import Path, PurePosixPath
 import re
 import shlex
@@ -258,11 +262,7 @@ def _checkpoint(name):
 
 
 def _sync_dir(path):
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+    _fsync_path(path)
 
 
 def _write(path, data):
@@ -294,7 +294,7 @@ class Store:
         require(self.root.resolve() == self.root, 'Store path changed to a symlink')
         self.root.mkdir(parents=True, exist_ok=True)
         path = safe_path(self.root, '.writer.lock')
-        fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        fd = os.open(path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
             yield
