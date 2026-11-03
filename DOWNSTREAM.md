@@ -40,16 +40,16 @@ endorsement by the Ran-ASKS maintainer.
 
 | Field | Value |
 | --- | --- |
-| Version | **0.16.0** |
-| Commit | `7a864aa337102bfdf05a4fce3385a1ce563352eb` |
-| Upgraded on | 2026-10-14 |
-| Previous baseline | 0.15.0 |
+| Version | **0.22.0** |
+| Commit | `17adee8541b77bad83f70baab813530ada03f751` |
+| Upgraded on | 2026-11-03 |
+| Previous baseline | 0.17.0 |
 
 Earlier baselines: v0.6.0 (initial port, branch `backup-v0.6.0-port`),
-v0.8.0 (branch `backup-v0.8.0-port`), v0.10.0, v0.15.0, v0.17.0, v0.17.0.
+v0.8.0 (branch `backup-v0.8.0-port`), v0.10.0, v0.15.0, v0.16.0, v0.17.0.
 The `upstream` remote points at the Ran-ASKS public tree.
 
-**Every upstream commit on `upstream/main` at v0.17.0 is merged into this
+**Every upstream commit on `upstream/main` at v0.22.0 is merged into this
 port's `main`.** The port is kept in step with upstream release by release;
 it never forks the method. Merges use a real `git merge` so that hand-written
 Windows fixes in non-conflicting files are preserved — only conflicting files
@@ -62,10 +62,33 @@ Same Windows machine, same command
 
 | Tree | Tests | Failing |
 | --- | --- | --- |
-| Clean upstream v0.17.0 | 305 | 115 |
-| This port, v0.17.0 | 340 | 52 |
+| Clean upstream v0.22.0 | 498 | 256 |
+| This port, v0.22.0 | 741 | 70 |
 
-`graph_validate.py`: **0 ERROR** (171 WARN are upstream's own
+Of the tests both trees run, one passes upstream and fails here; it fails
+only in a checkout that has a local `.env` (another module loads it into the
+environment) and passes when run alone or in a clean clone. Most of the 70
+remaining failures are platform limits: creating symbolic links needs
+administrator rights or Developer Mode (36), plus POSIX-only `fork` and
+`fc-list`.
+
+Portability fixes added for code introduced upstream in v0.18–v0.22
+(each is also a `port_codemod` rule, so later merges re-apply it):
+
+- `fsync` on a read-only handle is refused on Windows (`EBADF`); such
+  handles are opened `r+b` (one site alone failed 130 tests).
+- Top-level `import fcntl` falls back to `platform_compat.fcntl_shim`
+  (`msvcrt.locking`), so `presentation_state`, `review`, `science_exhibit`
+  and `slide_library` import on Windows.
+- `os.O_NOFOLLOW` / `os.O_NONBLOCK` resolve to `0` where absent.
+- The open-read-only-then-`fsync` idiom goes through
+  `platform_compat.fsync_path` (directories are skipped on Windows, files
+  are synced through a read-write handle).
+- `slide_reuse` built a zip member path with `str(Path)`, which yields
+  backslashes on Windows, so picture slots never found their relationship
+  part; it now uses `as_posix()`.
+
+`graph_validate.py`: **0 ERROR** (223 WARN are upstream's own
 `missing_semantic_description`, unrelated to portability).
 
 ## Domain Capabilities

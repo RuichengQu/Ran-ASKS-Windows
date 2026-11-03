@@ -1,6 +1,25 @@
 # Ran-ASKS: Agent-Driven Scientific Knowledge System
 > Current main version: v0.22.0
 
+### ⬅️ Looking for the original?
+
+**This repository is the Windows port.** The original project, by Prof. Shi-Ju Ran (冉仕举), runs on macOS and Linux:
+
+> ## 👉 https://github.com/ranshiju/Ran-ASKS
+
+Use the original on macOS / Linux. Use this port only on Windows. This port is based on upstream **v0.22.0**
+(commit `17adee8541b7`, synced 2026-11-03) and tracks upstream release by release.
+
+> **Note:** This is a Windows-compatibility port of
+> [ranshiju/Ran-ASKS](https://github.com/ranshiju/Ran-ASKS). It changes
+> portability only — never the method, data contracts, or behaviour.
+> **Based on upstream v0.22.0** (commit `17adee8541b7`, synced 2026-11-03); see
+> [`DOWNSTREAM.md`](DOWNSTREAM.md) for the baseline record and the
+> per-release tracking policy. Cite the upstream paper and repository, not
+> this port. See [`FORK_NOTICE.md`](FORK_NOTICE.md) for what changed and the
+> license terms, which are retained unchanged (PolyForm Noncommercial 1.0.0 —
+> noncommercial use only).
+
 [English](README.md) | [简体中文](README.zh-CN.md) | **[Gallery · Selected works](https://ranshiju.github.io/Ran-ASKS/)**
 
 **Contact:** [sjran@cnu.edu.cn](mailto:sjran@cnu.edu.cn)
@@ -193,6 +212,8 @@ uv run ran-asks demo
 
 The synthetic demo walks from a temporary Graph navigation edge to a Wiki
 interpretation and then to an exact Raw excerpt. It makes no production write.
+
+Runs on macOS, Linux, and Windows. On Windows see [`docs/WINDOWS.md`](docs/WINDOWS.md) for setup, the two optional capabilities that need extra configuration (symbolic links and LibreOffice), and the platform behaviour table.
 Use `uv sync --frozen --extra release` and `uv run ran-asks test foundation`
 when contributing. Capability extras such as `pdf`, `office`, `analysis`, and
 `visual` keep unrelated parser and rendering dependencies out of the core

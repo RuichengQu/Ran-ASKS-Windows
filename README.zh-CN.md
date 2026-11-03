@@ -1,6 +1,34 @@
 # Ran-ASKS
 > 当前 main 版本: v0.22.0
 
+### ⬅️ 找原始版本？
+
+**这个仓库是 Windows 移植版。** 原始项目由**冉仕举老师**开发，在 macOS 和 Linux 上运行：
+
+> ## 👉 https://github.com/ranshiju/Ran-ASKS
+
+**macOS / Linux 请用原版，只有 Windows 才需要这个移植版。**
+本移植版基于上游 **v0.22.0**（commit `17adee8541b7`，2026-11-03 同步），上游每发一版就跟一版。
+
+> **说明：** 这是 [ranshiju/Ran-ASKS](https://github.com/ranshiju/Ran-ASKS) 的 **Windows 兼容移植版**。
+> **只改可移植性，不改方法、数据契约和行为。**
+>
+> - **基于上游版本：v0.22.0**（commit `17adee8541b7`，2026-11-03 同步）
+> - 上游每发一个版本就跟一次，详见 [`DOWNSTREAM.md`](DOWNSTREAM.md)
+> - 改了哪些、许可条款见 [`FORK_NOTICE.md`](FORK_NOTICE.md)
+>   （PolyForm Noncommercial 1.0.0，仅限非商业用途，条款原样保留）
+> - **引用请引上游的论文与仓库，不要引这个移植版。**
+>
+> 同一台 Windows 上实测（`python -X utf8 -m unittest discover -s .scripts`）：
+>
+> | 代码树 | 用例数 | 不通过 |
+> | --- | --- | --- |
+> | 干净上游 v0.22.0 | 498 | 256 |
+> | 本移植版 v0.22.0 | 741 | 70 |
+>
+> 剩下不通过的大多是平台能力所限：建符号链接要管理员权限或开发者模式（36 个），
+> 以及 `fork`、`fc-list` 这类 POSIX 专有能力。
+
 [English](README.md) | [简体中文](README.zh-CN.md) | **[Gallery · 精选作品](https://ranshiju.github.io/Ran-ASKS/)**
 
 **联系邮箱：** [sjran@cnu.edu.cn](mailto:sjran@cnu.edu.cn)
