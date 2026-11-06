@@ -28,6 +28,11 @@
 >
 > 剩下不通过的大多是平台能力所限：建符号链接要管理员权限或开发者模式（36 个），
 > 以及 `fork`、`fc-list` 这类 POSIX 专有能力。
+>
+> **国内安装慢？** 直连 PyPI 装依赖可能要二十分钟，改用国内镜像：
+> `python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple`。
+> 用 uv 的话要**去掉 `--frozen`**，加 `--default-index https://pypi.tuna.tsinghua.edu.cn/simple`
+> （带 `--frozen` 时镜像会被忽略）。详见 [`docs/WINDOWS.md`](docs/WINDOWS.md#在中国大陆安装用国内镜像)。
 
 [English](README.md) | [简体中文](README.zh-CN.md) | **[Gallery · 精选作品](https://ranshiju.github.io/Ran-ASKS/)**
 

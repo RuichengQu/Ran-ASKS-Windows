@@ -31,14 +31,46 @@ Set-Alias python3 python
 ## 2. 安装
 
 ```powershell
-git clone https://github.com/ranshiju/Ran-ASKS.git
-cd Ran-ASKS
+git clone https://github.com/RuichengQu/Ran-ASKS-Windows.git
+cd Ran-ASKS-Windows
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 python .scripts/engineering_graph.py validate
 ```
 
 最后一条命令应输出 `工程元图有效: ... 节点, ... 边, ... 能力包, ... 契约`。
+
+### 在中国大陆安装：用国内镜像
+
+直连 PyPI 在国内常常很慢。有人实际用 `uv sync` 装依赖时，单是 scipy 一个包（约 35 MB）
+就下载了 20 分钟。换成国内镜像通常几十秒就能装完。下面以清华源为例，阿里云
+`https://mirrors.aliyun.com/pypi/simple` 等其他镜像也可以。
+
+**用 pip（本文上面的安装方式）**：
+
+```powershell
+# 只这一次用镜像
+python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 或者设为默认，以后 pip 都走镜像
+python -m pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+**用 uv（README 里的 `uv sync`）**：**要去掉 `--frozen`**，并用 `--default-index` 指定镜像：
+
+```powershell
+uv sync --default-index https://pypi.tuna.tsinghua.edu.cn/simple
+# 需要能力 extra 时照常加，例如：
+uv sync --extra pdf --default-index https://pypi.tuna.tsinghua.edu.cn/simple
+# 装完把被改写的锁文件还原，免得以后 git pull 冲突：
+git checkout -- uv.lock
+```
+
+为什么不能带 `--frozen`：`uv.lock` 里写死了每个包在 `files.pythonhosted.org` 上的
+下载地址，`--frozen` 会照着这些地址下载，**镜像设置被忽略**。去掉 `--frozen` 后，uv
+从镜像下载，并把锁文件里的下载地址改写成镜像地址。**包的版本和 SHA-256 校验值不变**，
+装出来的环境和 `--frozen` 完全一样。这一点用 uv 0.13.7 在本仓库实测过：132 个文件
+全部从镜像下载，锁文件只有下载地址变了。
 
 ### 强烈建议：把控制台设为 UTF-8
 
@@ -140,3 +172,10 @@ the files.
 Install with `python -m pip install -r requirements.txt`, set `PYTHONUTF8=1`,
 and replace `python3` with `python` in documented commands. Symbolic links need
 Developer Mode; PPT rendering needs LibreOffice. Both are optional.
+
+In mainland China, install through a PyPI mirror: `pip install -r requirements.txt
+-i https://pypi.tuna.tsinghua.edu.cn/simple`. With uv, drop `--frozen` and pass
+`--default-index <mirror>`: `--frozen` downloads from the `files.pythonhosted.org`
+URLs recorded in `uv.lock` and ignores the mirror. Without it, uv rewrites only
+those URLs; versions and hashes are unchanged. Restore the lock with
+`git checkout -- uv.lock` afterwards.

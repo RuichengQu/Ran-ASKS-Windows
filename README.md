@@ -19,6 +19,11 @@ Use the original on macOS / Linux. Use this port only on Windows. This port is b
 > this port. See [`FORK_NOTICE.md`](FORK_NOTICE.md) for what changed and the
 > license terms, which are retained unchanged (PolyForm Noncommercial 1.0.0 —
 > noncommercial use only).
+>
+> **Slow install in mainland China?** Use a PyPI mirror:
+> `python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple`.
+> With uv, drop `--frozen` and add `--default-index https://pypi.tuna.tsinghua.edu.cn/simple`
+> (`--frozen` ignores mirrors). See [`docs/WINDOWS.md`](docs/WINDOWS.md#english-summary).
 
 [English](README.md) | [简体中文](README.zh-CN.md) | **[Gallery · Selected works](https://ranshiju.github.io/Ran-ASKS/)**
 
